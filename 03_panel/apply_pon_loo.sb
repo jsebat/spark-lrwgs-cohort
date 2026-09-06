@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Apply the panel of normals to ONE family with leave-one-family-out (D53/D56).
+# The family's own founders are removed from the 65 so transmitted variants are
+# not scored as artifacts. Both sides normalized (-m -any, left-aligned) before
+# annotate so representation differences cannot masquerade as "absent = rare".
+#   sbatch apply_pon_loo.sb <FAMILY_ID>
+set -uo pipefail
+F="${1:?family}"
+C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"
+R=/expanse/lustre/projects/ddp195/jsebat/longread-autism/run_$F
+FZ=/expanse/projects/sebat1/longread_cohort_2026/freeze1
+REF=/expanse/projects/sebat1/jsebat/refs/hifi-wdl-resources-v3.1.0/GRCh38/human_GRCh38_no_alt_analysis_set.fasta
+OUT=$R/analysis/pon_annotated; mkdir -p $OUT
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$SIF" bash -c "$1"; }
+
+# 1. LOO sample list = pon65 minus this family's founders (from its ped)
+PED=$R/analysis/$F.ped
+[ -s "$PED" ] || { echo "FATAL: no ped $PED"; exit 2; }
+awk '$3=="0" && $4=="0"{print $2}' "$PED" > $OUT/$F.founders.txt
+grep -vxF -f $OUT/$F.founders.txt $C/pon/pon65.samples.txt > $OUT/$F.pon_loo.samples.txt
+N=$(wc -l < $OUT/$F.pon_loo.samples.txt); NF_=$(wc -l < $OUT/$F.founders.txt)
+echo "family founders=$NF_ removed; LOO panel N=$N (expect 65-founders_in_panel)"
+[ "$N" -ge 60 ] && [ "$N" -lt 65 ] || { echo "FATAL: LOO panel size $N implausible"; exit 2; }
+
+# 2. LOO panel sites, normalized, for SNV and SV
+build_panel() {
+  src="$1"; tag="$2"; out="$OUT/$F.pon${N}.$tag.sites.vcf.gz"
+  echo "=== LOO panel $tag ==="
+  sx "bcftools view -S '$OUT/$F.pon_loo.samples.txt' --force-samples '$src' -Ou \
+      | bcftools norm -m -any -f '$REF' -Ou \
+      | bcftools +fill-tags -Ou -- -t AN,AC,AF \
+      | bcftools view -G -Oz -o '$out' && bcftools index -t '$out'" || { echo "FATAL: panel $tag"; return 1; }
+  echo "  sites=$(sx "bcftools index -n '$out'")"
+}
+build_panel "$FZ/freeze1.cohort.bcf"       snv || exit 1
+build_panel "$FZ/freeze1.cohort.sv.vcf.gz" sv  || exit 1
+
+# 3. annotate the family's own VCFs
+OD=$(ls -dt $R/*_humanwgs_family/out | head -1)
+annot() {
+  fam_vcf="$1"; tag="$2"; panel="$OUT/$F.pon${N}.$tag.sites.vcf.gz"
+  out="$OUT/$F.$tag.pon${N}.vcf.gz"; nrm="$OUT/$F.$tag.norm.vcf.gz"
+  echo "=== annotate $tag : $(basename $fam_vcf) ==="
+  [ -s "$fam_vcf" ] || { echo "  FATAL: missing family vcf"; return 1; }
+  # annotate -a <vcf> needs an INDEXED input: normalize to disk, index, then annotate from file
+  sx "bcftools norm -m -any -f '$REF' '$fam_vcf' -Oz -o '$nrm' && bcftools index -t '$nrm'       && bcftools annotate -a '$panel' -c 'INFO/PON_AN:=INFO/AN,INFO/PON_AC:=INFO/AC,INFO/PON_AF:=INFO/AF' -Oz -o '$out' '$nrm'       && bcftools index -t '$out'" || { echo "  FATAL: annotate $tag"; return 1; }
+  tot=$(sx "bcftools index -n '$out'")
+  ann=$(sx "bcftools view -H -i 'INFO/PON_AN>0' '$out' | wc -l")
+  echo "  records=$tot  with_panel_annotation=$ann  ($(( 100*ann/tot ))%)"
+}
+SNV=$(ls $OD/joint_small_variants_vcf/*.vcf.gz | head -1)
+SVV=$(ls $OD/joint_sv_vcf/*.vcf.gz | head -1)
+annot "$SNV" snv || exit 1
+annot "$SVV" sv  || exit 1
+
+# 4. PAYOFF: de novo SNV/indel candidates vs the LOO panel. A true de novo is absent
+#    from unrelated parents; PON_AC >= 3 in 63 unrelated founders = artifact/recurrent.
+echo "=== de novo hiconf candidates vs LOO panel (PON_AC) ==="
+for s in $(awk '$3!="0" && $4!="0"{print $2}' "$PED"); do
+  T=$R/analysis/denovo/$F.$s.denovo.hiconf.tsv
+  [ -s "$T" ] || continue
+  awk -F'\t' 'NR>1{print $1"\t"$2}' "$T" | sort -u > $OUT/$s.dn.targets.txt
+  n=$(wc -l < $OUT/$s.dn.targets.txt)
+  hit=$(sx "bcftools view -H -T '$OUT/$s.dn.targets.txt' -i 'INFO/PON_AC>=3' '$OUT/$F.snv.pon${N}.vcf.gz' | wc -l")
+  echo "  $s: $n hiconf de novo loci; $hit with PON_AC>=3 in unrelated founders (artifact/recurrent candidates)"
+done
+echo "=== done: $OUT ==="

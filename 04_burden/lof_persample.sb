@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=lof_persample
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=01:00:00
+# Per-sample LoF tier counts for the long-read cohort -> clogit input.
+#   rare filter : gnomAD4.1 joint global AF < 0.001 (JS: global, not popmax).
+#                 Absent from gnomAD ("." / -1) is treated as RARE, matching
+#                 join_pop_af.py ("NULL = variant absent from gnomAD = rare").
+#   genotype QC : GQ >= 20, DP >= 10 (lab standard). A no-call is not a count.
+#   counts      : an ALT allele carried by the sample at a tiered site.
+set -uo pipefail
+T=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
+BCF=/expanse/projects/sebat1/longread_cohort_2026/freeze1/freeze1.cohort.bcf
+TIER=$T/lof_tiered.tsv
+AF_MAX=0.001
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$SIF" "$@"; }
+
+[ -s "$TIER" ] || { echo "FATAL: $TIER missing"; exit 2; }
+ALL=$(( $(wc -l < "$TIER") - 1 ))
+
+# 1. rare filter
+awk -F'\t' -v m="$AF_MAX" 'BEGIN{OFS="\t"}
+  NR==1{print; next}
+  {af=$8; if(af=="."||af==""||af=="NA") af=-1; af=af+0;
+   if(af < m) print}' "$TIER" > "$T/lof_tiered.rare.tsv"
+RARE=$(( $(wc -l < "$T/lof_tiered.rare.tsv") - 1 ))
+echo "tiered sites: $ALL  ->  rare (gnomAD global AF < $AF_MAX): $RARE"
+awk -F'\t' 'NR>1{c[$12]++} END{for(t in c) printf "  %-8s %d rare sites\n",t,c[t]}' "$T/lof_tiered.rare.tsv" | sort
+
+# 2. targets file for bcftools (chrom, pos)
+awk -F'\t' 'NR>1{print $1"\t"$2}' "$T/lof_tiered.rare.tsv" | sort -u -k1,1 -k2,2n > "$T/rare_targets.txt"
+echo "target sites: $(wc -l < "$T/rare_targets.txt")"
+
+# 3. per-sample genotypes at those sites, QC-gated
+sx bcftools query -T "$T/rare_targets.txt" -f '%CHROM\t%POS[\t%SAMPLE|%GT|%GQ|%DP]\n' "$BCF" > "$T/_gt.tsv"
+rc=$?; [ $rc -eq 0 ] || { echo "FATAL: bcftools query rc=$rc"; exit $rc; }
+echo "genotype rows pulled: $(wc -l < "$T/_gt.tsv")"
+
+# 4. count per sample per tier
+awk -F'\t' -v TIER="$T/lof_tiered.rare.tsv" '
+BEGIN{
+  OFS="\t";
+  while ((getline l < TIER) > 0) {
+    n=split(l, f, "\t"); if (f[1]=="chrom") continue;
+    tier[f[1]"|"f[2]] = f[12];
+  }
+}
+{
+  key=$1"|"$2; t=tier[key]; if (t=="") next;
+  for (i=3; i<=NF; i++) {
+    split($i, p, "|");   # SAMPLE|GT|GQ|DP
+    s=p[1]; gt=p[2]; gq=p[3]+0; dp=p[4]+0;
+    if (gt=="./."||gt==".|."||gt==".") continue;
+    if (gq < 20 || dp < 10) { lowq[s]++; continue; }
+    if (gt ~ /1/) { cnt[s"|"t]++; }
+    samp[s]=1;
+  }
+}
+END{
+  for (s in samp) print s, cnt[s"|lof_t1"]+0, cnt[s"|lof_t2"]+0, cnt[s"|lof_t3"]+0, lowq[s]+0;
+}' "$T/_gt.tsv" | sort > "$T/_counts.tsv"
+echo "samples counted: $(wc -l < "$T/_counts.tsv")"
+
+# 5. join pedigree -> clogit-ready table
+PEDS=$(ls -d /expanse/lustre/projects/ddp195/jsebat/longread-autism/run_*/analysis/*.ped 2>/dev/null | grep -v ${EXCLUDE_FAMILY:-__none__})
+cat $PEDS 2>/dev/null | awk 'NF>=6 && $1!~/^#/' | sort -u -k2,2 > "$T/_all.ped"
+echo "pedigree rows: $(wc -l < "$T/_all.ped")"
+
+OUT=$T/lof_counts_persample.tsv
+printf 'SAMPLE\tFID\tcase_binary\ttier1\ttier2\ttier3\tall_lof\tlowqual_skipped\n' > "$OUT"
+awk -F'\t' -v PED="$T/_all.ped" '
+BEGIN{
+  while ((getline l < PED) > 0) {
+    n=split(l, f, /[ \t]+/);
+    if (n>=6) { fid[f[2]]=f[1]; aff[f[2]]=(f[6]=="2")?1:0 }
+  }
+}
+{
+  s=$1;
+  if (!(s in fid)) next;
+  printf "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n", s, fid[s], aff[s], $2, $3, $4, $2+$3+$4, $5;
+}' "$T/_counts.tsv" >> "$OUT"
+
+N=$(( $(wc -l < "$OUT") - 1 ))
+echo ""
+echo "==================== PER-SAMPLE LoF TIER COUNTS ===================="
+echo "  file: $OUT"
+echo "  samples: $N"
+awk -F'\t' 'NR>1{n++; if($3==1){ca++; c1+=$4; c2+=$5; c3+=$6} else {co++; u1+=$4; u2+=$5; u3+=$6}}
+END{
+  printf "  cases=%d  controls=%d\n", ca, co;
+  printf "  CASE    mean T1=%.3f  T2=%.3f  T3=%.3f\n", (ca?c1/ca:0),(ca?c2/ca:0),(ca?c3/ca:0);
+  printf "  CONTROL mean T1=%.3f  T2=%.3f  T3=%.3f\n", (co?u1/co:0),(co?u2/co:0),(co?u3/co:0);
+}' "$OUT"
+echo ""
+echo "  families represented: $(awk -F'\t' 'NR>1{f[$2]=1} END{print length(f)}' "$OUT")"
+echo "  families with BOTH a case and a control (informative for clogit):"
+awk -F'\t' 'NR>1{if($3==1)ca[$2]=1; else co[$2]=1} END{n=0; for(f in ca) if(f in co) n++; print "    "n}' "$OUT"
+echo "===================================================================="

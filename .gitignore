@@ -1,0 +1,22 @@
+# data and anything that can carry identifiers -- never committed
+config/cohort.env
+manifests/
+*.samples.txt
+*families.txt
+*.reheader.map
+idcheck/
+pon/
+*.tsv
+*.vcf
+*.vcf.gz
+*.bcf
+*.bed
+*.bed.gz
+*.parquet
+*.out
+*.err
+*.log
+DECISIONS.md
+*report*.html
+*report*.pdf
+__pycache__/

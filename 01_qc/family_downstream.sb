@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=fam_downstream
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
+#SBATCH --time=04:00:00
+#SBATCH --output=%x.%A.out
+#SBATCH --error=%x.%A.err
+#
+# Per-family downstream analysis the WDL does NOT do.
+# Implements PIPELINE_RUNBOOK_AND_SCALING.md C.1 (somalier) and C.2 (de novo),
+# parameterized by family so it runs for any family in the cohort.
+#
+#   sbatch family_downstream.sb <FAMILY_ID>
+#
+# Runs as a SLURM job, never on a login node: truvari/pysam and container work
+# are documented to fail there (C.3), and drivers get reaped (D21).
+set -uo pipefail
+
+F="${1:?usage: sbatch family_downstream.sb <FAMILY_ID>}"
+BASE=/expanse/projects/sebat1/jsebat/longread-autism
+RUNROOT=/expanse/lustre/projects/ddp195/jsebat/longread-autism
+RUNDIR=$RUNROOT/run_$F
+CACHE=/expanse/projects/sebat1/jsebat/singularity_cache/miniwdl
+REFS=/expanse/projects/sebat1/jsebat/refs
+REF_FA=$REFS/hifi-wdl-resources-v3.1.0/GRCh38/human_GRCh38_no_alt_analysis_set.fasta
+# genome-region mask is family-independent; point MASK at your prebuilt exclude BED
+MASK=$RUNROOT/run_${EXCLUDE_FAMILY:-__none__}/analysis/denovo/mask.exclude.bed.gz
+
+export SINGULARITY_BIND=/expanse:/expanse
+SING=/cm/local/apps/singularitypro/4.1/bin/singularity
+sif() { ls $CACHE/*$1*.sif 2>/dev/null | head -1; }
+BASE_SIF=$(sif pb_wdl_base); SLIVAR_SIF=$(sif slivar); SOM_SIF=$(sif somalier)
+
+OUT=$RUNDIR/analysis
+mkdir -p $OUT/denovo $OUT/somalier/extract
+export TMPDIR=$OUT/tmp; mkdir -p $TMPDIR
+
+O=$(ls -dt $RUNDIR/*_humanwgs_family/out 2>/dev/null | head -1)
+[ -n "$O" ] || { echo "FATAL: no out/ for $F"; exit 2; }
+JOINT=$(find -L $O/tertiary_small_variant_filtered_vcf -name '*.vcf.gz' 2>/dev/null | head -1)
+RAWJOINT=$(find -L $O/joint_small_variants_vcf -name '*.vcf.gz' 2>/dev/null | head -1)
+[ -n "$JOINT" ] || { echo "FATAL: no annotated joint VCF"; exit 2; }
+echo "family=$F"; echo "annotated joint VCF: $JOINT"
+
+##############################################################################
+# 0. pedigree.ped from the cohort manifest -- 6 col, tab, sex 1=M 2=F, pheno 2=affected
+##############################################################################
+PED=$OUT/$F.ped
+python3 - "$F" "$BASE/cohort/manifests" "$PED" <<'PY'
+import sys, csv, glob, os
+fam, mdir, out = sys.argv[1], sys.argv[2], sys.argv[3]
+rows = []
+for m in glob.glob(os.path.join(mdir, "*.samples.tsv")):
+    for r in csv.DictReader(open(m), delimiter="\t"):
+        if r["family_id"] == fam:
+            rows.append(r)
+if not rows:
+    sys.exit("FATAL: family %s not in any manifest under %s" % (fam, mdir))
+SEX = {"MALE": "1", "FEMALE": "2"}
+with open(out, "w") as fh:
+    for r in rows:
+        fh.write("\t".join([
+            fam, r["sample_id"],
+            r["father_id"] or "0", r["mother_id"] or "0",
+            SEX.get((r["sex"] or "").upper(), "0"),
+            "2" if r["affected"].lower() == "true" else "1"]) + "\n")
+print("wrote %s (%d members)" % (out, len(rows)))
+PY
+[ -s "$PED" ] || { echo "FATAL: pedigree not written"; exit 2; }
+cat $PED
+NTRIO=$(awk -F'\t' '$3!="0" && $4!="0"' $PED | wc -l)
+echo "offspring with both parents: $NTRIO"
+
+##############################################################################
+# 1. somalier -- relatedness and sex, straight from the joint VCF (runbook C.1)
+##############################################################################
+echo; echo "=== C.1 somalier ==="
+SITES=$(ls $REFS/somalier/sites*.vcf.gz 2>/dev/null | head -1)
+# miniwdl puts the joint-VCF .tbi in a SEPARATE *_index/ dir, not beside the VCF
+# (PIPELINE_RUNBOOK B.4 gotcha 2). Stage both together or any indexed reader fails.
+STAGE=$OUT/somalier/staged; mkdir -p $STAGE
+SOMVCF=""
+for v in "$RAWJOINT" "$JOINT"; do
+  [ -n "$v" ] || continue
+  b=$(basename "$v")
+  idx=$(find -L $O -name "$b.tbi" 2>/dev/null | head -1)
+  [ -n "$idx" ] || continue
+  ln -sf "$v" "$STAGE/$b"; ln -sf "$idx" "$STAGE/$b.tbi"
+  SOMVCF="$STAGE/$b"; break
+done
+if [ -z "$SOM_SIF" ] || [ -z "$SITES" ] || [ -z "$SOMVCF" ]; then
+  echo "  SKIP: somalier sif=${SOM_SIF:-missing} sites=${SITES:-missing} vcf=${SOMVCF:-not-stageable}"
+else
+  echo "  using $SOMVCF (index staged alongside)"
+  $SING exec "$SOM_SIF" somalier extract -d $OUT/somalier/extract \
+      --sites "$SITES" -f "$REF_FA" "$SOMVCF" \
+    && $SING exec "$SOM_SIF" somalier relate --ped "$PED" \
+      -o $OUT/somalier/$F $OUT/somalier/extract/*.somalier \
+    && echo "  somalier OK" || echo "  somalier FAILED (non-fatal)"
+  [ -f $OUT/somalier/$F.pairs.tsv ] && \
+    awk -F'\t' 'NR==1||NR<=8{print "    "$1" "$2" rel="$3}' $OUT/somalier/$F.pairs.tsv 2>/dev/null | head -8
+fi
+
+##############################################################################
+# 2. de novo SNV/indel -- runbook C.2, verbatim expression
+##############################################################################
+echo; echo "=== C.2 de novo ==="
+if [ "$NTRIO" -eq 0 ]; then
+  echo "  SKIP: no offspring with both parents sequenced -- de novo is undefined"
+elif [ -z "$SLIVAR_SIF" ]; then
+  echo "  SKIP: slivar sif not found"
+else
+  DN=$OUT/denovo/$F.denovo.snv_indel.vcf
+  $SING exec "$SLIVAR_SIF" slivar expr --pass-only --vcf "$JOINT" --ped "$PED" \
+    --trio "denovo:kid.het && mom.hom_ref && dad.hom_ref && kid.GQ>=20 && mom.GQ>=20 && dad.GQ>=20 && kid.DP>=10 && mom.DP>=10 && dad.DP>=10 && kid.AB>=0.25 && kid.AB<=0.75 && mom.AD[1]==0 && dad.AD[1]==0" \
+    --out-vcf "$DN" 2> $OUT/denovo/slivar.denovo.log
+  rc=$?
+  tail -3 $OUT/denovo/slivar.denovo.log | sed 's/^/    /'
+  if [ $rc -ne 0 ] || [ ! -s "$DN" ]; then
+    echo "  slivar de novo FAILED (rc=$rc)"
+  else
+    $SING exec "$BASE_SIF" bash -c "bgzip -f '$DN' && tabix -f -p vcf '$DN.gz'"
+    RAW=$($SING exec "$BASE_SIF" bcftools view -H "$DN.gz" | wc -l)
+    echo "  raw de novo records: $RAW"
+
+    # high-confidence: outside repeat/segdup/odd/STR mask AND rare
+    if [ -f "$MASK" ]; then
+      HC=$OUT/denovo/$F.denovo.hiconf.vcf.gz
+      $SING exec "$BASE_SIF" bash -c \
+        "bcftools view -T ^'$MASK' '$DN.gz' | bcftools view -i 'INFO/gnomad_af<0.001' -Oz -o '$HC' && tabix -f -p vcf '$HC'"
+      NHC=$($SING exec "$BASE_SIF" bcftools view -H "$HC" | wc -l)
+      echo "  high-confidence after mask + gnomad_af<0.001: $NHC"
+
+      # Per-child TSVs. Dump every genotype and split in Python rather than using
+      # bcftools filter expressions: -s + -i 'GT="het"' returned the SAME count for
+      # both children (verified 2026-08-29), so the expression was not restricting
+      # per sample. Explicit column logic is checkable; the expression syntax was not.
+      $SING exec "$BASE_SIF" bcftools query -l "$HC" > $OUT/denovo/samples.txt
+      $SING exec "$BASE_SIF" bcftools query \
+        -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/gnomad_af\t%INFO/BCSQ\t%INFO/highest_impact_order[\t%GT:%DP:%AD:%GQ]\n' \
+        "$HC" > $OUT/denovo/all_genotypes.tsv
+      ND=$(wc -l < $OUT/denovo/all_genotypes.tsv)
+      echo "  genotype rows dumped: $ND (VCF holds $NHC)"
+      if [ "$ND" -ne "$NHC" ]; then
+        echo "  FATAL: dumped $ND rows from a $NHC-record VCF -- the query failed."
+        echo "  Do NOT read this as 'no de novo variants'. That is exactly what"
+        echo "  happened on 2026-08-29: a missing INFO tag aborted bcftools and"
+        echo "  2>/dev/null hid the error, so an empty table looked like a result."
+        exit 4
+      fi
+      python3 - "$OUT/denovo" "$PED" "$F" <<'PY'
+import sys, os
+outdir, ped, fam = sys.argv[1:4]
+samples = [l.strip() for l in open(os.path.join(outdir, "samples.txt")) if l.strip()]
+idx = {s: i for i, s in enumerate(samples)}
+kids = []
+for l in open(ped):
+    f = l.rstrip("\n").split("\t")
+    if len(f) >= 4 and f[2] != "0" and f[3] != "0":
+        kids.append((f[1], f[2], f[3]))
+FIXED = 7                    # chrom pos ref alt gnomad_af BCSQ highest_impact_order
+def gt(cell):
+    return cell.split(":")[0].replace("|", "/") if cell else "./."
+def is_het(g):  return g in ("0/1", "1/0")
+def is_ref(g):  return g == "0/0"
+def bcsq(v):
+    """BCSQ is Consequence|gene|transcript|biotype|strand|aa_change|dna_change,
+    comma-separated across transcripts. Entries starting with '@' point back to
+    an earlier record and carry no fields of their own."""
+    if not v or v == ".":
+        return ("", "")
+    cons, genes = "", []
+    for e in v.split(","):
+        if e.startswith("@"):
+            continue
+        f = e.split("|")
+        if len(f) >= 2:
+            if not cons:
+                cons = f[0]
+            if f[1] and f[1] not in genes:
+                genes.append(f[1])
+    return (";".join(genes), cons)
+rows = [l.rstrip("\n").split("\t")
+        for l in open(os.path.join(outdir, "all_genotypes.tsv")) if l.strip()]
+hdr = ["chrom","pos","ref","alt","gnomad_af","gene","consequence","impact_order"] + \
+      ["%s_GT_DP_AD_GQ" % s for s in samples]
+for kid, dad, mom in kids:
+    if kid not in idx or dad not in idx or mom not in idx:
+        print("    %s: sample missing from VCF, skipped" % kid); continue
+    keep = []
+    for r in rows:
+        if len(r) < FIXED + len(samples):
+            continue
+        g = r[FIXED:]
+        if is_het(gt(g[idx[kid]])) and is_ref(gt(g[idx[dad]])) and is_ref(gt(g[idx[mom]])):
+            keep.append(r)
+    out = os.path.join(outdir, "%s.%s.denovo.hiconf.tsv" % (fam, kid))
+    expanded = []
+    for r in keep:
+        gene, cons = bcsq(r[5])
+        expanded.append(r[:5] + [gene, cons, r[6]] + r[FIXED:])
+    with open(out, "w") as fh:
+        fh.write("\t".join(hdr) + "\n")
+        for r in expanded:
+            fh.write("\t".join(r) + "\n")
+    coding = sum(1 for r in expanded if any(
+        k in r[6] for k in ("frameshift","stop_gained","splice_acceptor",
+                            "splice_donor","start_lost","stop_lost","missense","inframe")))
+    print("    %s: %d high-confidence de novo (%d with coding impact)"
+          % (kid, len(keep), coding))
+    for r in keep:
+        if any(k in r[6] for k in ("frameshift","stop_gained","splice_acceptor",
+                                   "splice_donor","missense","inframe")):
+            print("        %s:%s %s>%s  %s  %s" % (r[0], r[1], r[2][:12], r[3][:12], r[5], r[6]))
+PY
+    else
+      echo "  WARNING: mask not found at $MASK -- skipping hi-conf filter."
+      echo "  Raw de novo counts are artifact-dominated without it (C.2: ~440 raw -> ~45 hi-conf)."
+    fi
+  fi
+fi
+
+##############################################################################
+# 3. de novo SV  (runbook C.3)
+#    Uses the svpack-FILTERED SV VCF (already screened against gnomAD-SV and
+#    CoLoRSdb), not the raw joint VCF, so we start from rare events.
+#    C.3 warning stands: raw de novo SV calls are FP-dominated by parental
+#    genotype dropout in repeats. Counts here are CANDIDATES, not findings.
+##############################################################################
+echo; echo "=== C.3 de novo SV (candidates) ==="
+SVVCF=$(find -L $O/tertiary_sv_filtered_vcf -name '*.vcf.gz' 2>/dev/null | head -1)
+if [ "$NTRIO" -eq 0 ] || [ -z "$SVVCF" ]; then
+  echo "  SKIP: trios=$NTRIO sv_vcf=${SVVCF:-missing}"
+else
+  mkdir -p $OUT/denovo_sv
+  b=$(basename "$SVVCF"); idx=$(find -L $O -name "$b.tbi" 2>/dev/null | head -1)
+  SVSTAGE=$OUT/denovo_sv/staged; mkdir -p $SVSTAGE
+  ln -sf "$SVVCF" "$SVSTAGE/$b"; [ -n "$idx" ] && ln -sf "$idx" "$SVSTAGE/$b.tbi"
+  SVV="$SVSTAGE/$b"
+  # Same approach as the SNVs: dump genotypes, filter explicitly in Python.
+  $SING exec "$BASE_SIF" bcftools query -l "$SVV" > $OUT/denovo_sv/samples.txt
+  $SING exec "$BASE_SIF" bcftools query \
+    -f '%CHROM\t%POS\t%INFO/END\t%INFO/SVTYPE\t%INFO/SVLEN\t%INFO/SVANN\t%INFO/BCSQ[\t%GT]\n' \
+    "$SVV" > $OUT/denovo_sv/all_genotypes.tsv
+  echo "    SV records dumped: $(wc -l < $OUT/denovo_sv/all_genotypes.tsv)"
+  python3 - "$OUT/denovo_sv" "$PED" "$F" <<'PY'
+import sys, os, collections
+outdir, ped, fam = sys.argv[1:4]
+samples = [l.strip() for l in open(os.path.join(outdir, "samples.txt")) if l.strip()]
+idx = {s: i for i, s in enumerate(samples)}
+kids = []
+for l in open(ped):
+    f = l.rstrip("\n").split("\t")
+    if len(f) >= 4 and f[2] != "0" and f[3] != "0":
+        kids.append((f[1], f[2], f[3]))
+FIXED = 7
+def norm(g): return (g or "./.").replace("|", "/")
+def carries(g): return norm(g) in ("0/1", "1/0", "1/1")
+def homref(g):  return norm(g) == "0/0"
+rows = [l.rstrip("\n").split("\t")
+        for l in open(os.path.join(outdir, "all_genotypes.tsv")) if l.strip()]
+hdr = ["chrom","pos","end","svtype","svlen","svann","bcsq"] + \
+      ["%s_GT" % s for s in samples]
+per_kid = {}
+for kid, dad, mom in kids:
+    if kid not in idx or dad not in idx or mom not in idx:
+        print("    %s: sample missing from SV VCF, skipped" % kid); continue
+    keep = [r for r in rows if len(r) >= FIXED + len(samples)
+            and carries(r[FIXED + idx[kid]])
+            and homref(r[FIXED + idx[dad]]) and homref(r[FIXED + idx[mom]])]
+    per_kid[kid] = {"%s:%s:%s" % (r[0], r[1], r[3]) for r in keep}
+    out = os.path.join(outdir, "%s.%s.denovo_sv.tsv" % (fam, kid))
+    with open(out, "w") as fh:
+        fh.write("\t".join(hdr) + "\n")
+        for r in keep:
+            fh.write("\t".join(r) + "\n")
+    t = collections.Counter(r[3] for r in keep)
+    gene = sum(1 for r in keep if r[5] not in (".", ""))
+    print("    %s: %d candidates (INS %d / DEL %d / DUP %d / INV %d / BND %d); "
+          "%d overlap a gene" % (kid, len(keep), t.get("INS",0), t.get("DEL",0),
+                                 t.get("DUP",0), t.get("INV",0), t.get("BND",0), gene))
+    for r in keep:
+        if r[5] not in (".", "") and r[3] in ("INS","DEL","DUP","INV"):
+            print("        %s:%s %s len=%s %s (%s)" % (r[0], r[1], r[3], r[4], r[5], r[6]))
+if len(per_kid) >= 2:
+    ks = list(per_kid)
+    shared = per_kid[ks[0]] & per_kid[ks[1]]
+    tot = min(len(per_kid[ks[0]]), len(per_kid[ks[1]])) or 1
+    print("    shared by BOTH offspring: %d (%.0f%% of the smaller set)"
+          % (len(shared), 100.0 * len(shared) / tot))
+    print("        de novo in two siblings is biologically impossible -- this is a")
+    print("        direct estimate of the parental-dropout false-positive floor (C.3)")
+PY
+fi
+
+##############################################################################
+# 4. de novo tandem repeat expansions  (TRGT)
+#    The class Illumina cannot see. Compares the child's longer allele against
+#    the longest allele in either parent.
+##############################################################################
+echo; echo "=== C.3b de novo TR expansions ==="
+TRVCF=$(find -L $O/joint_trgt_vcf -name '*.vcf.gz' 2>/dev/null | head -1)
+if [ "$NTRIO" -eq 0 ] || [ -z "$TRVCF" ]; then
+  echo "  SKIP: trios=$NTRIO trgt_vcf=${TRVCF:-missing}"
+else
+  mkdir -p $OUT/denovo_tr
+  b=$(basename "$TRVCF"); idx=$(find -L $O -name "$b.tbi" 2>/dev/null | head -1)
+  TRSTAGE=$OUT/denovo_tr/staged; mkdir -p $TRSTAGE
+  ln -sf "$TRVCF" "$TRSTAGE/$b"; [ -n "$idx" ] && ln -sf "$idx" "$TRSTAGE/$b.tbi"
+  DUMP=$OUT/denovo_tr/$F.trgt.al.tsv
+  $SING exec "$BASE_SIF" bash -c \
+    "bcftools query -f '%CHROM\t%POS\t%INFO/TRID\t%INFO/MOTIFS[\t%AL]\n' '$TRSTAGE/$b'" \
+    > "$DUMP" 2>/dev/null
+  $SING exec "$BASE_SIF" bcftools query -l "$TRSTAGE/$b" > $OUT/denovo_tr/samples.txt 2>/dev/null
+  echo "    loci dumped: $(wc -l < "$DUMP")"
+  python3 - "$DUMP" "$OUT/denovo_tr/samples.txt" "$PED" "$OUT/denovo_tr" "$F" <<'PY'
+import sys, csv, os
+dump, sfile, ped, outdir, fam = sys.argv[1:6]
+samples = [l.strip() for l in open(sfile) if l.strip()]
+kids = []
+for l in open(ped):
+    f = l.rstrip("\n").split("\t")
+    if len(f) >= 4 and f[2] != "0" and f[3] != "0":
+        kids.append((f[1], f[2], f[3]))
+idx = {s: i for i, s in enumerate(samples)}
+
+def longest(al):
+    """AL is comma-separated allele lengths; '.' when uncalled."""
+    best = None
+    for p in str(al).split(","):
+        p = p.strip()
+        if not p or p == ".":
+            continue
+        try:
+            v = int(float(p))
+        except ValueError:
+            continue
+        best = v if best is None else max(best, v)
+    return best
+
+MIN_ABS = 50      # ignore trivial wobble
+MIN_RATIO = 1.5   # child's longer allele at least 1.5x the longest parental
+for kid, dad, mom in kids:
+    if kid not in idx or dad not in idx or mom not in idx:
+        print("    %s: parent missing from TRGT VCF, skipped" % kid); continue
+    hits = []
+    with open(dump) as fh:
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 4 + len(samples):
+                continue
+            als = f[4:]
+            k = longest(als[idx[kid]]); d = longest(als[idx[dad]]); m = longest(als[idx[mom]])
+            if k is None or d is None or m is None:
+                continue          # uncalled in anyone -> not evaluable
+            par = max(d, m)
+            if k - par >= MIN_ABS and (par == 0 or k / float(par) >= MIN_RATIO):
+                hits.append({"chrom": f[0], "pos": f[1], "trid": f[2], "motifs": f[3],
+                             "kid_AL": k, "dad_AL": d, "mom_AL": m,
+                             "gain_bp": k - par,
+                             "ratio": round(k / float(par), 2) if par else ""})
+    hits.sort(key=lambda h: -h["gain_bp"])
+    out = os.path.join(outdir, "%s.%s.denovo_tr.tsv" % (fam, kid))
+    with open(out, "w") as fh:
+        w = csv.DictWriter(fh, ["chrom","pos","trid","motifs","kid_AL","dad_AL",
+                                "mom_AL","gain_bp","ratio"], delimiter="\t")
+        w.writeheader(); w.writerows(hits)
+    print("    %s: %d candidate expansions (>=%dbp longer and >=%.1fx the longest "
+          "parental allele)" % (kid, len(hits), MIN_ABS, MIN_RATIO))
+    for h in hits[:3]:
+        print("        %s:%s %s  child %dbp vs parents %d/%d  (+%dbp)"
+              % (h["chrom"], h["pos"], h["motifs"], h["kid_AL"], h["dad_AL"],
+                 h["mom_AL"], h["gain_bp"]))
+PY
+fi
+
+echo; echo "=== done ==="
+find $OUT -type f -newermt '-4 hours' -printf '  %10s  %P\n' 2>/dev/null | sort -k2 | head -30

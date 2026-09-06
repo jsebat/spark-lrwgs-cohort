@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=lof_mask
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=03:00:00
+# Apply the lab's standard region filters to the HC LoF site list (JS 2026-09-05).
+# Mask = genomicSuperDups + simpleRepeat + rmsk{Simple_repeat,Low_complexity},
+# matching rv_postprocessing_v3/scripts/filter_regions.py.
+# These are exactly the regions that produced the NACAD / OR2T8 / CHMP1A
+# false recessive calls in the pilot family.
+set -uo pipefail
+
+RD=/expanse/projects/sebat1/s3/data/sebat/g2mh/scripts/rare_variant_pipeline/resources/regions
+T=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
+LOF=$T/lof_sites.tsv
+MASK=$T/mask.segdup_repeat.bed.gz
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+command -v singularity >/dev/null || { echo "FATAL: singularity missing"; exit 3; }
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$SIF" "$@"; }
+
+[ -s "$LOF" ] || { echo "FATAL: $LOF missing (run lof_table.sb first)"; exit 2; }
+echo "LoF sites in:  $(( $(wc -l < "$LOF") - 1 ))"
+
+if [ ! -s "$MASK" ]; then
+  echo "=== building mask ==="
+  TMP=$T/_mask_build.bed
+  : > "$TMP"
+  awk -F'\t' 'BEGIN{OFS="\t"} $1 ~ /^chr/ {print $1,$2,$3}' "$RD/genomicSuperDups.bed" >> "$TMP"
+  echo "  + genomicSuperDups"
+  awk -F'\t' 'BEGIN{OFS="\t"} $1 ~ /^chr/ {print $1,$2,$3}' "$RD/simpleRepeat.bed"    >> "$TMP"
+  echo "  + simpleRepeat"
+  # rmsk: 1-based col 7 = repClass
+  awk -F'\t' 'BEGIN{OFS="\t"} $1 ~ /^chr/ && ($7=="Simple_repeat" || $7=="Low_complexity") {print $1,$2,$3}' \
+      "$RD/rmsk.bed" >> "$TMP"
+  echo "  + rmsk{Simple_repeat,Low_complexity}"
+  echo "  raw mask intervals: $(wc -l < "$TMP")"
+  sx bash -c "sort -k1,1 -k2,2n '$TMP' | bedtools merge -i - | bgzip -c > '$MASK'"
+  rc=$?; [ $rc -eq 0 ] || { echo "FATAL: mask build rc=$rc"; exit $rc; }
+  rm -f "$TMP"
+fi
+echo "merged mask intervals: $(sx bash -c "zcat '$MASK' | wc -l")"
+echo "masked bp: $(sx bash -c "zcat '$MASK' | awk '{s+=\$3-\$2} END{printf \"%.0f\", s}'")"
+
+# LoF sites -> BED (POS is 1-based; filter_regions drops when POS > start AND POS <= end,
+# which is exactly overlap of the 1-bp interval [POS-1, POS) with the 0-based mask)
+awk -F'\t' 'BEGIN{OFS="\t"} NR>1 {print $1,$2-1,$2,$5,$7,$8}' "$LOF" | sort -k1,1 -k2,2n > "$T/lof_sites.bed"
+echo "=== intersect ==="
+sx bedtools intersect -a "$T/lof_sites.bed" -b "$MASK" -v > "$T/lof_sites.masked.bed"
+rc=$?; [ $rc -eq 0 ] || { echo "FATAL: bedtools rc=$rc"; exit $rc; }
+
+IN=$(wc -l < "$T/lof_sites.bed")
+OUT=$(wc -l < "$T/lof_sites.masked.bed")
+DROP=$((IN-OUT))
+echo ""
+echo "==================== HC LoF, standard filters ===================="
+printf '  before mask : %d\n' "$IN"
+printf '  dropped     : %d (%.1f%%)\n' "$DROP" "$(awk -v a=$DROP -v b=$IN 'BEGIN{print (b?100*a/b:0)}')"
+printf '  AFTER mask  : %d\n' "$OUT"
+echo ""
+echo "  distinct genes before : $(awk -F'\t' '{print $4}' "$T/lof_sites.bed" | sort -u | grep -v '^$' | wc -l)"
+echo "  distinct genes after  : $(awk -F'\t' '{print $4}' "$T/lof_sites.masked.bed" | sort -u | grep -v '^$' | wc -l)"
+echo ""
+echo "  per-chromosome after mask:"
+awk -F'\t' '{c[$1]++} END{for(k in c) printf "    %-8s %d\n",k,c[k]}' "$T/lof_sites.masked.bed" | sort -V
+echo ""
+echo "  genes losing the most LoF sites to the mask (paralog/repeat prone):"
+comm -23 <(awk -F'\t' '{print $1":"$3"\t"$4}' "$T/lof_sites.bed" | sort) \
+         <(awk -F'\t' '{print $1":"$3"\t"$4}' "$T/lof_sites.masked.bed" | sort) \
+  | awk -F'\t' '{print $2}' | sort | uniq -c | sort -rn | head -10 | sed 's/^/    /'
+echo "=================================================================="

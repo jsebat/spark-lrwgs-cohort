@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Panel of normals, Freeze 1. D53: 65 unaffected founder parents only.
+# ARTIFACT filter (recurrence), not a frequency filter -- rarity comes from gnomAD.
+# No 2>/dev/null anywhere (D49). Whole pipeline runs in ONE container: piping
+# between separate singularity exec invocations does not work.
+set -uo pipefail
+C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"
+F=/expanse/projects/sebat1/longread_cohort_2026/freeze1
+O=$F/pon; mkdir -p $O
+S=$C/pon/pon65.samples.txt
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+command -v singularity >/dev/null || { echo "FATAL: singularity not on PATH"; exit 3; }
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+
+N=$(wc -l < "$S"); echo "panel N=$N"
+[ "$N" -eq 65 ] || { echo "FATAL: expected 65 panel samples, got $N"; exit 2; }
+
+do_one() {
+  src="$1"; tag="$2"; out="$O/freeze1.pon65.$tag.sites.vcf.gz"
+  echo "=== $tag : $(basename $src) ==="
+  [ -s "$src" ] || { echo "  FATAL: missing $src"; return 1; }
+  singularity exec -B /expanse:/expanse "$SIF" bash -c \
+    "bcftools view -S '$S' --force-samples '$src' -Ou \
+     | bcftools +fill-tags -Ou -- -t AN,AC,AF \
+     | bcftools view -G -Oz -o '$out'"
+  rc=$?
+  [ $rc -eq 0 ] || { echo "  FATAL: rc=$rc"; return $rc; }
+  [ -s "$out" ] || { echo "  FATAL: empty output"; return 1; }
+  singularity exec -B /expanse:/expanse "$SIF" bcftools index -t "$out"
+  n=$(singularity exec -B /expanse:/expanse "$SIF" bcftools index -n "$out")
+  echo "  sites=$n  size=$(stat -c %s "$out")"
+  [ "$n" -gt 0 ] || { echo "  FATAL: zero sites"; return 1; }
+}
+
+do_one "$F/freeze1.cohort.sv.vcf.gz"   sv   || exit 1
+do_one "$F/freeze1.cohort.trgt.vcf.gz" trgt || exit 1
+do_one "$F/freeze1.cohort.bcf"         snv  || exit 1
+echo "=== done ==="; ls -l "$O"

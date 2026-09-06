@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=lof_table
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=16G --time=02:00:00
+# Extract TRUE HC LoF variant sites from the VEP output using split-vep
+# (field-aware; a substring match on CSQ counts any gene symbol containing "HC").
+set -uo pipefail
+V=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering/vep
+O=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$SIF" "$@"; }
+OUT=$O/lof_sites.tsv
+printf 'chrom\tpos\tref\talt\tsymbol\tensg\tconsequence\tgnomad_af\tlof\tlof_filter\n' > "$OUT"
+for c in chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 \
+         chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY; do
+  f=$V/$c.vep.vcf.gz
+  [ -s "$f" ] || { echo "  skip $c (no file)"; continue; }
+  n=$(sx bcftools +split-vep -d -f '%CHROM\t%POS\t%REF\t%ALT\t%SYMBOL\t%Gene\t%Consequence\t%gnomAD4.1_joint_AF\t%LoF\t%LoF_filter\n' \
+        -i 'LoF="HC"' "$f" 2>/dev/null | sort -u -k1,1 -k2,2n | tee -a "$OUT" | wc -l)
+  echo "  $c: $n HC LoF records"
+done
+echo "=== total rows: $(( $(wc -l < "$OUT") - 1 )) ==="
+echo "=== distinct genes with an HC LoF: $(awk -F'\t' 'NR>1{print $5}' "$OUT" | sort -u | grep -v '^$' | wc -l) ==="

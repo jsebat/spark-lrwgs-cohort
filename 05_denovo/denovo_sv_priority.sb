@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=dnsv_priority
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=02:00:00
+# Prioritise coding de novo SVs in disease genes: CDS intersect, disease-gene sets, s_het tier,
+# lab segdup/repeat mask applied FRACTIONALLY to SV intervals (>=50%), cross-family recurrence
+# flag (an identical "de novo" interval in >1 family is an artifact), panel recurrence.
+# Output is a short, validation-ready list, not a cohort-wide burden table.
+#
+# LoF rule for SVs (JS-agreed):
+#   DEL overlapping a CDS exon            -> coding LoF
+#   INS with breakpoint inside a CDS exon -> coding LoF
+#   DUP overlapping a CDS exon            -> coding, flagged (whole-gene DUP is gain, not LoF)
+#   INV with a breakpoint in the gene     -> coding
+#   BND                                    -> EXCLUDED (D63: unvalidatable by short reads)
+set -uo pipefail
+T=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
+R=/expanse/lustre/projects/ddp195/jsebat/longread-autism
+S3=/expanse/projects/sebat1/s3/data/sebat
+GTF=$S3/g2mh/scripts/scripts_for_rare_pipeline/resources/gencode.v44.annotation.gtf.gz
+GS=$S3/nf_rare_spark_wes/resources/gene_sets
+GB=$S3/g2mh/scripts/scripts_for_rare_pipeline/resources/GeneBayes/output/Supplementary_Table_1.tsv
+OUTD=$T/denovo_sv; mkdir -p "$OUTD"
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$SIF" "$@"; }
+
+# ---- 1. CDS exon model from GENCODE
+CDS=$OUTD/gencode_cds.bed
+if [ ! -s "$CDS" ]; then
+  echo "=== building CDS model from GENCODE v44 ==="
+  zcat "$GTF" | awk -F'\t' 'BEGIN{OFS="\t"} $3=="CDS" {
+      match($9, /gene_name "[^"]+"/); g=substr($9, RSTART+11, RLENGTH-12);
+      if (g!="") print $1, $4-1, $5, g }' | sort -k1,1 -k2,2n | \
+    sx bedtools merge -i - -c 4 -o distinct > "$CDS"
+fi
+echo "CDS intervals: $(wc -l < "$CDS")"
+
+# ---- 2. gene sets
+cat $GS/sfari_hc.txt 2>/dev/null | tr -d '\r' | awk 'NF' | sort -u > $OUTD/sfari_hc.set
+cat $GS/sfari_all.txt 2>/dev/null | tr -d '\r' | awk 'NF' | sort -u > $OUTD/sfari_all.set
+cat $GS/ddg2p_confident.txt 2>/dev/null | tr -d '\r' | awk 'NF' | sort -u > $OUTD/ddg2p_conf.set
+cat $GS/ddg2p_all.txt 2>/dev/null | tr -d '\r' | awk 'NF' | sort -u > $OUTD/ddg2p_all.set
+echo "gene sets: sfari_hc=$(wc -l < $OUTD/sfari_hc.set) sfari_all=$(wc -l < $OUTD/sfari_all.set) ddg2p_conf=$(wc -l < $OUTD/ddg2p_conf.set) ddg2p_all=$(wc -l < $OUTD/ddg2p_all.set)"
+
+# ---- 3. collect de novo SV candidates from every family
+ALL=$OUTD/denovo_sv_all.bed
+: > "$ALL"
+n_fam=0
+for f in $R/run_*/analysis/denovo_sv/*.denovo_sv.tsv; do
+  [ -e "$f" ] || continue
+  case "$f" in *${EXCLUDE_FAMILY:-__none__}*) continue;; esac
+  b=$(basename "$f"); fam=${b%%.*}; rest=${b#*.}; pro=${rest%%.*}
+  n_fam=$((n_fam+1))
+  awk -F'\t' -v fam="$fam" -v pro="$pro" 'BEGIN{OFS="\t"}
+    NR==1{for(i=1;i<=NF;i++) h[$i]=i; next}
+    {
+      svt=$h["svtype"];
+      if (svt=="BND") next;                       # D63: excluded
+      c=$h["chrom"]; p=$h["pos"]+0; e=$h["end"]; l=$h["svlen"];
+      if (e=="." || e=="" ) { ll=l; if(ll=="."||ll=="") ll=0; if(ll<0) ll=-ll; e=p+ll }
+      e=e+0; if (e<=p) e=p+1;
+      print c, p-1, e, fam, pro, svt, l
+    }' "$f" >> "$ALL"
+done
+sort -k1,1 -k2,2n "$ALL" -o "$ALL"
+echo "de novo SV candidates (non-BND) from $n_fam families: $(wc -l < "$ALL")"
+awk -F'\t' '{c[$6]++} END{for(k in c) printf "  %-5s %d\n",k,c[k]}' "$ALL" | sort -rn -k2
+
+# ---- 4. intersect with CDS -> coding candidates
+CODING=$OUTD/denovo_sv_coding.tsv
+sx bedtools intersect -a "$ALL" -b "$CDS" -wa -wb > $OUTD/_hit.txt
+rc=$?; [ $rc -eq 0 ] || { echo "FATAL: bedtools rc=$rc"; exit $rc; }
+awk -F'\t' 'BEGIN{OFS="\t"}
+  { key=$1":"$2":"$3":"$4":"$5;
+    n=split($11, gg, ",");
+    for(i=1;i<=n;i++){ g=gg[i]; if(g=="") continue; k=key"|"g; if(!(k in seen)){seen[k]=1;
+      print $1,$2+1,$3,$4,$5,$6,$7,g } } }' $OUTD/_hit.txt | sort -u > "$CODING"
+echo "coding de novo SV x gene pairs: $(wc -l < "$CODING")"
+echo "  distinct SV events hitting CDS: $(awk -F'\t' '{print $1":"$2"-"$3":"$4}' "$CODING" | sort -u | wc -l)"
+
+
+O=$OUTD
+MASK=$T/mask.segdup_repeat.bed.gz
+PANEL_SV="${PANEL_SV:-/expanse/projects/sebat1/longread_cohort_2026/freeze1/pon/freeze1.pon65.sv.sites.vcf.gz}"   # 65-founder SV panel with AC/AN (build_pon.sb)
+# ---- v2 stages: ensg->symbol s_het join, fractional mask, panel recurrence, prioritisation
+
+# ---- ensg -> symbol from GENCODE (fixes the s_het join)
+MAP=$O/ensg2sym.tsv
+if [ ! -s "$MAP" ]; then
+  zcat "$GTF" | awk -F'\t' '$3=="gene"{
+      match($9,/gene_id "[^"]+"/); e=substr($9,RSTART+9,RLENGTH-10); sub(/\..*/,"",e);
+      match($9,/gene_name "[^"]+"/); g=substr($9,RSTART+11,RLENGTH-12);
+      if(e!=""&&g!="") print e"\t"g }' | sort -u > "$MAP"
+fi
+echo "ensg->symbol pairs: $(wc -l < "$MAP")"
+
+# ---- s_het by SYMBOL, via ensg
+SHET=$O/shet_by_symbol.tsv
+awk -F'\t' -v MAP="$MAP" 'BEGIN{while((getline l < MAP)>0){split(l,m,"\t"); sym[m[1]]=m[2]}}
+  NR==1{next} { e=$1; sub(/\..*/,"",e); if(e in sym) print sym[e]"\t"$7 }' "$GB" | sort -u -k1,1 > "$SHET"
+echo "genes with s_het (by symbol): $(wc -l < "$SHET")"
+
+CODING=$O/denovo_sv_coding.tsv
+[ -s "$CODING" ] || { echo "FATAL: CDS intersect produced no candidates"; exit 2; }
+echo "coding de novo SV x gene pairs (input): $(wc -l < "$CODING")"
+
+# ---- mask SV intervals
+awk -F'\t' 'BEGIN{OFS="\t"}{print $1,$2-1,$3,$4,$5,$6,$7,$8}' "$CODING" | sort -k1,1 -k2,2n > $O/_cod.bed
+# SV intervals: drop only when the event is MOSTLY repeat (>=50%).
+# Plain -v drops anything merely touching a repeat, which removes every large SV.
+sx bedtools intersect -a $O/_cod.bed -b "$MASK" -f 0.5 -v > $O/_cod.masked.bed
+echo "after segdup/repeat mask: $(wc -l < $O/_cod.masked.bed) (from $(wc -l < $O/_cod.bed))"
+
+# ---- panel recurrence: allele count of the SAME SV among the 65 unaffected founders (AC/AN from the
+# founder panel), matched by reciprocal overlap >= 0.5. Any-overlap is wrong here: a large de novo
+# deletion would inherit the AC of an unrelated common small SV lying inside it.
+sx bcftools query -f '%CHROM\t%POS\t%INFO/END\t%INFO/SVTYPE\t%INFO/AC\t%INFO/AN\n' "$PANEL_SV" \
+ | awk -F'\t' 'BEGIN{OFS="\t"}{e=$3; if(e=="."||e=="")e=$2+1; if(e<=$2)e=$2+1; print $1,$2-1,e,$4,$5,$6}' \
+ | sort -k1,1 -k2,2n > $O/_panel.bed
+echo "panel SV intervals: $(wc -l < $O/_panel.bed)"
+[ -s $O/_panel.bed ] || { echo "FATAL: founder panel produced no intervals (check PANEL_SV has INFO/AC and INFO/AN); an empty panel would silently pass every candidate"; exit 2; }
+sx bedtools intersect -a $O/_cod.masked.bed -b $O/_panel.bed -f 0.5 -r -wa -wb -loj > $O/_cod.panel.txt
+
+# ---- assemble, flag recurrence, tier, prioritise
+awk -F'\t' -v HC=$O/sfari_hc.set -v SA=$O/sfari_all.set -v DC=$O/ddg2p_conf.set -v DA=$O/ddg2p_all.set -v SH="$SHET" '
+BEGIN{
+  OFS="\t";
+  while((getline g < HC)>0) hc[g]=1;
+  while((getline g < SA)>0) sa[g]=1;
+  while((getline g < DC)>0) dc[g]=1;
+  while((getline g < DA)>0) da[g]=1;
+  while((getline l < SH)>0){ split(l,f,"\t"); shet[f[1]]=f[2]+0 }
+}
+{
+  # a: 1 chrom 2 start 3 end 4 fam 5 pro 6 svtype 7 svlen 8 gene ; b: 9..14 panel
+  iv=$1":"$2"-"$3; g=$8;
+  key=iv"|"g;
+  fam[key]=fam[key]; if (index(famlist[key], $4"|")==0) { famlist[key]=famlist[key] $4 "|"; nfam[key]++ }
+  ac=$13+0; an=$14+0;
+  if (!(key in maxac) || ac>maxac[key]) { maxac[key]=ac; maxan[key]=an }
+  rec[key]=$0;
+}
+END{
+  print "family","proband","chrom","start","end","svtype","svlen","gene","gene_set","s_het","lof_tier","panel_AC","panel_AN","n_families_with_same_call","flag","priority";
+  for (k in rec) {
+    split(rec[k], f, "\t");
+    g=f[8];
+    if (g in hc)      { set="SFARI_high_confidence"; pr=1 }
+    else if (g in dc) { set="DDG2P_confident";       pr=2 }
+    else if (g in sa) { set="SFARI_all";             pr=3 }
+    else if (g in da) { set="DDG2P_all";             pr=4 }
+    else continue;
+    s = (g in shet) ? shet[g] : -1;
+    if (s >= 0.18)                  t="lof_t1";
+    else if (s >= 0.03 && s < 0.18) t="lof_t2";
+    else if (s >= 0)                t="lof_t3";
+    else                            t="lof_t3";
+    sv = (s < 0) ? "NA" : sprintf("%.4g", s);
+    nf = nfam[k]+0;
+    flag="";
+    if (nf > 1)            { flag="RECURRENT_ACROSS_FAMILIES(impossible_de_novo)"; pr=pr+20 }
+    else if (maxac[k] >= 6){ flag="COMMON_IN_COHORT_PANEL";                        pr=pr+10 }
+    else                   { flag="pass" }
+    print f[4], f[5], f[1], f[2]+1, f[3], f[6], f[7], g, set, sv, t, maxac[k]+0, maxan[k]+0, nf, flag, pr;
+  }
+}' $O/_cod.panel.txt | { read -r h; echo "$h"; sort -t$'\t' -k16,16n -k11,11 -k1,1; } > $O/denovo_sv_PRIORITIZED_v2.tsv
+
+P=$O/denovo_sv_PRIORITIZED_v2.tsv
+N=$(( $(wc -l < "$P") - 1 ))
+echo ""
+echo "================= PRIORITIZED de novo SVs (v2) ================="
+echo "  file: $P     rows: $N"
+echo ""
+echo "  flag breakdown:"; awk -F'\t' 'NR>1{c[$15]++} END{for(k in c) printf "    %-45s %d\n",k,c[k]}' "$P" | sort -k2 -rn
+echo ""
+echo "  tier breakdown (pass only):"; awk -F'\t' 'NR>1 && $15=="pass"{c[$11]++} END{for(k in c) printf "    %-8s %d\n",k,c[k]}' "$P" | sort
+echo ""
+echo "  ############ VALIDATION-READY CANDIDATES (flag=pass) ############"
+awk -F'\t' 'NR>1 && $15=="pass"{printf "   %-11s %-12s %-4s %s:%s-%s  len=%-7s %-10s %-22s s_het=%-8s %-8s panelAC=%s/%s\n",$1,$2,$6,$3,$4,$5,$7,$8,$9,$10,$11,$12,$13}' "$P"
+echo ""
+echo "  ---- excluded as recurrent across families (artifact) ----"
+awk -F'\t' 'NR>1 && $14>1{print "   "$8" "$3":"$4"-"$5" in "$14" families"}' "$P" | sort -u | head -12
+echo "================================================================"

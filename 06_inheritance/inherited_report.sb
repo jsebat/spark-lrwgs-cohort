@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=inh_report
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=32G --time=03:00:00
+set -uo pipefail
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+eval "$(micromamba shell hook --shell bash)"
+micromamba activate lrtier
+python3 "${WORKFLOW_ROOT:?set WORKFLOW_ROOT to the repo checkout}"/06_inheritance/inherited_report.py

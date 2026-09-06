@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Array wrapper: one family per task. Rule 4 -- array, not a submit loop.
+set -uo pipefail
+C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"
+LIST=${LIST:-$C/downstream_families.txt}
+F=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST")
+[ -n "$F" ] || { echo "FATAL: no family at line $SLURM_ARRAY_TASK_ID" >&2; exit 2; }
+echo "=== family_downstream $F (task $SLURM_ARRAY_TASK_ID, node $(hostname)) ==="
+bash "$C/family_downstream.sb" "$F"
+rc=$?
+echo "=== $F exit=$rc ==="
+exit $rc

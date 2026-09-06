@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# GraphTyper short-read re-genotyping of long-read de novo SV candidates.
+# Validation, not filtering: emits genotypes for the whole family; the 3-way
+# CONFIRMED/REFUTED/UNINFORMATIVE verdict is applied downstream. D57.
+#   sbatch sv_validate.sb <FAMILY_ID> <regions_file> <out_tag>
+set -uo pipefail
+F="${1:?family}"; REGIONS="${2:?regions file}"; TAG="${3:?out tag}"
+C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"/sv_validation
+REF=/expanse/projects/sebat1/jsebat/refs/hifi-wdl-resources-v3.1.0/GRCh38/human_GRCh38_no_alt_analysis_set.fasta
+CAND=$C/$F.denovo_candidates.vcf.gz
+BAMS=$C/$F.bamlist.txt
+OUT=$C/$F.gt.$TAG
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+G=/expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/graphtyper.sif
+sx() { singularity exec -B /expanse:/expanse -B /scratch:/scratch "$@"; }
+
+echo "=== graphtyper genotype_sv $F tag=$TAG regions=$(wc -l < $REGIONS) bams=$(wc -l < $BAMS) ==="
+rm -rf "$OUT"; mkdir -p "$OUT"
+sx $G graphtyper genotype_sv "$REF" "$CAND" --sams="$BAMS" --region_file="$REGIONS" \
+   -O "$OUT" -t ${SLURM_CPUS_PER_TASK:-8}
+rc=$?
+echo "graphtyper rc=$rc"
+[ $rc -eq 0 ] || exit $rc
+echo "=== output tree ==="
+find "$OUT" -name '*.vcf.gz' | head -10
+echo "=== concatenate per-region results ==="
+BT=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif|head -1)
+mapfile -t vcfs < <(find "$OUT" -name '*.vcf.gz' | sort)
+if [ ${#vcfs[@]} -gt 0 ]; then
+  sx $BT bcftools concat -a "${vcfs[@]}" -Oz -o $C/$F.sr_genotyped.$TAG.vcf.gz 2>/dev/null || sx $BT bcftools concat "${vcfs[@]}" -Oz -o $C/$F.sr_genotyped.$TAG.vcf.gz
+  sx $BT bcftools index -t $C/$F.sr_genotyped.$TAG.vcf.gz
+  echo "  merged sites: $(sx $BT bcftools index -n $C/$F.sr_genotyped.$TAG.vcf.gz)"
+  echo "  SAMPLE COLUMNS (must be REACH IDs, not names): $(sx $BT bcftools query -l $C/$F.sr_genotyped.$TAG.vcf.gz | tr '\n' ' ')"
+fi
+echo "=== done ==="

@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Cross-platform IDENTITY check: long-read vs short-read SNP genotypes, one family.
+# Relatedness is symmetric for full sibs, so somalier relate on LR alone CANNOT
+# detect a same-sex sib swap (e.g. two same-sex siblings). Matching
+# each LR sample against the SR VCF genotypes can: same person -> relatedness ~1.0.
+# Tests consistency between the LR barcode assignment and the SR sample labels.
+#   sbatch idcheck.sb <FAMILY_ID>
+# Requires: cohort/idcheck/<FAM>.sr_joint_vcf.path and <FAM>.reheader.map
+# (SRname<TAB>REACHID.SR). The map may carry given names: never cat it, never echo it.
+set -uo pipefail
+F="${1:?usage: idcheck.sb <FAMILY_ID>}"
+C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"
+R=/expanse/lustre/projects/ddp195/jsebat/longread-autism
+LR=$R/run_$F/analysis/somalier/extract
+OUT=$R/run_$F/analysis/idcheck; mkdir -p $OUT/sr
+REFS=/expanse/projects/sebat1/jsebat/refs
+REF_FA=$REFS/hifi-wdl-resources-v3.1.0/GRCh38/human_GRCh38_no_alt_analysis_set.fasta
+SITES=$REFS/somalier/sites.hg38.vcf.gz
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+CACHE=/expanse/projects/sebat1/jsebat/singularity_cache/miniwdl
+BT_SIF=$(ls $CACHE/*pb_wdl_base*.sif | head -1); SOM_SIF=$CACHE/somalier.sif
+sx() { singularity exec -B /expanse:/expanse "$@"; }
+
+V=$(cat $C/idcheck/$F.sr_joint_vcf.path); MAP=$C/idcheck/$F.reheader.map
+[ -s "$V" ]   || { echo "FATAL: SR VCF missing"; exit 2; }
+[ -s "$MAP" ] || { echo "FATAL: reheader map missing"; exit 2; }
+echo "=== idcheck $F : LR extracts=$(ls $LR/*.somalier | wc -l)  SR map rows=$(wc -l < $MAP) ==="
+
+# 1. rename SR samples to REACHID.SR (bcftools reheader is header-only rewrite)
+sx "$BT_SIF" bash -c "bcftools reheader -s '$MAP' '$V' -o '$OUT/sr/$F.sr.renamed.vcf.gz' && bcftools index -t '$OUT/sr/$F.sr.renamed.vcf.gz'" || { echo "FATAL: reheader failed"; exit 3; }
+echo "  SR samples after rename: $(sx "$BT_SIF" bcftools query -l $OUT/sr/$F.sr.renamed.vcf.gz | tr '\n' ' ')"
+
+# 2. extract SR genotypes at the somalier sites
+sx "$SOM_SIF" somalier extract -d $OUT/sr -s $SITES -f $REF_FA $OUT/sr/$F.sr.renamed.vcf.gz || { echo "FATAL: SR extract failed"; exit 3; }
+echo "  SR extracts: $(ls $OUT/sr/*.somalier | wc -l)"
+
+# 3. relate all LR + SR extracts together, no ped (we want raw pairwise)
+sx "$SOM_SIF" somalier relate -o $OUT/$F.idcheck $LR/*.somalier $OUT/sr/*.somalier || { echo "FATAL: relate failed"; exit 3; }
+
+# 4. verdict: for each LR sample, relatedness to every SR sample
+python3 - "$OUT/$F.idcheck.pairs.tsv" <<'PY'
+import sys, csv
+pairs = {}
+with open(sys.argv[1]) as fh:
+    rd = csv.DictReader(fh, delimiter="\t")
+    for r in rd:
+        a, b = r["#sample_a"], r["sample_b"]
+        rel = float(r["relatedness"])
+        pairs[(a, b)] = rel; pairs[(b, a)] = rel
+samples = sorted(set(x for p in pairs for x in p))
+lr = [s for s in samples if not s.endswith(".SR")]
+sr = [s for s in samples if s.endswith(".SR")]
+print("\n=== LR (rows) vs SR (cols) relatedness; same person ~1.0, sib ~0.5, unrelated ~0 ===")
+print("  %-14s" % "" + "".join("%12s" % c.replace(".SR", "") for c in sr))
+verdicts = []
+for a in lr:
+    row = [(c, pairs.get((a, c), float("nan"))) for c in sr]
+    print("  %-14s" % a + "".join("%12.3f" % v for _, v in row))
+    best = max(row, key=lambda t: t[1]); second = sorted(row, key=lambda t: -t[1])[1][1]
+    own = pairs.get((a, a + ".SR"), float("nan"))
+    if best[0] == a + ".SR" and best[1] > 0.9 and second < 0.6: v = "PASS"
+    elif best[0] != a + ".SR" and best[1] > 0.9: v = "SWAP -> matches %s" % best[0].replace(".SR", "")
+    else: v = "AMBIGUOUS (best=%.3f own=%.3f)" % (best[1], own)
+    verdicts.append((a, v))
+print("\n=== VERDICT ===")
+for a, v in verdicts: print("  %-14s %s" % (a, v))
+PY
+echo "=== done: $OUT/$F.idcheck.pairs.tsv ==="

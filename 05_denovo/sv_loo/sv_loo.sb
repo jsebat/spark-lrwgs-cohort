@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=sv_loo
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --time=01:00:00
+# LOO SV panel for one family (D62): 63-founder SV panel built WITHOUT norm (symbolic
+# ALTs), AC/AN over founders, then JS-rule matching of the family's SVs to the panel.
+#   sbatch sv_loo.sb <FAMILY_ID>
+set -uo pipefail
+F="${1:?usage: <FAMILY_ID>}"
+C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"
+R=/expanse/lustre/projects/ddp195/jsebat/longread-autism/run_$F
+FZ=/expanse/projects/sebat1/longread_cohort_2026/freeze1
+OUT=$R/analysis/pon_annotated; mkdir -p "$OUT"
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$SIF" bash -c "$1"; }
+
+LOO=$OUT/$F.pon_loo.samples.txt
+[ -s "$LOO" ] || { echo "FATAL: LOO sample list missing: $LOO (run apply_pon_loo.sb first)"; exit 2; }
+N=$(wc -l < "$LOO"); echo "LOO panel N=$N"
+[ "$N" -ge 60 ] && [ "$N" -lt 65 ] || { echo "FATAL: implausible LOO N=$N"; exit 2; }
+
+PANEL=$OUT/$F.pon${N}.sv.sites.nonorm.vcf.gz
+echo "=== LOO SV panel (no norm) ==="
+sx "bcftools view -S '$LOO' --force-samples '$FZ/freeze1.cohort.sv.vcf.gz' -Ou | bcftools +fill-tags -Ou -- -t AN,AC,AF | bcftools view -G -Oz -o '$PANEL' && bcftools index -t '$PANEL'" || { echo "FATAL: panel build"; exit 1; }
+PS=$(sx "bcftools index -n '$PANEL'"); echo "  panel sites: $PS"
+[ "$PS" -gt 300000 ] || { echo "FATAL: panel collapsed ($PS sites; expect ~347k)"; exit 1; }
+
+OD=$(ls -dt $R/*_humanwgs_family/out | head -1)
+FAM=$(ls $OD/joint_sv_vcf/*.vcf.gz | head -1)
+DN=$C/sv_validation/$F.sv_validation_table.tsv
+[ -s "$FAM" ] || { echo "FATAL: family SV VCF missing"; exit 1; }
+[ -s "$DN" ]  || { echo "FATAL: de novo SV table missing: $DN"; exit 1; }
+echo "=== match family SVs to panel (JS rule) ==="
+sx "python3 --version; python3 '$C/sv_loo/sv_loo_match.py' '$FAM' '$PANEL' '$OUT/$F.sv.pon${N}.match.tsv' '$DN'" || { echo "FATAL: matcher"; exit 1; }
+echo "=== done: $OUT/$F.sv.pon${N}.match.tsv ==="

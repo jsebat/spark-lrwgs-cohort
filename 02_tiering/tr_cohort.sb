@@ -1,0 +1,36 @@
+#!/bin/bash
+#SBATCH --account=ddp195 --partition=ind-shared --qos=ind-shared-normal --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=24G --time=04:00:00
+#SBATCH --job-name=tr_cohort --output=tr_cohort.%j.out
+# Cohort-level tandem-repeat analysis (D70): known disease loci on the joint callset + genome-wide outliers.
+set -uo pipefail
+module load cpu singularitypro || module load singularitypro
+export OUT="${DATA_ROOT:?set DATA_ROOT}/tr"; mkdir -p $OUT
+export SIF="${SIF:?container with bcftools/samtools/bedtools}"
+export TRGT_VCF="${TRGT_VCF:?joint TRGT VCF}"
+export PED="${PED:?cohort pedigree}"
+export CDS_BED="${CDS_BED:?GENCODE CDS bed}"
+STR="${STRCHIVE_JSON:?STRchive loci json}"
+I="${WORKFLOW_ROOT:?repo checkout}/02_tiering"
+sx(){ singularity exec -B /expanse:/expanse "$SIF" "$@"; }
+echo "CDS bed columns: $(head -1 $CDS_BED | tr '\t' ' ')"
+
+echo "########## A. known disease loci (STRchive 73) on the 105-sample joint callset ##########"
+if [ -s $OUT/cohort.known_repeats.tsv ] && [ "${REDO_KNOWN:-0}" != "1" ]; then echo "already done: $OUT/cohort.known_repeats.tsv ($(wc -l < $OUT/cohort.known_repeats.tsv) rows)"; else
+python3 -c "import json; [print(L['id']) for L in json.load(open('$STR'))]" > $OUT/strchive_ids.txt
+echo "catalog ids: $(wc -l < $OUT/strchive_ids.txt)"
+sx bcftools view -i "INFO/TRID=@$OUT/strchive_ids.txt" -Oz -o $OUT/cohort.strchive.trgt.vcf.gz $TRGT_VCF && sx bcftools index -t $OUT/cohort.strchive.trgt.vcf.gz
+echo "loci in callset: $(sx bcftools view -H $OUT/cohort.strchive.trgt.vcf.gz | wc -l)"
+python3 $I/known_repeats.py $OUT/cohort.strchive.trgt.vcf.gz $STR $OUT/cohort.known_repeats.tsv "" $PED
+echo "known-repeat rc=$?"
+fi
+
+echo; echo "########## B. genome-wide outlier / de novo expansion scan ##########"
+eval "$(micromamba shell hook --shell bash)"; micromamba activate lrtier
+date; python3 $I/tr_outliers.py; echo "scan rc=$?"; date
+echo "-- de novo expansions: $(($(wc -l < $OUT/tr_denovo_expansions.tsv)-1)) rows; coding: $(awk -F'\t' 'NR>1 && $6!=""' $OUT/tr_denovo_expansions.tsv | wc -l)"
+echo "-- outlier calls: $(($(wc -l < $OUT/tr_outlier_calls.tsv)-1)) rows"
+cat $OUT/tr_tdt.tsv
+
+echo; echo "########## C. burden model ##########"
+micromamba activate rclogit
+Rscript $I/tr_clogit.R

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Per-locus TRGT genotype invariance across the 65-founder panel (D55 rule input).
+# Key = INFO/TRID (the VCF ID column is "."). Genotypes compared as the SET of
+# allele motif counts, so hemizygous "5" and diploid "5,5" (chrX) are the same.
+set -uo pipefail
+C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"
+FZ=/expanse/projects/sebat1/longread_cohort_2026/freeze1
+OUT=$FZ/pon/freeze1.pon65.trgt.invariance.tsv
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+N=$(wc -l < $C/pon/pon65.samples.txt); [ "$N" -eq 65 ] || { echo "FATAL: panel N=$N"; exit 2; }
+printf 'trid\tchrom\tpos\tn_called\tn_distinct\tmodal_mc\tmodal_frac\n' > $OUT
+singularity exec -B /expanse:/expanse "$SIF" bash -c "
+  bcftools view -S '$C/pon/pon65.samples.txt' --force-samples '$FZ/freeze1.cohort.trgt.vcf.gz' -Ou \
+  | bcftools query -f '%INFO/TRID\t%CHROM\t%POS[\t%MC]\n'" \
+| awk -F'\t' '
+  function norm(v,  a,n,i,u,k,out){ n=split(v,a,","); delete u; for(i=1;i<=n;i++) if(a[i]!="."&&a[i]!="") u[a[i]]=1;
+    out=""; for(k in u) out=(out==""?k:out","k); return out }
+  { delete cnt; nc=0; best=0; bm=".";
+    for(i=4;i<=NF;i++){ v=$i; if(v=="."||v=="") continue; g=norm(v); if(g=="") continue; nc++; cnt[g]++; if(cnt[g]>best){best=cnt[g]; bm=g} }
+    nd=0; for(k in cnt) nd++;
+    mf=(nc>0)? best/nc : 0;
+    printf "%s\t%s\t%s\t%d\t%d\t%s\t%.4f\n", $1,$2,$3,nc,nd,bm,mf }' >> $OUT
+rows=$(( $(wc -l < $OUT) - 1 ))
+echo "loci=$rows (expect 937195)"
+[ "$rows" -eq 937195 ] || { echo "FATAL: row count mismatch"; exit 3; }
+echo "trid column populated: $(awk -F'\t' 'NR>1 && $1!="."' $OUT | wc -l) of $rows"
+echo "invariant (modal_frac>=0.95, n_called>=50): $(awk -F'\t' 'NR>1 && $7>=0.95 && $4>=50' $OUT | wc -l)"
+echo "the four D55 loci:"
+awk -F'\t' '($2=="chr15"&&$3==88569433)||($2=="chrX"&&$3==71453024)||($2=="chr1"&&$3==1435798)||($2=="chr15"&&$3==89333558){printf "  %-24s n=%s distinct=%s modal=%-8s frac=%s\n",$1,$4,$5,$6,$7}' $OUT

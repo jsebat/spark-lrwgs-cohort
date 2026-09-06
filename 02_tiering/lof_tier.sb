@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=lof_tier
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=16G
+#SBATCH --time=00:30:00
+# Assign LoF tiers to the masked HC LoF sites (JS definitions, 2026-09-05):
+#   lof_t1  LOFTEE HC  AND  s_het >= 0.18
+#   lof_t2  LOFTEE HC  AND  0.03 <= s_het < 0.18
+#   lof_t3  the remainder of HC LoF -- INCLUDING genes with no GeneBayes score
+#           (JS: "Tier 3 should not drop null")
+# s_het = GeneBayes post_mean, joined on Ensembl gene id.
+set -uo pipefail
+T=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
+GB=/expanse/projects/sebat1/s3/data/sebat/g2mh/scripts/scripts_for_rare_pipeline/resources/GeneBayes/output/Supplementary_Table_1.tsv
+LOF=$T/lof_sites.tsv
+MASK=$T/mask.segdup_repeat.bed.gz
+OUT=$T/lof_tiered.tsv
+
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$SIF" "$@"; }
+
+[ -s "$LOF" ]  || { echo "FATAL: $LOF missing"; exit 2; }
+[ -s "$MASK" ] || { echo "FATAL: $MASK missing"; exit 2; }
+[ -s "$GB" ]   || { echo "FATAL: GeneBayes table missing"; exit 2; }
+echo "GeneBayes genes: $(( $(wc -l < "$GB") - 1 ))"
+
+# 1. apply the standard mask, keeping every column
+awk -F'\t' 'BEGIN{OFS="\t"} NR>1 {print $1,$2-1,$2,$3,$4,$5,$6,$7,$8,$9,$10}' "$LOF" | sort -k1,1 -k2,2n > "$T/_lof_all.bed"
+sx bedtools intersect -a "$T/_lof_all.bed" -b "$MASK" -v > "$T/_lof_masked.bed"
+rc=$?; [ $rc -eq 0 ] || { echo "FATAL: bedtools rc=$rc"; exit $rc; }
+IN=$(wc -l < "$T/_lof_all.bed"); OUTN=$(wc -l < "$T/_lof_masked.bed")
+echo "masked: $IN -> $OUTN (dropped $((IN-OUTN)))"
+
+# 2. join GeneBayes s_het on ensg, assign tier
+#    _lof_masked.bed cols: 1 chrom 2 start 3 pos 4 ref 5 alt 6 symbol 7 ensg
+#                          8 consequence 9 gnomad_af 10 lof 11 lof_filter
+awk -F'\t' -v GB="$GB" '
+BEGIN{
+  OFS="\t";
+  while ((getline line < GB) > 0) {
+    n=split(line, f, "\t");
+    if (f[1]=="ensg") continue;          # header
+    shet[f[1]] = f[7] + 0;               # post_mean
+    seen[f[1]] = 1;
+  }
+  print "chrom","pos","ref","alt","symbol","ensg","consequence","gnomad_af","lof","lof_filter","s_het","lof_tier";
+}
+{
+  ensg=$7; sub(/\..*$/, "", ensg);       # strip version suffix if present
+  if (ensg in seen) { s=shet[ensg]; sv=sprintf("%.6g", s) } else { s=-1; sv="NA" }
+  if (s >= 0.18)                    t="lof_t1";
+  else if (s >= 0.03 && s < 0.18)   t="lof_t2";
+  else                              t="lof_t3";   # includes s_het NA (JS)
+  print $1,$3,$4,$5,$6,ensg,$8,$9,$10,$11,sv,t;
+}' "$T/_lof_masked.bed" > "$OUT"
+
+N=$(( $(wc -l < "$OUT") - 1 ))
+echo "tiered rows: $N"
+echo ""
+echo "==================== LoF TIER DISTRIBUTION ===================="
+awk -F'\t' 'NR>1{c[$12]++; if($11=="NA") na[$12]++} END{
+  for (t in c) printf "  %-8s %6d sites   (s_het NA: %d)\n", t, c[t], na[t]+0}' "$OUT" | sort
+echo ""
+echo "  distinct genes per tier:"
+awk -F'\t' 'NR>1{k=$12"|"$5; if(!(k in s)){s[k]=1; g[$12]++}} END{for(t in g) printf "  %-8s %d genes\n", t, g[t]}' "$OUT" | sort
+echo ""
+echo "  s_het coverage: $(awk -F'\t' 'NR>1 && $11!="NA"' "$OUT" | wc -l) of $N sites have a GeneBayes score"
+echo ""
+echo "  --- lof_t1 genes (most constrained; s_het >= 0.18) ---"
+awk -F'\t' 'NR>1 && $12=="lof_t1"{printf "    %-12s %-18s s_het=%-9s %s\n", $5, $1":"$2, $11, $7}' "$OUT" | sort -u | head -25
+echo "=============================================================="
