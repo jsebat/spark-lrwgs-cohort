@@ -1,0 +1,6 @@
+#!/bin/bash
+#SBATCH --account=ddp195 --partition=ind-shared --qos=ind-shared-normal --nodes=1 --ntasks=1 --cpus-per-task=2 --mem=48G --time=06:00:00
+#SBATCH --job-name=meth_stage2b --output=meth_stage2b.%j.out
+module load cpu singularitypro || module load singularitypro
+export SIF="${SIF:?container with bcftools/tabix}"
+date; python3 "${WORKFLOW_ROOT:?}"/09_methylation/meth_stage2b.py; echo "rc=$?"; date

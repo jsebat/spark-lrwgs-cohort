@@ -45,3 +45,25 @@ what caught it.
 Frozen for the first cohort report (September 2026). Analyses of the polygenic-score comparison are a separate
 downstream project and are not included. No identifiers, names or data files are in this repository; run
 `scripts/phi_scan.sh` before any commit.
+
+### Methylation (09_methylation)
+`meth_stage1.py`: imprinted-gene coordinates and promoter islands (GENCODE), cohort CpG-island matrix from methbat
+profiles (combined / hap1 / hap2 / ASM p), haplotype-convention and parent-of-origin test at 18 imprinting control
+regions, LoF sites in imprinted genes, marker means on the Loyfer U25 atlas. `deconv.R`: NNLS deconvolution and a
+calibrated two-compartment epithelial fraction (atlas values are UNMETHYLATED fractions; sample methylation is
+converted to 1 - m). `pofo_local.py`: parent of origin from the NEAREST informative phased SNVs with a phase-switch
+flag (whole-block tallies are wrong about 10% of the time). `meth_stage2a.py`: per-child ASM islands, parent-of-origin
+catalogue (imprinted-like / sequence-dependent / sporadic), loss-of-imprinting screen. `meth_stage2b.py`:
+cohort-relative LOI screen, gene annotation, cis SNV / SV / repeat-length tests in founders with composition and DNA
+source as covariates. Inputs: CPG_DIR and PHASED_VCF_DIR hold pb-CpG-tools beds and HiPhase VCFs linked BESIDE their
+indexes (the pipeline writes indexes to sibling directories); METH_REFS holds the geneimprint list (included) and
+Atlas.U25.l4.hg38.tsv from nloyfer/UXM_deconv.
+
+### Transmission follow-up in short-read cohorts (10_transmission)
+`gene_tdt.py`: parent-of-origin TDT of LoF alleles for one gene (GENE, REGION, RECURRENT env) over the rare-variant
+pipeline's annotated family-genotype tables: four strata (mother / father to proband / sibling), GQ, DP and
+allele-balance filters, WGS precedence for families on two platforms, per-cohort and pooled exact binomial tests.
+`imprinted_tdt_all.py`: the same over all catalogued imprinted genes with expressed-allele test arms, silenced-allele
+and sibling controls, Bonferroni ranking, collapsed burden, and clonal-hematopoiesis flags (gnomAD outlier_lof plus a
+curated driver list) that exclude genes from the burden only. Under-transmission on every arm marks spurious parental
+heterozygote calls; the control arms are not optional.

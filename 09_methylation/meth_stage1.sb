@@ -1,0 +1,25 @@
+#!/bin/bash
+#SBATCH --account=ddp195 --partition=ind-shared --qos=ind-shared-normal --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=24G --time=06:00:00
+#SBATCH --job-name=meth_stage1 --output=meth_stage1.%j.out
+set -uo pipefail
+module load cpu singularitypro || module load singularitypro
+export SIF="${SIF:?container with bcftools/tabix}"
+# link CpG beds with their indexes (indexes live in sibling *_bed_index dirs)
+L=${DATA_ROOT:?}; C=${CPG_DIR:?}; mkdir -p $C
+for typ in combined hap1 hap2; do
+  for bed in $(ls $L/run_*/*/out/cpg_${typ}_bed/*/*.cpg_pileup.${typ}.bed.gz 2>/dev/null | grep -v -E "_LAST|${EXCLUDE_RUNS:-__none__}"); do
+    s=$(basename $bed | cut -d. -f1); run=$(echo $bed | sed "s|/out/cpg_${typ}_bed/.*||")
+    tbi=$(ls $run/out/cpg_${typ}_bed_index/*/$s.*.${typ}.bed.gz.tbi 2>/dev/null | head -1)
+    ln -sf $bed $C/$s.$typ.bed.gz; [ -n "$tbi" ] && ln -sf $tbi $C/$s.$typ.bed.gz.tbi
+  done
+done
+echo "linked: $(ls $C/*.bed.gz | wc -l) beds, $(ls $C/*.tbi | wc -l) indexes"
+V=${PHASED_VCF_DIR:?}; mkdir -p $V
+for vcf in $(ls $L/run_*/*/out/joint_small_variants_vcf/*.phased.vcf.gz 2>/dev/null | grep -v -E "_LAST|${EXCLUDE_RUNS:-__none__}"); do
+  fam=$(basename $vcf | cut -d. -f1); run=$(echo $vcf | sed "s|/out/joint_small_variants_vcf/.*||"); tbi=$(ls $run/out/joint_small_variants_vcf_index/*.tbi $run/out/joint_small_variants_vcf/*.tbi 2>/dev/null | head -1)
+  ln -sf $vcf $V/$fam.phased.vcf.gz; [ -n "$tbi" ] && ln -sf $tbi $V/$fam.phased.vcf.gz.tbi
+done
+echo "linked VCFs: $(ls $V/*.vcf.gz | wc -l), indexes: $(ls $V/*.tbi | wc -l)"
+date; python3 "${WORKFLOW_ROOT:?}"/09_methylation/meth_stage1.py; echo "rc=$?"; date
+eval "$(micromamba shell hook --shell bash)"; micromamba activate rclogit
+Rscript "${WORKFLOW_ROOT:?}"/09_methylation/deconv.R; echo "deconv rc=$?"; date
