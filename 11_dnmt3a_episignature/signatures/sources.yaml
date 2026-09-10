@@ -1,0 +1,215 @@
+# Parsing spec for workflow/scripts/02_harmonize_signatures.py
+# Every entry points at a file under signatures/raw/<ID>/ that is documented in that folder's SOURCE.md.
+# Direction convention everywhere: delta = case minus control on the beta scale (negative = hypomethylated in cases).
+# Sources sharing a `name` are treated as ONE source for tier counting (e.g. Jeffries probes + Jeffries DMRs).
+
+TBRS_LOF:
+  sources:
+    - name: jeffries2019
+      note: "450K, Amish DNMT3A R771Q (LOF-behaving missense) carriers vs WT relatives; limma DMPs (Table S1)"
+      file: signatures/raw/TBRS_LOF/Jeffries2019_GenomeRes_gr.243584.118_Supplemental_Table_S1.xlsx
+      sheet: Significant probes
+      kind: probe
+      array: HM450
+      probe_col: TargetID
+      delta_col: FC
+    - name: jeffries2019
+      note: "same cohort, DMRcate DMRs (Table S3), hg19 probe-to-probe spans"
+      file: signatures/raw/TBRS_LOF/Jeffries2019_GenomeRes_gr.243584.118_Supplemental_Table_S3.xlsx
+      sheet: DMRs
+      kind: dmr
+      coord_col: coord
+      build: hg19
+      one_based: true
+      delta_col: meanbetafc
+    - name: arefeshghi2020
+      note: "EpiSign v2 TBRS probe set (139 probes); delta derived as S3 mean(TBRS) - mean(Control)"
+      file: signatures/raw/TBRS_LOF/ArefEshghi2020_AJHG_mmc2.xlsx
+      sheet: S2- Probes
+      header: 1
+      adapter: arefeshghi2020
+      member_col: TBRS
+      means_sheet: S3-Methylation levels
+      means_col: TBRS
+      kind: probe
+      array: EPIC
+      probe_col: Probes
+      delta_col: delta_beta
+    - name: smith2021_nonR882
+      note: "WGBS blood, 8 non-R882 DOS patients vs 15 controls (metilene DMRs, Supp Data 2); hg38 1-based (verified: start = C of first CpG, end = G of last CpG)"
+      file: signatures/raw/TBRS_LOF/Smith2021_NatCommun_41467_2021_24800_MOESM5_ESM.xlsx
+      sheet: dmrs.annot.summarized
+      adapter: smith2021
+      control_regex: 'NM|ND\.|sib'
+      case_ids: ["723972", "511909", "518693", "930075", "786396", "411168", "228211", "295041"]
+      kind: dmr
+      chrom_col: chromosome
+      start_col: start
+      end_col: end
+      build: hg38
+      one_based: true
+      delta_col: delta_beta
+
+DNMT3A_R882:
+  sources:
+    - name: smith2021_R882
+      note: "WGBS blood, 3 R882H/C DOS patients vs 15 controls (Supp Data 1)"
+      file: signatures/raw/DNMT3A_R882/Smith2021_NatCommun_41467_2021_24800_MOESM4_ESM.xlsx
+      sheet: dmrs.annot.summarized
+      adapter: smith2021
+      control_regex: 'NM|ND\.|sib'
+      case_ids: ["154605", "624400", "894912"]
+      kind: dmr
+      chrom_col: chromosome
+      start_col: start
+      end_col: end
+      build: hg38
+      one_based: true
+      delta_col: delta_beta
+
+DNMT3A_GOF:
+  sources:
+    - name: heyn2019
+      note: "HESJAS patient fibroblast RRBS, hypermethylated DMRs (Supp Table 2), hg19 BED; no effect size published"
+      file: signatures/raw/DNMT3A_GOF/Heyn2019_NatGenet_41588_2018_274_MOESM3_ESM.txt
+      header: null
+      names: [chrom, start, end, name]
+      kind: dmr
+      chrom_col: chrom
+      start_col: start
+      end_col: end
+      build: hg19
+      one_based: false
+      direction_fixed: 1
+    - name: heyn2019
+      note: "same study, hypomethylated DMRs (Supp Table 3)"
+      file: signatures/raw/DNMT3A_GOF/Heyn2019_NatGenet_41588_2018_274_MOESM4_ESM.txt
+      header: null
+      names: [chrom, start, end, name]
+      kind: dmr
+      chrom_col: chrom
+      start_col: start
+      end_col: end
+      build: hg19
+      one_based: false
+      direction_fixed: -1
+
+DNMT1:
+  sources:
+    - name: arefeshghi2020
+      note: "EpiSign v2 ADCADN probe set (104 probes)"
+      file: signatures/raw/EPISIGN_SHARED/ArefEshghi2020_AJHG_mmc2.xlsx
+      sheet: S2- Probes
+      header: 1
+      adapter: arefeshghi2020
+      member_col: ADCADN
+      means_sheet: S3-Methylation levels
+      means_col: ADCADN
+      kind: probe
+      array: EPIC
+      probe_col: Probes
+      delta_col: delta_beta
+    - name: kernohan2016
+      note: "450K blood, ADCA-DN vs controls; 82 regions parsed from Additional file 1 PDF; Estimate = case-control difference"
+      file: signatures/raw/DNMT1/Kernohan2016_ClinEpigenetics_AdditionalFile1_MOESM1.pdf
+      adapter: pdf_regions
+      regex: '^(?P<chrom>chr[0-9XY]+)\s+(?P<start>\d+)\s+(?P<end>\d+)\s+(?P<meth>[\d.]+)\s+(?P<nprobes>\d+)\s+(?P<estimate>-?[\d.]+)\s'
+      expect_rows: 82
+      kind: dmr
+      chrom_col: chrom
+      start_col: start
+      end_col: end
+      build: hg19
+      one_based: true
+      delta_col: estimate
+
+DNMT3B:
+  sources:
+    - name: arefeshghi2020
+      note: "EpiSign v2 ICF1 probe set (113 probes). Velasco 2018 has no genome-wide list (35 validation DMPs only) - not used"
+      file: signatures/raw/EPISIGN_SHARED/ArefEshghi2020_AJHG_mmc2.xlsx
+      sheet: S2- Probes
+      header: 1
+      adapter: arefeshghi2020
+      member_col: ICF1
+      means_sheet: S3-Methylation levels
+      means_col: ICF1
+      kind: probe
+      array: EPIC
+      probe_col: Probes
+      delta_col: delta_beta
+
+NSD1_SOTOS:
+  sources:
+    - name: choufani2015
+      note: "450K blood, NSD1+/- Sotos vs controls, 7087 significant CpGs with signed deltaBeta (Supp Data 3)"
+      file: signatures/raw/NSD1_SOTOS/Choufani2015_NatCommun_SupplementaryData3_ncomms10207-s4.xlsx
+      sheet: Suppl. Data 3
+      header: auto
+      kind: probe
+      array: HM450
+      probe_col: Illumina ID
+      delta_col: deltaBeta
+    - name: arefeshghi2020
+      note: "EpiSign v2 Sotos probe set (112 probes)"
+      file: signatures/raw/EPISIGN_SHARED/ArefEshghi2020_AJHG_mmc2.xlsx
+      sheet: S2- Probes
+      header: 1
+      adapter: arefeshghi2020
+      member_col: Sotos
+      means_sheet: S3-Methylation levels
+      means_col: Sotos
+      kind: probe
+      array: EPIC
+      probe_col: Probes
+      delta_col: delta_beta
+
+NEG_KMT2D:
+  sources:
+    - name: butcher2017
+      note: "450K blood, KMT2D LOF Kabuki signature, 221 probes with signed deltaBeta (Table S9)"
+      file: signatures/raw/NEG_KMT2D/Butcher2017_AJHG_mmc2.xlsx
+      sheet: TS9.KMT2DDNAmsig
+      header: auto
+      kind: probe
+      array: HM450
+      probe_col: TargetID
+      delta_col: deltaBeta
+    - name: arefeshghi2020
+      note: "EpiSign v2 Kabuki probe set (153 probes)"
+      file: signatures/raw/EPISIGN_SHARED/ArefEshghi2020_AJHG_mmc2.xlsx
+      sheet: S2- Probes
+      header: 1
+      adapter: arefeshghi2020
+      member_col: Kabuki
+      means_sheet: S3-Methylation levels
+      means_col: Kabuki
+      kind: probe
+      array: EPIC
+      probe_col: Probes
+      delta_col: delta_beta
+
+NEG_CHD7:
+  sources:
+    - name: butcher2017
+      note: "450K blood, CHD7 LOF CHARGE signature, 163 probes with signed deltaBeta (Table S8)"
+      file: signatures/raw/NEG_CHD7/Butcher2017_AJHG_mmc2.xlsx
+      sheet: TS8.CHD7DNAmsig
+      header: auto
+      kind: probe
+      array: HM450
+      probe_col: TargetID
+      delta_col: deltaBeta
+    - name: arefeshghi2020
+      note: "EpiSign v2 CHARGE probe set (148 probes; S2 column CHARGE2, S3 column CHARGE)"
+      file: signatures/raw/EPISIGN_SHARED/ArefEshghi2020_AJHG_mmc2.xlsx
+      sheet: S2- Probes
+      header: 1
+      adapter: arefeshghi2020
+      member_col: CHARGE2
+      means_sheet: S3-Methylation levels
+      means_col: CHARGE
+      kind: probe
+      array: EPIC
+      probe_col: Probes
+      delta_col: delta_beta

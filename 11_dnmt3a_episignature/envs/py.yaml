@@ -1,0 +1,27 @@
+name: dnmt3a-py
+channels: [conda-forge, bioconda, nodefaults]
+dependencies:
+  - python=3.11
+  - pandas
+  - numpy
+  - scipy
+  - statsmodels
+  - matplotlib
+  - pyranges
+  - pysam
+  - pyarrow
+  - pyyaml
+  - openpyxl
+  - pyliftover
+  - requests
+  - snakemake-minimal>=8
+  - snakemake-executor-plugin-slurm
+  - bedtools
+  - ucsc-liftover
+  - samtools
+  - bcftools
+  - pb-cpg-tools
+  - ont-modkit
+  - jupyter
+  - nbconvert
+  - rpy2

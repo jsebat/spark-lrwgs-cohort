@@ -1,0 +1,25 @@
+# Snakemake profile for SDSC Expanse (SLURM).
+# Run with the dnmt3a-py env ACTIVATED (micromamba activate dnmt3a-py); jobs inherit it, so no per-rule conda envs:
+#   snakemake --profile workflow/profiles/expanse <target>
+executor: slurm
+jobs: 40
+latency-wait: 120
+retries: 1
+use-conda: false
+printshellcmds: true
+rerun-incomplete: true
+keep-going: true
+default-resources:
+  slurm_account: ddp195
+  slurm_partition: ind-shared
+  nodes: 1                 # Expanse bank_limit plugin requires -N on every sbatch
+  mem_mb: 8000
+  runtime: 120
+  cpus_per_task: 1
+set-threads:
+  s04_extract_methylation: 8
+set-resources:
+  s04_extract_methylation:
+    mem_mb: 48000
+    runtime: 360
+    cpus_per_task: 8

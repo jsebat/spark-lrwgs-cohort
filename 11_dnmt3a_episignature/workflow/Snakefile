@@ -1,0 +1,137 @@
+# DNMT3A episignature panel - Snakemake workflow. One rule per PLAN.md step.
+import os, csv
+from snakemake.shell import shell
+configfile: "config/config.yaml"
+
+OUT = config["paths"]["output_root"]
+SIGS = config["signatures"]["layer1"]
+
+# OpenBLAS otherwise tries to allocate buffers for every core on the node (fails on Expanse login nodes)
+shell.prefix("export OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4; ")
+
+
+def manifest_rows():
+    p = config["paths"]["samples_tsv"]
+    if not os.path.exists(p):
+        return []
+    with open(p) as fh:
+        return [r for r in csv.DictReader(fh, delimiter="\t") if r.get("bam_paths")]
+
+
+def sample_ids():
+    return [r["sample_id"] for r in manifest_rows()]
+
+
+def bams_for(sample):
+    for r in manifest_rows():
+        if r["sample_id"] == sample:
+            return r["bam_paths"]
+    raise ValueError(f"sample {sample} not in manifest")
+
+
+def all_cpg_parquets(wc):
+    return [f"{OUT}/04_methylation/{s}.cpg.parquet" for s in sample_ids()]
+
+
+rule all:
+    input: f"{OUT}/report/report.html"
+
+
+rule s01_annotate_variant:
+    output:
+        md=f"{OUT}/01_variant/annotation.md",
+        js=f"{OUT}/01_variant/annotation.json"
+    conda: "../envs/py.yaml"
+    shell:
+        "python workflow/scripts/01_annotate_variant.py --config config/config.yaml --out-md {output.md} --out-json {output.js}"
+
+
+rule s02_signatures:
+    output:
+        inventory="signatures/INVENTORY.md",
+        beds=expand("signatures/hg38/{sig}.bed", sig=SIGS)
+    conda: "../envs/py.yaml"
+    shell: "python workflow/scripts/02_harmonize_signatures.py --config config/config.yaml"
+
+
+rule s03_manifest:
+    # builds config/samples.tsv from SPARK metadata + cohort variant calls, then freezes it (Expanse only)
+    input:
+        bed="resources/flag_genes/flag_genes.cds_exons.hg38.bed",
+        ind=os.path.join(config["paths"]["staging_dir"], config["paths"]["metadata"]["individuals"]),
+        smp=os.path.join(config["paths"]["staging_dir"], config["paths"]["metadata"]["samples"])
+    output: f"{OUT}/03_manifest/samples.frozen.tsv", f"{OUT}/03_manifest/samples.frozen.sha256", f"{OUT}/03_manifest/STEP_LOG.md"
+    conda: "../envs/py.yaml"
+    shell: "python workflow/scripts/03_freeze_manifest.py --config config/config.yaml"
+
+
+rule s04_extract_methylation:
+    # one job per sample; BAM list (merged or per-movie) comes from the frozen manifest
+    input:
+        bams=lambda wc: bams_for(wc.sample).split(";"),
+        manifest=f"{OUT}/03_manifest/samples.frozen.tsv"
+    output: f"{OUT}/04_methylation/{{sample}}.cpg.parquet", f"{OUT}/04_methylation/{{sample}}.cpg.parquet.qc.json"
+    params: bams=lambda wc: bams_for(wc.sample)
+    conda: "../envs/py.yaml"
+    threads: 8
+    resources: mem_mb=48000, runtime=360
+    shell: "python workflow/scripts/04_extract_methylation.py --config config/config.yaml --sample {wildcards.sample} --bams '{params.bams}' --out {output[0]} --threads {threads}"
+
+
+rule s04_all:
+    input: all_cpg_parquets
+
+
+rule s05_qc:
+    # python (py env) drives extraction; HEpiDISH + methylclock run in the R env via config.tools.rscript
+    input: all_cpg_parquets, f"{OUT}/03_manifest/samples.frozen.tsv"
+    output: f"{OUT}/05_qc/sample_qc.tsv", f"{OUT}/05_qc/probe_betas.parquet"
+    conda: "../envs/py.yaml"
+    threads: 4
+    resources: mem_mb=48000, runtime=240
+    shell: "python workflow/scripts/05_qc_composition.py --config config/config.yaml --rscript {config[tools][rscript]}"
+
+
+rule s06_layer1:
+    input: all_cpg_parquets, "signatures/INVENTORY.md", f"{OUT}/05_qc/sample_qc.tsv"
+    output: f"{OUT}/06_layer1/region_betas.parquet", f"{OUT}/06_layer1/scores.tsv"
+    conda: "../envs/py.yaml"
+    threads: 4
+    resources: mem_mb=32000, runtime=720
+    shell: "python workflow/scripts/06_layer1_scoring.py --config config/config.yaml"
+
+
+rule s07_layer2:
+    input: all_cpg_parquets, f"{OUT}/05_qc/sample_qc.tsv"
+    output: f"{OUT}/07_layer2/features.tsv", f"{OUT}/07_layer2/features_resid.tsv"
+    conda: "../envs/py.yaml"
+    threads: 4
+    resources: mem_mb=32000, runtime=480
+    shell: "python workflow/scripts/07_layer2_features.py --config config/config.yaml"
+
+
+rule s08_panel:
+    input: f"{OUT}/06_layer1/scores.tsv", f"{OUT}/05_qc/sample_qc.tsv", f"{OUT}/07_layer2/features_resid.tsv"
+    output: f"{OUT}/08_panel/ranks.tsv", f"{OUT}/08_panel/proband_report_card.tsv"
+    conda: "../envs/py.yaml"
+    resources: mem_mb=16000, runtime=60
+    shell: "python workflow/scripts/08_panel_ranking.py --config config/config.yaml"
+
+
+rule s09_stats:
+    input: f"{OUT}/08_panel/ranks.tsv", f"{OUT}/06_layer1/region_betas.parquet"
+    output: f"{OUT}/09_stats/sensitivity.tsv"
+    conda: "../envs/py.yaml"
+    threads: 4
+    resources: mem_mb=32000, runtime=360
+    shell: "python workflow/scripts/09_stats_robustness.py --config config/config.yaml"
+
+
+rule s10_report:
+    input:
+        f"{OUT}/01_variant/annotation.md", "signatures/INVENTORY.md", f"{OUT}/05_qc/sample_qc.tsv",
+        f"{OUT}/08_panel/ranks.tsv", f"{OUT}/08_panel/proband_report_card.tsv",
+        f"{OUT}/07_layer2/features_resid.tsv", f"{OUT}/09_stats/sensitivity.tsv"
+    output: f"{OUT}/report/report.html"
+    conda: "../envs/py.yaml"
+    shell: "python workflow/scripts/10_report.py --config config/config.yaml"

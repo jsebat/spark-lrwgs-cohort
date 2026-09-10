@@ -1,0 +1,94 @@
+# DNMT3A episignature panel - pipeline configuration
+# All coordinates GRCh38. BED files are 0-based half-open.
+
+project: dnmt3a_episignature_spark_lrwgs
+
+paths:
+  # Expanse (SDSC). Results live alongside the SPARK lrWGS BAMs; nothing is copied off the compute environment.
+  staging_dir: /expanse/lustre/projects/ddp195/jsebat/spark_lrwgs_staging
+  bam_dir: /expanse/lustre/projects/ddp195/jsebat/spark_lrwgs_staging/data   # <phase>/<spid>/<spid>.<movie>.hifi_reads.bam, several movies per sample
+  metadata:
+    individuals: metadata/SPARK.PacBioPilot.2026_06.individual_metadata.tsv   # relative to staging_dir
+    samples: metadata/SPARK.PacBioPilot.2026_06.sample_metadata.tsv
+    runs: metadata/SPARK.PacBioPilot.2026_06.sequencing_runs.tsv
+  reference_fasta: /expanse/projects/sebat1/jsebat/refs/hifi-wdl-resources-v3.1.0/GRCh38/human_GRCh38_no_alt_analysis_set.fasta
+  variant_calls:
+    small_variants_bcf: /expanse/lustre/projects/ddp195/jsebat/glnexus_full/54164709/freeze1.cohort.bcf
+    sv_vcf: /expanse/lustre/projects/ddp195/jsebat/sawfish_bench/N105_54164485/joint_N105/genotyped.sv.vcf.gz   # sawfish joint genotyping, 105 samples
+  merged_bam_dir: /expanse/lustre/projects/ddp195/jsebat/sawfish_bench/N105_54164485   # <spid>.GRCh38.hifi_reads.bam per-sample merged (105); fall back to per-movie BAMs in bam_dir
+  scratch_dir: /expanse/lustre/scratch/jsebat/temp_project/dnmt3a-episignature
+  output_root: results
+  samples_tsv: config/samples.tsv                    # not committed; see config/samples.template.tsv
+  resources_dir: resources
+  signatures_dir: signatures/hg38
+
+thresholds:
+  min_cpgs: 10              # region with fewer CpGs -> NA for that sample
+  # min_depth was 15 (pre-registered). Changed to 10 on 2026-09-10 by Jonathan after the step 06 acceptance check
+  # failed (median NA 25-59% at 15x with ~21x cohort coverage). The proband TBRS result is identical at 10 and 15
+  # (results/09_stats/sensitivity.tsv). The report dated 2026-09-10 was generated at 15; steps 06-10 must be rerun
+  # for the change to take effect.
+  min_depth: 10             # mean read depth over region below this -> NA
+  region_pad: 250           # bp added each side of each probe CpG / DMR before merging
+  min_regions_per_signature: 20
+  n_permutations: 1000
+  min_frac_cpgs_10x: 0.70   # step 04 acceptance
+
+proband_variant:
+  chrom: chr2
+  start: 25244326           # sawfish joint VCF: POS (anchor base, NOT deleted); REF = 303 bp, ALT = anchor base
+  end: 25244628             # INFO END = last deleted base; SVLEN = 302
+  # "1-based-inclusive" treats start..end as deleted; "bed" treats start as the base BEFORE the first deleted base
+  # (0-based start / VCF anchor). Verified 2026-09-09 against the VCF REF allele: deleted bases are 25244327-25244628,
+  # so "bed" is correct. Frame call depends on this - see results/01_variant/annotation.md and CHECKPOINT.md.
+  coordinate_convention: bed
+  source_call: sawfish joint_N105 genotyped.sv.vcf.gz, ID sawfish:74:4676:0:0, FILTER PASS, QUAL 645, 1 heterozygous carrier / 105
+  gene: DNMT3A
+  transcript: ENST00000264709   # MANE Select; NM_175629 / NM_022552 encode the same 912-aa isoform 1
+  zygosity: heterozygous
+  inheritance: de novo          # confirmed by Jonathan 2026-09-09
+
+ensembl:
+  rest_url: https://rest.ensembl.org
+  cache_dir: results/01_variant/ensembl_cache   # raw REST responses kept for provenance (gitignored)
+
+signatures:
+  layer1: [TBRS_LOF, DNMT3A_R882, DNMT3A_GOF, DNMT1, DNMT3B, NSD1_SOTOS, NEG_KMT2D, NEG_CHD7]
+
+flag_genes: [DNMT3A, DNMT1, DNMT3B, NSD1, SETD2, EZH2]
+
+# Pre-registered predictions (CLAUDE.md) - evaluated verbatim by step 08; do not edit after scoring starts.
+# shape_r_sign: expected sign of the proband's shape_r; rank: expected children-only rank of the proband on shape_r
+# ("1" = first; "top_quartile"; "null" = indistinguishable from controls, i.e. |z of shape_r vs children| < 2).
+predictions:
+  TBRS_LOF:    {shape_r_sign: "+", rank: "1",            note: "hypomethylated; primary hypothesis"}
+  DNMT3A_R882: {shape_r_sign: "+", rank: "top_quartile", note: "positive but weaker than TBRS_LOF"}
+  DNMT3A_GOF:  {shape_r_sign: "-", rank: "null",         note: "negative correlation expected"}
+  DNMT1:       {shape_r_sign: "0", rank: "null",         note: "~0"}
+  DNMT3B:      {shape_r_sign: "0", rank: "null",         note: "~0"}
+  NSD1_SOTOS:  {shape_r_sign: "+", rank: "top_quartile", note: "modest positive (known TBRS overlap)"}
+  NEG_KMT2D:   {shape_r_sign: "0", rank: "null",         note: "negative control"}
+  NEG_CHD7:    {shape_r_sign: "0", rank: "null",         note: "negative control"}
+layer2_predictions:
+  satII_III_beta: {resid_within: 2, note: "satellite methylation within control range (DNMT3B/ICF readout normal)"}
+  age_accel_resid: {sign: "+", note: "epigenetic age acceleration > 0"}
+
+tools:
+  cpg_scores: aligned_bam_to_cpg_scores     # pb-CpG-tools
+  cpg_scores_args: "--modsites-mode reference --pileup-mode model"
+  fallback: "modkit pileup --cpg --combine-strands"
+  rscript: /home/jsebat/micromamba/envs/dnmt3a-r/bin/Rscript   # R env (EpiDISH, methylclock) on Expanse
+
+qc:
+  primary_clock: Horvath      # dnam_age / age_accel_resid columns; PedBE, skinHorvath, Hannum, Levine also reported
+  min_depth_probe: 10
+  min_depth_sample: 12
+
+hpc:
+  cluster: expanse
+  ssh_alias: expanse         # works from WSL Ubuntu on the dev box (key in WSL ~/.ssh); Windows-side key is NOT authorized
+  project_dir: /expanse/lustre/projects/ddp195/jsebat/dnmt3a-episignature
+  scheduler: slurm
+  account: ddp195
+  partition: ind-shared      # allocation QOS seen: ind-normal, ind-shared-normal (TODO confirm partition name with sinfo)
+  qos: ind-shared-normal
