@@ -1,7 +1,7 @@
 # DNMT3A episignature panel - pipeline configuration
 # All coordinates GRCh38. BED files are 0-based half-open.
 
-project: dnmt3a_episignature_spark_lrwgs
+project: episignature_panel_spark_lrwgs
 
 paths:
   # Expanse (SDSC). Results live alongside the SPARK lrWGS BAMs; nothing is copied off the compute environment.

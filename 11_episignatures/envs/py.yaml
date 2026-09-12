@@ -12,6 +12,7 @@ dependencies:
   - pyarrow
   - pyyaml
   - openpyxl
+  - pypdf
   - pyliftover
   - requests
   - snakemake-minimal>=8

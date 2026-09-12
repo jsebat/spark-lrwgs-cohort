@@ -46,3 +46,6 @@ logs/
 !results/09_stats/STEP_LOG.md
 !results/report/
 !results/report/CHECKPOINT.md
+
+# step-02 output: committing it makes snakemake skip the rule that builds the BEDs
+signatures/INVENTORY.md

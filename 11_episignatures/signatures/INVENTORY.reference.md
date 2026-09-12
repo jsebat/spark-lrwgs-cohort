@@ -1,4 +1,10 @@
-# Signature inventory (PLAN step 02)
+# Signature inventory - committed reference copy
+
+> This is a **reference copy**, kept for provenance and as an expected-output check. The live file
+> `signatures/INVENTORY.md` is an output of rule `s02_signatures` and is deliberately NOT committed:
+> when it was, Snakemake saw the requested target already present on a fresh clone and skipped step 02
+> entirely, leaving zero BEDs on disk while reporting "Nothing to be done". After running step 02,
+> compare the generated inventory against the table below; the region counts should match.
 
 Generated 2026-09-09T21:58:36 by workflow/scripts/02_harmonize_signatures.py. region_pad = 250 bp; regions merged within signature; hg38; BED 0-based half-open. Source provenance: signatures/raw/<ID>/SOURCE.md and signatures/sources.yaml.
 
