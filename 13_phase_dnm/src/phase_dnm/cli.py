@@ -97,6 +97,40 @@ def cmd_transmission(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hapdepth(a: argparse.Namespace) -> int:
+    from .phasing.hapdepth import hapdepth  # pysam, lazy
+    region = None
+    if a.region:
+        chrom, span = a.region.split(":")
+        s, e = span.replace(",", "").split("-")
+        region = (chrom, int(s), int(e))
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    summ = hapdepth(a.bam, a.bai, a.out, a.summary, bin_size=a.bin_size, min_mapq=a.min_mapq, region=region)
+    tot = sum(v["n_reads"] for v in summ.values())
+    sys.stderr.write("hapdepth: %d contigs/regions, %d primary reads, written %s\n" % (len(summ), tot, a.out))
+    return 0
+
+
+def cmd_xo_reads(a: argparse.Namespace) -> int:
+    from .phasing.xo_reads import classify  # pysam, lazy
+    thr = load_thresholds(a.thresholds)
+    xo = thr.get("xo_reads", {})
+    parent_bam = {}
+    parent_vcf = {}
+    if a.father_bam:
+        parent_bam["F"] = (a.father_bam, a.father_bai)
+        parent_vcf["F"] = (a.father_vcf, a.father_vcf_index, a.father)
+    if a.mother_bam:
+        parent_bam["M"] = (a.mother_bam, a.mother_bai)
+        parent_vcf["M"] = (a.mother_vcf, a.mother_vcf_index, a.mother)
+    if not parent_bam:
+        sys.exit("give at least one parent's --*-bam and --*-vcf")
+    counts = classify(a.changepoints, a.out, parent_bam, parent_vcf,
+                      min_spanning=xo.get("min_spanning_reads", 3), min_mapq=xo.get("min_mapq", 20))
+    sys.stderr.write("xo-reads: %s -> %s\n" % (a.changepoints, " ".join("%s=%d" % kv for kv in sorted(counts.items()))))
+    return 0
+
+
 def _trio_args(sp: argparse.ArgumentParser):
     sp.add_argument("--child", required=True, help="child sample id")
     sp.add_argument("--father"), sp.add_argument("--mother"), sp.add_argument("--sex", help="child sex 1/2/M/F")
@@ -120,6 +154,23 @@ def build_parser() -> argparse.ArgumentParser:
     _trio_args(t)
     t.add_argument("--orientation", help="<child>.orientation.tsv (default: <out-dir>/<child>.orientation.tsv)")
     t.set_defaults(func=cmd_transmission)
+
+    h = sub.add_parser("hapdepth", help="M1: per-haplotype depth in fixed bins from one haplotagged BAM (pysam)")
+    h.add_argument("--bam", required=True), h.add_argument("--bai", help="index if not beside the BAM")
+    h.add_argument("--out", required=True, help="<sample>.hapdepth.tsv.gz")
+    h.add_argument("--summary", help="<sample>.hapdepth.summary.json")
+    h.add_argument("--bin-size", type=int, default=1000), h.add_argument("--min-mapq", type=int, default=20)
+    h.add_argument("--region", help="chrom:start-end (smoke tests); default all primary contigs")
+    h.set_defaults(func=cmd_hapdepth)
+
+    x = sub.add_parser("xo-reads", help="M1b2: classify change points as CROSSOVER / SWITCH_ERROR from parent reads (pysam)")
+    x.add_argument("--changepoints", required=True, help="<child>.changepoints.tsv from `transmission`")
+    x.add_argument("--out", required=True, help="<child>.changepoints.resolved.tsv")
+    x.add_argument("--father"), x.add_argument("--mother")
+    x.add_argument("--father-bam"), x.add_argument("--father-bai"), x.add_argument("--father-vcf"), x.add_argument("--father-vcf-index")
+    x.add_argument("--mother-bam"), x.add_argument("--mother-bai"), x.add_argument("--mother-vcf"), x.add_argument("--mother-vcf-index")
+    x.add_argument("--thresholds")
+    x.set_defaults(func=cmd_xo_reads)
 
     for name, when in PLANNED.items():
         s = sub.add_parser(name, help="planned (%s)" % when)

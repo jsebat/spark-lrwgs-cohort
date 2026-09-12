@@ -19,6 +19,14 @@ transmission:                # P3
   min_gq: 20
   max_splits: 6              # change points per parent block
 
+xo_reads:                    # P3, M1b2 — crossover vs parental switch error from the parent's reads
+  min_spanning_reads: 3      # haplotagged reads (same PS) spanning EVERY consecutive het pair across the change interval -> CROSSOVER
+  min_mapq: 20               # 0 spanning reads at any gap -> SWITCH_ERROR; 1-2 -> AMBIGUOUS
+
+hapdepth:                    # P7 input
+  bin_size: 1000
+  min_mapq: 20
+
 hapmatrix:                   # P7
   k: [3, 5]                  # per-haplotype depth thresholds for "observed"; k=5 is the working one at ~11x/hap
   error_reads: 1             # e = max(error_reads, error_frac * dp)
