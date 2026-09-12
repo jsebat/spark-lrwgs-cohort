@@ -112,6 +112,10 @@ Lustre; nothing GIAB touches any fold, calibration or threshold (P16).
 - No duos (P19, Q14). No GIAB until week 4 (P16).
 
 ## Risks specific to M1
+- **sbatch executes a spool copy of the script**, so `BASH_SOURCE`-relative paths resolve to
+  `/cm/local/apps/slurm/var/spool/…`. The first two orientation jobs (2026-09-12) died in 1 s on
+  `source config/phase_dnm.env` for exactly this reason. Every job script in this module resolves the
+  module directory from `PHASE_DNM_HOME`, then `SLURM_SUBMIT_DIR`, and only then `BASH_SOURCE`.
 - The Lustre analysis directory was unreachable on 2026-09-11; everything M1 needs is on the
   filer, but the baseline de novo tables for P18 are on Lustre — copy them to the filer first.
 - `phase_haplotags` covers phased blocks only; reads in unphased regions have no row and are

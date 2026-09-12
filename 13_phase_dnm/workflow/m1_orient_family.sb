@@ -15,7 +15,13 @@
 # Measured: ~50k sites/s single core => ~3 min per child for an 8M-site family VCF; 40 min covers a quad twice.
 set -euo pipefail
 FAMILY="${1:?family id}"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# sbatch runs a COPY of this script from the Slurm spool directory, so BASH_SOURCE does not point at the
+# module. Resolve the module directory from (1) PHASE_DNM_HOME, (2) the directory sbatch was invoked
+# from, (3) this file's location - the last only works for interactive runs. (First run failed on this.)
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$HERE/src/phase_dnm" ] || { echo "ERROR: cannot locate the 13_phase_dnm directory (set PHASE_DNM_HOME or sbatch from it); got '$HERE'" >&2; exit 2; }
 [ -f "$HERE/../config/cohort.env" ] && source "$HERE/../config/cohort.env"
 source "$HERE/config/phase_dnm.env"
 : "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
