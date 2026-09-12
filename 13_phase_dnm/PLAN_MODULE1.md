@@ -1,5 +1,14 @@
 # Module 1 build plan — phasing orientation, transmission map, QC
 
+## Status
+- **Week 1 (2026-09-12): scaffold, VCF-level minitrio, `orient.py` — done, 12 tests passing.** Package `src/phase_dnm`
+  (pure-Python trio VCF reader, `phase-dnm orient` CLI), `tests/make_minitrio_vcf.py` (simulated trio with known
+  haplotypes, one crossover per parent per chromosome, HiPhase-shaped per-sample phased VCFs, switch errors,
+  planted DNMs, truth tables), `config/thresholds.yaml`, `containers/phase_dnm.def`. Orientation splits blocks at
+  located phase-switch errors (P2 addendum). Reader throughput ~50 k sites/s → ~3 min per real family, single core.
+  Not yet done from the week-1 list: the read-level minitrio (needs the container; moves to week 2) and the
+  two-real-family run (needs an sbatch line shown first).
+
 Three weeks, then a gate. Each week ends with something that runs on `tests/data/minitrio`
 **and** on at least two real families (one of each quad, so sib structure is exercised from day
 one; the two duos are excluded, P19). Deliverable: `phase/<FAMILY>/` for every complete-trio

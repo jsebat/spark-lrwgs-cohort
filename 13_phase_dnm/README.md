@@ -89,7 +89,9 @@ globs in `config/phase_dnm.env.example`, confirmed on the filer 2026-09-12):
 | file | format | content |
 |---|---|---|
 | `<SAMPLE>.phased.blocks.bed` | BED | one row per HiPhase block: `chrom start end PS n_het_phased block_len` |
-| `<FAMILY>.orientation.tsv` | TSV | one row per **child** block: `PS chrom start end n_inf_pat n_inf_mat orientation{HAP1_PAT,HAP1_MAT,AMBIGUOUS} vote_frac n_mendel_err` |
+| `<CHILD>.orientation.tsv` | TSV | one row per **child block segment** (implemented, `phase-dnm orient`): `chrom phase_block_id segment n_segments start end switch_pos n_het_phased n_inf_pat n_inf_mat n_informative vote_frac orientation{HAP1_PAT,HAP1_MAT,AMBIGUOUS} reason{OK,SPLIT_AT_SWITCH,LOW_SITES,MIXED_VOTES,NO_INFORMATIVE_SITES} n_dissent`. A HiPhase block whose votes run one sign then the other is a phase-switch error; it is split at the located change point into segments oriented separately (P2), so a read's label is looked up by `(phase_block_id, pos)`, not by `phase_block_id` alone. |
+| `<CHILD>.orientation.dissent.tsv` | TSV | positions voting against their block's orientation (switch-error / genotype-error candidates): `chrom pos phase_block_id block_orientation` |
+| `<CHILD>.orientation.summary.json` | JSON | per-chromosome and total counters (`n_het`, `n_het_phased`, `n_informative`, `n_uninformative`, `n_mendel_inconsistent`, `n_low_gq`, `n_parent_missing`, `n_skipped_sex_chrom`), block counts, `frac_bp_ambiguous`, `mendel_inconsistent_per_informative`, the parameters and `thresholds_version` used |
 | `<FAMILY>.transmission.bed` | BED | one row per contiguous segment per parent: `chrom start end parent{F,M} transmitted_hap{1,2} parent_PS n_informative confidence boundary_type{CROSSOVER,BLOCK_EDGE,CHROM_END}` |
 | `<FAMILY>.crossovers.tsv` | TSV | `chrom left_bound right_bound parent resolution_bp n_inf_left n_inf_right in_parent_block{Y,N}` — a within-block switch (`Y`) is a crossover **or** a phase-switch error; see P3 |
 | `<SAMPLE>.hapdepth.tsv.gz` | TSV | per-haplotype depth in fixed bins (default 1 kb): `chrom start end dp_hap1 dp_hap2 dp_untagged` — feeds `hap_obs` and the SV adapter without re-reading BAMs |

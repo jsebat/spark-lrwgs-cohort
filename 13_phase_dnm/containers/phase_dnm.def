@@ -1,0 +1,31 @@
+Bootstrap: docker
+From: mambaorg/micromamba:1.5.8
+
+%labels
+    Module 13_phase_dnm of spark-lrwgs-cohort
+    Purpose phase-aware de novo calling for long-read trios
+
+%post
+    # Pinned versions are what the training manifest records; bump deliberately, never implicitly.
+    micromamba install -y -n base -c conda-forge -c bioconda \
+        python=3.12 \
+        pysam=0.22.1 cyvcf2=0.31.1 polars=1.9.0 numpy=1.26.4 pyyaml=6.0.2 \
+        xgboost=2.1.1 scikit-learn=1.5.2 pytest=8.3.3 \
+        samtools=1.21 bcftools=1.21 htslib=1.21 \
+        whatshap=2.3 minimap2=2.28 pbmm2=1.14.99 hiphase=1.4.5 trgt=1.4.0 \
+        snakemake-minimal=8.20.3 && micromamba clean -a -y
+    # sawfish is not on bioconda at pin time; the WDL's pb_wdl_base image is used for read-level
+    # SV fixtures until it is (DESIGN Q10).
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+    export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+    export LC_ALL=C.UTF-8
+
+%runscript
+    exec phase-dnm "$@"
+
+%test
+    python -c "import pysam, cyvcf2, polars, xgboost, sklearn, yaml; print('imports ok')"
+    samtools --version | head -1
+    bcftools --version | head -1
