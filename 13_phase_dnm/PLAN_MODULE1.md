@@ -44,6 +44,14 @@
   wrong, 49/49 change points explained by a planted crossover or parental switch, 32/48 crossovers recovered
   (rest between blocks or < 10 votes on a side), 95.9 % parental hets resolved. Crossover vs. parental switch is
   **not** decidable from the VCF (P3) → read-level step M1b2 next, together with `hapdepth`.
+- **Read-level steps written (2026-09-12):** `hapdepth` (per-haplotype depth in 1 kb bins over each primary read's
+  reference span; pysam, lazily imported) and `xo-reads` (M1b2: weakest-link count of the parent's haplotagged
+  reads spanning consecutive phased hets across each change interval → CROSSOVER / SWITCH_ERROR / AMBIGUOUS).
+  `hapdepth` smoke on a 5 Mb region of one BAM: 4,632 primary reads in 1.1 s, 56 MB RSS, per-haplotype means
+  7.9 / 7.5 + 0.65 untagged + 0.24 low-MAPQ → ~17 min and < 1 GB per ~22× genome; run as a 105-task array
+  (`workflow/hapdepth_array.sb`, 1 core, 2 GB, 1 h). pysam 0.24.1 is in the lab's `dnmt3a-py` env, and the WDL's
+  hiphase / pbmm2 / sawfish / trgt / pb_wdl_base images are in the miniwdl singularity cache, so no container
+  build is needed for week 2.
 - **ICR spot check (independent truth from `09_methylation`, nearest-informative-SNV parent of origin at 18
   imprinting control regions, 4 children, 41 ICR rows): 30 concordant, 0 discordant**; 3 ICRs had no local phase
   in the methylation table, 6 fell in gaps between blocks, 2 in `LOW_SITES` segments. Lustre was reachable again
