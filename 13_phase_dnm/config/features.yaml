@@ -151,13 +151,9 @@ D_phase_parents_symmetric:   # rf_safe: functions of a parent's two haplotypes, 
   - {name: p_max_alt_hap_frac,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over 4, status: add}
   - {name: p_untagged_frac_max,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over parents, status: add}
   - {name: p_tr_n_haps_overlapping_child_expanded, classes: [TR], source: hapmatrix, rf_safe: true, symmetric: count over 4, status: add, why: "parental haplotypes whose length distribution overlaps the child's expanded allele; expect 0"}
-  # parent-of-origin-SELECTED but haplotype-symmetric: the child's parent of origin is a property of the child's own
-  # genome (M1 orientation with the real parents) and survives the swap; which of that parent's two haplotypes was
-  # transmitted is NOT defined in a synthetic trio, so only max/min over the two are used (DESIGN P11 clarification)
-  - {name: po_parent_max_alt_any_hap, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over the 2 haplotypes of the child's parent of origin, status: add, why: "alt reads in the parent the child's alt haplotype came from, either haplotype; more targeted than the max over both parents"}
-  - {name: po_parent_min_hap_dp,      classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: min over the 2 haplotypes of the child's parent of origin, status: add}
-  - {name: po_parent_both_haps_obs_k5, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: both haplotypes of the parent of origin observed, status: add}
-  - {name: po_undefined,              classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "child's alt haplotype is in an AMBIGUOUS segment; the po_* features fall back to the both-parent maxima and this flag says so"}
+  # RULE (JS, 2026-09-12): the classifier never sees parent of origin or transmission, not even as a selector.
+  # Parent-of-origin inference is done in REAL trios only (M2 layer). Parent-side features here are symmetric over
+  # BOTH parents and BOTH haplotypes; the child's haplotypes are sorted (alt-carrying first), never labelled pat/mat.
   - {name: p_sv_max_hap_depth_change, classes: [SV], source: hapmatrix, rf_safe: true, symmetric: max abs over 4, status: add}
 
 D_phase_six:
