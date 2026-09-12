@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=xci_pileup
+#SBATCH --output=logs/xci_pileup.%A_%a.out
+#SBATCH --partition=CHANGE_ME
+#SBATCH --qos=CHANGE_ME
+#SBATCH --account=CHANGE_ME
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=02:00:00
+#SBATCH --array=1-1
+#
+# Per-haplotype CpG methylation pileups over the island sets, one array task per sample.
+#
+# Input BAMs must carry BOTH the base-modification tags (MM/ML) and the haplotype tag (HP). Long-read data
+# realigned from FASTQ loses MM/ML and is useless here even though it looks fine otherwise; take the
+# haplotagged BAM the variant-calling pipeline emitted rather than re-aligning.
+#
+# Usage:
+#   mkdir -p logs pileups
+#   sbatch --array=1-$(wc -l < bams.txt) 02_hap_pileups.sb bams.txt regions.bed pileups
+#
+# bams.txt: one line per sample, "<sample_id><TAB><path to haplotagged bam>"
+# regions.bed: concatenation of chrX_cgi.bed and autosomal_cgi.bed, padded if you want flanking context
+
+set -euo pipefail
+
+BAMS="${1:?usage: sbatch 02_hap_pileups.sb bams.txt regions.bed outdir}"
+REGIONS="${2:?usage: sbatch 02_hap_pileups.sb bams.txt regions.bed outdir}"
+OUTDIR="${3:?usage: sbatch 02_hap_pileups.sb bams.txt regions.bed outdir}"
+
+# Single-threaded BLAS: the numeric libraries pulled in by the tooling will otherwise oversubscribe the
+# allocation and fail with allocation errors on a shared partition.
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+
+: "${AB2CS:=aligned_bam_to_cpg_scores}"   # pb-CpG-tools; override with the absolute path if not on PATH
+: "${REF:?set REF to the reference FASTA used for alignment}"
+
+mkdir -p "$OUTDIR"
+LINE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$BAMS")
+SAMPLE=$(echo "$LINE" | cut -f1)
+BAM=$(echo "$LINE" | cut -f2)
+
+[[ -n "$SAMPLE" && -n "$BAM" ]] || { echo "bad line ${SLURM_ARRAY_TASK_ID} in $BAMS" >&2; exit 1; }
+[[ -f "$BAM" ]] || { echo "missing BAM for $SAMPLE: $BAM" >&2; exit 1; }
+
+# Fail early and loudly if the modification tags are absent, rather than emitting empty pileups.
+if ! samtools view "$BAM" | head -2000 | grep -q $'\tMM:Z:\|\tMm:Z:'; then
+  echo "ERROR: $SAMPLE has no MM/ML base-modification tags; this BAM cannot be used" >&2
+  exit 1
+fi
+
+echo "[$(date)] $SAMPLE -> $OUTDIR/$SAMPLE"
+"$AB2CS" \
+  --bam "$BAM" \
+  --output-prefix "$OUTDIR/$SAMPLE" \
+  --ref "$REF" \
+  --threads "${SLURM_CPUS_PER_TASK:-4}" \
+  --regions "$REGIONS"
+
+# pb-CpG-tools writes <prefix>.{combined,hap1,hap2}.bed.gz plus indexes and bigwigs.
+for h in combined hap1 hap2; do
+  f="$OUTDIR/$SAMPLE.$h.bed.gz"
+  [[ -s "$f" ]] || { echo "ERROR: $SAMPLE missing or empty $h pileup" >&2; exit 1; }
+done
+echo "[$(date)] $SAMPLE done"

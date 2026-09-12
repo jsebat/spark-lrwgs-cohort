@@ -67,3 +67,26 @@ allele-balance filters, WGS precedence for families on two platforms, per-cohort
 and sibling controls, Bonferroni ranking, collapsed burden, and clonal-hematopoiesis flags (gnomAD outlier_lof plus a
 curated driver list) that exclude genes from the burden only. Under-transmission on every arm marks spurious parental
 heterozygote calls; the control arms are not optional.
+
+### Methylation episignatures (11_episignatures)
+A self-contained Snakemake workflow that harmonises published DNA-methylation episignatures to one reference build,
+derives concordance-filtered cores wherever two or more independent sources describe the same syndrome, and scores
+every genome by shape correlation against a leave-one-out null of unaffected children. Not specific to any one gene:
+a syndrome-specific run is one configuration of the panel. Includes a rigor audit (how many signatures rest on a
+single laboratory), an evidence table recording which signatures can carry interpretation, and per-sample panel
+scoring. See `11_episignatures/README.md`, `CLAUDE.md` and `PLAN.md`.
+
+### X-chromosome inactivation (12_x_inactivation)
+Skew in every female from the same HiFi reads, with no extra assay. The problem this solves is that read-based
+phasers emit ~1,000 independent phase blocks per X, so signed per-haplotype statistics cancel and only a
+noise-inflated absolute value survives. `03_trio_phase_x.py` orients every block by transmission (the father is
+hemizygous, so a daughter's paternal allele is known at every heterozygous site), stitching the chromosome onto one
+pair of parental labels and making the signed statistic meaningful; within-block vote consistency is the built-in
+check. `04_xci_skew.py` reports both the transmission-phased (directional) and folded (magnitude-only) estimators,
+the latter deconvolved against a noise floor built from autosomal CpG islands matched on methylation level.
+`05_escape_status.py` derives subject-versus-escape status from the cohort itself rather than a published list, and
+recovering known escapees is the positive control. `06_sv_parental_haplotype.py` assigns a structural variant that
+the phaser left unphased — a hemizygous deletion retains no heterozygous site — to a parental haplotype using
+breakpoint-spanning reads, which is what connects a de novo SV to the direction of skew. `07_denovo_x_screen.py`
+screens de novo and rare X-linked variants against skew with a synonymous-variant control for ancestry. Note that
+skewing is acquired with age, so generations should not be pooled when defining outliers.
