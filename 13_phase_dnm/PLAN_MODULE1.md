@@ -44,6 +44,15 @@
   wrong, 49/49 change points explained by a planted crossover or parental switch, 32/48 crossovers recovered
   (rest between blocks or < 10 votes on a side), 95.9 % parental hets resolved. Crossover vs. parental switch is
   **not** decidable from the VCF (P3) → read-level step M1b2 next, together with `hapdepth`.
+- **Cohort run of orient + transmission (2026-09-12, array 54269951, 33/33 COMPLETED, 310–648 s per family, max
+  MaxRSS 663 MB).** Transmission per meiosis (35 paternal, 35 maternal): parental hets resolved to
+  transmitted/untransmitted **97.6 % (F) / 97.5 % (M)** het-weighted (92.6 / 92.8 % bp-weighted; range
+  96.2–98.8 %); Mendelian-inconsistent per informative site 0.0002 (0.0001–0.0003); **change-point candidates
+  median 250 per paternal meiosis (193–279) and 273 per maternal (231–315), 18,315 in total** — crossovers plus
+  parental switch errors, to be separated by `xo-reads` (M1b2). Resolution intervals: median 17 kb, p90 38 kb
+  (1,663 < 1 kb; 214 ≥ 100 kb). Measurement only: the maternal excess of ~23 candidates per meiosis has the sign
+  and order of the known maternal excess of crossovers (~1.6×; unverified figure) but could equally be more
+  maternal switch errors — the read-level step decides. Table: `cohort_transmission_qc.tsv` on the filer.
 - **Read-level steps written (2026-09-12):** `hapdepth` (per-haplotype depth in 1 kb bins over each primary read's
   reference span; pysam, lazily imported) and `xo-reads` (M1b2: weakest-link count of the parent's haplotagged
   reads spanning consecutive phased hets across each change interval → CROSSOVER / SWITCH_ERROR / AMBIGUOUS).
