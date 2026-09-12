@@ -1,0 +1,182 @@
+# Feature registry for 13_phase_dnm — FIRST CUT (2026-09-12), to argue over.
+#
+# Every feature the module can emit is declared here. features/registry.py loads this file and
+#   - builds the M2/M3 output vector from ALL features,
+#   - builds RF training/scoring matrices ONLY from features with rf_safe: true, and refuses to
+#     run otherwise (the refusal, and the hash of this file, go into training_manifest.json).
+#
+# Fields
+#   classes  : which variant classes the feature is defined for (SNV, INDEL, SV, TR)
+#   source   : caller | context | bam | hapmatrix | transmission | cohort
+#   rf_safe  : true  -> computable identically for SynthDNM synthetic positives and real negatives
+#              false -> needs the parent-child relationship (transmission map); rule/likelihood layer only
+#   symmetric: for parent-side features, how symmetry over the two haplotypes / two parents is achieved
+#   synthdnm : name of the equivalent column in synthdnm universal set, if any
+#   status   : keep | add | drop | verify   (verify = depends on a field whose presence in our callset is unconfirmed, Q8)
+#   why      : one line of rationale (required for add/drop and for every rf_safe: false)
+#
+# Symmetry rule (DESIGN P11a): a parent-side feature is rf_safe only if it is invariant under
+# swapping the parent's two haplotypes AND under swapping the two parents (min/max/sum/sorted).
+
+version: 0.1
+k_thresholds: [3, 5]
+
+# ---------------------------------------------------------------------------------------------
+# A. Caller and genotype quality (SynthDNM's territory, generalised)
+# ---------------------------------------------------------------------------------------------
+A_caller:
+  # --- the 21 SynthDNM "universal" features: all kept, all rf_safe ---
+  - {name: child_AR,   classes: [SNV, INDEL],         source: caller, rf_safe: true, synthdnm: child_AR,  status: keep}
+  - {name: min_AR,     classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: min over parents, synthdnm: min_AR, status: keep}
+  - {name: max_AR,     classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: max over parents, synthdnm: max_AR, status: keep}
+  - {name: child_GQ,   classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, synthdnm: child_GQ,  status: keep}
+  - {name: min_GQ,     classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, symmetric: min over parents, synthdnm: min_GQ, status: keep}
+  - {name: max_GQ,     classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, symmetric: max over parents, synthdnm: max_GQ, status: keep}
+  - {name: child_DP,   classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, synthdnm: child_DP,  status: keep}
+  - {name: min_DP,     classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, symmetric: min over parents, synthdnm: min_DP, status: keep}
+  - {name: max_DP,     classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, symmetric: max over parents, synthdnm: max_DP, status: keep}
+  - {name: child_PL0,  classes: [SNV, INDEL],         source: caller, rf_safe: true, synthdnm: child_PL0, status: verify, why: "GLnexus PL presence per sample (Q8)"}
+  - {name: child_PL1,  classes: [SNV, INDEL],         source: caller, rf_safe: true, synthdnm: child_PL1, status: verify}
+  - {name: child_PL2,  classes: [SNV, INDEL],         source: caller, rf_safe: true, synthdnm: child_PL2, status: verify}
+  - {name: min_PL0,    classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: min over parents, synthdnm: min_PL0, status: verify}
+  - {name: max_PL0,    classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: max over parents, synthdnm: max_PL0, status: verify}
+  - {name: min_PL1,    classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: min over parents, synthdnm: min_PL1, status: verify}
+  - {name: max_PL1,    classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: max over parents, synthdnm: max_PL1, status: verify}
+  - {name: min_PL2,    classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: min over parents, synthdnm: min_PL2, status: verify}
+  - {name: max_PL2,    classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: max over parents, synthdnm: max_PL2, status: verify}
+  - {name: child_AB,   classes: [SNV, INDEL, SV],     source: caller, rf_safe: true, synthdnm: child_AB,  status: keep}
+  - {name: indel_flag, classes: [SNV, INDEL],         source: caller, rf_safe: true, synthdnm: indel_flag, status: keep}
+  - {name: haploid_flag, classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, synthdnm: haploid_flag, status: keep, why: "sex-aware via PED + PAR BED, as in synthdnm preprocess"}
+  # --- additions for our callers ---
+  - {name: site_qual,       classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, status: add, why: "QUAL exists for all three callers; GLnexus QUAL is site-level and cohort-size dependent -> verify scaling (synthdnm drops INFO_DP/AN for that reason)"}
+  - {name: site_filter_fail, classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, status: add, why: "FILTER != PASS as flag"}
+  - {name: multiallelic,    classes: [SNV, INDEL, TR],     source: caller, rf_safe: true, status: add}
+  - {name: glnexus_rnc_child, classes: [SNV, INDEL],       source: caller, rf_safe: true, status: verify, why: "GLnexus reason-no-call code, categorical (Q8)"}
+  - {name: parent_rnc_any,  classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: any over parents, status: verify}
+  - {name: indel_len,       classes: [INDEL],              source: caller, rf_safe: true, status: add}
+  - {name: homopolymer_run, classes: [SNV, INDEL],         source: context, rf_safe: true, status: add, why: "dominant HiFi indel error mode"}
+  - {name: seq_entropy_21bp, classes: [SNV, INDEL],        source: context, rf_safe: true, status: add}
+  - {name: cpg_context,     classes: [SNV],                source: context, rf_safe: true, status: add, why: "CpG transitions have ~10x DNM rate; also flags deamination-like artefacts"}
+  - {name: in_str,          classes: [SNV, INDEL, SV],     source: context, rf_safe: true, status: add, why: "overlap with TRGT catalogue or simpleRepeat"}
+  # SV-specific caller fields (sawfish)
+  - {name: svtype,          classes: [SV], source: caller, rf_safe: true, status: add, why: "categorical DEL/INS/DUP/INV/BND"}
+  - {name: svlen_log10,     classes: [SV], source: caller, rf_safe: true, status: add}
+  - {name: bp_precision,    classes: [SV], source: caller, rf_safe: true, status: add, why: "CIPOS+CIEND width; sawfish reports breakpoint homology"}
+  - {name: child_sv_support, classes: [SV], source: caller, rf_safe: true, status: add, why: "sawfish per-sample alt-supporting read count"}
+  - {name: max_parent_sv_support, classes: [SV], source: caller, rf_safe: true, symmetric: max over parents, status: add}
+  - {name: bp_homology_len, classes: [SV], source: caller, rf_safe: true, status: add, why: "microhomology at breakpoints (sawfish INFO); mechanism + artefact signal"}
+  - {name: me_or_tandem_signature, classes: [SV], source: context, rf_safe: true, status: add, why: "insertion sequence matches a mobile element / tandem dup of flank"}
+  # TR-specific caller fields (TRGT); allele purity intentionally absent (unusable on the multi-motif catalogue, repo README)
+  - {name: child_AL_expanded,  classes: [TR], source: caller, rf_safe: true, status: add, why: "TRGT AL of the expanded child allele"}
+  - {name: child_AL_other,     classes: [TR], source: caller, rf_safe: true, status: add}
+  - {name: child_SD_expanded,  classes: [TR], source: caller, rf_safe: true, status: add, why: "spanning reads on the expanded allele (tr_outliers.py QC rule)"}
+  - {name: min_parent_SD,      classes: [TR], source: caller, rf_safe: true, symmetric: min over parents' min allele, status: add}
+  - {name: delta_motif_units_nearest_parent, classes: [TR], source: caller, rf_safe: true, symmetric: nearest over all 4 parental alleles, status: add, why: "the tr_outliers '> both parents + margin' statistic, continuous"}
+  - {name: child_ALLR_width,   classes: [TR], source: caller, rf_safe: true, status: add, why: "TRGT allele-length CI width = per-read length spread; stutter/mosaic signal"}
+  - {name: motif_len,          classes: [TR], source: caller, rf_safe: true, status: add}
+  - {name: n_motifs,           classes: [TR], source: caller, rf_safe: true, status: add}
+  - {name: locus_len_ref,      classes: [TR], source: caller, rf_safe: true, status: add}
+  # dropped from synthdnm
+  - {name: INFO_QD_FS_MQ_SOR_ranksums_VQSLOD, classes: [], source: caller, rf_safe: true, status: drop, why: "GATK-only; do not exist in DeepVariant/GLnexus output"}
+
+# ---------------------------------------------------------------------------------------------
+# B. Context and cohort
+# ---------------------------------------------------------------------------------------------
+B_context:
+  - {name: mappability_k100,   classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add}
+  - {name: segdup_overlap,     classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add, why: "METHODS 2 mask component, as a FEATURE here (DESIGN P5)"}
+  - {name: repeat_class,       classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add, why: "RepeatMasker class, categorical"}
+  - {name: gc_200bp,           classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add}
+  - {name: dist_nearest_candidate_same_child, classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: true, status: add, why: "error clustering; computed within the SAME candidate set for positives and negatives"}
+  - {name: cohort_AC_loo,      classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: true, status: add, why: "leave-one-family-out allele count in the joint callset; for synthetic positives the child's own family is left out too"}
+  - {name: pon_founder_recurrence_loo, classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: true, status: add, why: "03_panel logic; SV matched by reciprocal overlap >= 0.5"}
+  - {name: gnomad_af,          classes: [SNV, INDEL], source: context, rf_safe: true, status: add}
+  - {name: lr_sv_catalog_af,   classes: [SV], source: context, rf_safe: true, status: add, why: "long-read SV population catalogue by RO >= 0.5 (catalogue TBD, must be cited when chosen)"}
+  - {name: trgt_pop_p99_distance, classes: [TR], source: cohort, rf_safe: true, status: add, why: "founder p99 distance in motif units (tr_outliers.py)"}
+  - {name: strchive_locus,     classes: [TR], source: context, rf_safe: true, status: add}
+  - {name: sv_depth_ratio_inside_flank, classes: [SV], source: bam, rf_safe: true, status: add, why: "total depth inside vs flanks (sv_read_review.sh)"}
+  - {name: sv_het_snv_persistence, classes: [SV], source: caller, rf_safe: true, status: add, why: "het-SNV fraction inside vs flanks in the child (sv_read_review.sh)"}
+  - {name: graphtyper_outcome, classes: [SV], source: cohort, rf_safe: false, status: keep, why: "orthogonal LABEL source, never a feature (DESIGN P1)"}
+
+# ---------------------------------------------------------------------------------------------
+# C. Read-level long-read features (child; parents symmetric)
+# ---------------------------------------------------------------------------------------------
+C_reads:
+  - {name: child_alt_mapq_mean,    classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
+  - {name: child_ref_mapq_mean,    classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
+  - {name: child_alt_mapq0_frac,   classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
+  - {name: child_alt_nm_rate,      classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add, why: "mismatch+indel density in alt reads (misalignment)"}
+  - {name: child_ref_nm_rate,      classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add}
+  - {name: child_alt_clip_frac,    classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add}
+  - {name: child_alt_supp_frac,    classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add, why: "fraction of alt reads with supplementary alignments"}
+  - {name: child_alt_readlen_median, classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
+  - {name: child_alt_readpos_frac_median, classes: [SNV, INDEL], source: bam, rf_safe: true, status: add, why: "position of the variant along the read; end-biased = artefact"}
+  - {name: child_alt_rq_mean,      classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: verify, why: "HiFi rq tag present in pbmm2 BAMs?" }
+  - {name: parent_max_alt_reads_any, classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, symmetric: max over parents, status: add, why: "pooled (untagged) alt reads in a parent; the classic 'parent has 1-2 alt reads' DNM filter"}
+  - {name: parent_min_dp,          classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, symmetric: min over parents, status: add}
+
+# ---------------------------------------------------------------------------------------------
+# D. Phase features — derived from the six-haplotype matrix (M1 M2 F1 F2 CM CP)
+# ---------------------------------------------------------------------------------------------
+D_phase_child:   # rf_safe: the child is a real sample in both positives and negatives
+  - {name: c_alt_hapA,            classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "alt reads on the alt-carrying child haplotype (haplotypes sorted so A carries more alt)"}
+  - {name: c_alt_hapO,            classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "alt reads on the OTHER child haplotype; > e means conflict"}
+  - {name: c_dp_hapA,             classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_dp_hapO,             classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_alt_hap_frac,        classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "alt/(alt+ref) on A; 1.0 clonal germline, < 0.8 mosaic candidate (P8/P10)"}
+  - {name: c_alt_confined,        classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "c_alt_hapO <= e"}
+  - {name: c_alt_tagged_frac,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "fraction of alt reads that carry an HP tag"}
+  - {name: c_both_haps_obs_k3,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_both_haps_obs_k5,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_block_len_log10,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_dist_block_edge_log10, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_n_informative_1kb,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "informative het sites within one read length; 0 = no local phase possible"}
+  - {name: c_local_rephase_agreement, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "pofo_local.py logic - do alt reads agree with each other on flanking hets, independent of HP tags"}
+  - {name: c_hp_rephase_conflict, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "HP tag vs local rephasing disagreement count"}
+  - {name: c_sv_hap_depth_change_A, classes: [SV], source: hapmatrix, rf_safe: true, status: add, why: "per-haplotype depth inside/flank on A (DEL drop, DUP gain); sv_read_review.sh made haplotype-explicit"}
+  - {name: c_sv_hap_depth_change_O, classes: [SV], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_sv_junction_hap_concentration, classes: [SV], source: hapmatrix, rf_safe: true, status: add, why: "fraction of junction reads on A"}
+  - {name: c_tr_al_hapA_mean,     classes: [TR], source: hapmatrix, rf_safe: true, status: add, why: "per-read allele length on A"}
+  - {name: c_tr_al_hapO_mean,     classes: [TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_tr_al_hapA_sd,       classes: [TR], source: hapmatrix, rf_safe: true, status: add, why: "within-haplotype length spread; stutter or mosaic"}
+  - {name: c_tr_expanded_one_hap_only, classes: [TR], source: hapmatrix, rf_safe: true, status: add}
+
+D_phase_parents_symmetric:   # rf_safe: functions of a parent's two haplotypes, unlabelled, then min/max over parents
+  - {name: p_min_hap_dp,          classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: min over 4 parental haplotypes, status: add}
+  - {name: p_n_haps_obs_k3,       classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: count over 4, status: add}
+  - {name: p_n_haps_obs_k5,       classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: count over 4, status: add}
+  - {name: p_max_alt_any_hap,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over 4, status: add, why: "strongest single parental-haplotype alt signal, unlabelled"}
+  - {name: p_sum_alt_all_haps,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: sum over 4, status: add}
+  - {name: p_n_haps_with_alt,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: count over 4 with alt > e, status: add, why: ">= 2 haplotypes with alt = artefact pattern"}
+  - {name: p_max_alt_hap_frac,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over 4, status: add}
+  - {name: p_untagged_frac_max,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over parents, status: add}
+  - {name: p_tr_n_haps_overlapping_child_expanded, classes: [TR], source: hapmatrix, rf_safe: true, symmetric: count over 4, status: add, why: "parental haplotypes whose length distribution overlaps the child's expanded allele; expect 0"}
+  - {name: p_sv_max_hap_depth_change, classes: [SV], source: hapmatrix, rf_safe: true, symmetric: max abs over 4, status: add}
+
+D_phase_six:
+  - {name: hap_obs_k3,            classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "0-6"}
+  - {name: hap_obs_k5,            classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+
+D_phase_transmission:   # rf_safe: FALSE — rule/likelihood layer (M2) only; undefined for synthetic trios (DESIGN P11)
+  - {name: parent_of_origin,      classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add, why: "needs child block orientation vs real parents"}
+  - {name: poo_confidence,        classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
+  - {name: t_alt_reads,           classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add, why: "alt on the TRANSMITTED parental haplotype - the strongest single test of de novo-ness; 0 expected"}
+  - {name: t_dp,                  classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
+  - {name: u_alt_reads,           classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
+  - {name: u_dp,                  classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
+  - {name: nt_parent_alt_reads,   classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add, why: "alt in the NON-transmitting parent (pooled); artefact detector"}
+  - {name: dist_crossover_log10,  classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
+  - {name: near_crossover_flag,   classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
+  - {name: t_hap_resolved,        classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add, why: "transmitted haplotype known at this position in the transmitting parent"}
+  - {name: ibd_child_altpath_vs_T_window, classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add, why: "does the child's alt haplotype match T at flanking hets across the read window (guards against local mis-orientation)"}
+  - {name: t_tr_al,               classes: [TR], source: transmission, rf_safe: false, status: add, why: "transmitted parental allele length - the haplotype-aware version of tr_outliers' comparison"}
+  - {name: u_tr_al,               classes: [TR], source: transmission, rf_safe: false, status: add}
+  - {name: sib_shared,            classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: false, status: add, why: "shared with a sibling; parental-mosaic signature (DESIGN P6); undefined in synthetic trios"}
+
+# ---------------------------------------------------------------------------------------------
+# Excluded on purpose
+# ---------------------------------------------------------------------------------------------
+excluded:
+  - {name: cpg_methylation_state_of_alt_reads, why: "scientifically interesting for the biology paper, not a DNM classifier feature; parked"}
+  - {name: any_gene_annotation, why: "DNM-ness does not depend on gene; would learn ascertainment (METHODS 9)"}
+  - {name: affected_status, why: "label-adjacent; must never be a feature"}

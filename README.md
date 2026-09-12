@@ -90,3 +90,18 @@ the phaser left unphased — a hemizygous deletion retains no heterozygous site 
 breakpoint-spanning reads, which is what connects a de novo SV to the direction of skew. `07_denovo_x_screen.py`
 screens de novo and rare X-linked variants against skew with a synonymous-variant control for ancestry. Note that
 skewing is acquired with age, so generations should not be pooled when defining outliers.
+
+### Phase-aware de novo calling (13_phase_dnm) — design stage
+Turns trio phase into primary evidence for de novo calling, uniformly for SNV/indel, SV and TR. Module 1 orients
+every HiPhase block in the child to parent of origin by Mendelian vote and derives a transmitted/untransmitted map
+per parent with typed crossover boundaries, without re-phasing. Module 2 builds a six-haplotype evidence matrix
+(M1 M2 F1 F2 C-mat C-pat) per candidate from the WDL outputs that already exist (HiPhase haplotag tables, sawfish
+supporting reads, TRGT per-read allele lengths), classifies each candidate (germline phased/unphased, child
+postzygotic mosaic, parental mosaic transmitted, inherited-missed-in-parent, phase-conflict artefact, inconclusive)
+by a transparent rule layer and a likelihood layer, and assigns parent of origin for every row. Module 3 integrates
+with SynthDNM (rescue/demotion rules, mosaics kept as a flagged class, concordance against the original pipeline's
+de novo set). Module 4 retrains the classifier with phase features under swap-closed, family-grouped nested CV;
+every feature is registered in `config/features.yaml` with an `rf_safe` flag saying whether it is computable
+identically for SynthDNM's pedigree-swapped positives. Design decisions with rationale, the SynthDNM one-pager, the
+CV design and an overclaim register are in `13_phase_dnm/DESIGN.md`; interfaces and file formats in its `README.md`;
+the Module 1 build plan in `PLAN_MODULE1.md`. No code yet.
