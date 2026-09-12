@@ -10,9 +10,10 @@ import yaml
 from . import __version__
 from .io.vcf import VcfReader, iter_trio, read_manifest, trio_of
 from .phasing import orient as O
+from .phasing import transmission as T
 
 PLANNED = {
-    "transmission": "M1b, week 2", "haplotag": "M1c, week 3", "phase-qc": "M1d, week 3",
+    "haplotag": "M1c, week 3", "phase-qc": "M1d, week 3",
     "candidates": "M2, week 4", "review": "M2, weeks 4-5", "features": "weeks 6-8",
     "spike": "weeks 6-8", "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
 }
@@ -25,9 +26,8 @@ def load_thresholds(path: str | None) -> dict:
         return yaml.safe_load(fh)
 
 
-def cmd_orient(a: argparse.Namespace) -> int:
-    thr = load_thresholds(a.thresholds)
-    p = O.OrientParams(**{k: v for k, v in thr["orient"].items() if k in O.OrientParams.__dataclass_fields__})
+def _resolve_trio(a: argparse.Namespace):
+    """(father, mother, sex, trio_iterator) from the manifest or explicit flags; shared by orient and transmission."""
     if a.manifest:
         man = read_manifest(a.manifest)
         father, mother = trio_of(man, a.child)
@@ -46,7 +46,13 @@ def cmd_orient(a: argparse.Namespace) -> int:
             sys.exit("give --joint-vcf or all of --child-vcf --father-vcf --mother-vcf")
         readers = [VcfReader(a.child_vcf), VcfReader(a.father_vcf), VcfReader(a.mother_vcf)]
         names = tuple(None if len(r.samples) == 1 else s for r, s in zip(readers, (a.child, father, mother)))
-    trio = iter_trio(readers[0], readers[1], readers[2], *names)
+    return father, mother, sex, iter_trio(readers[0], readers[1], readers[2], *names)
+
+
+def cmd_orient(a: argparse.Namespace) -> int:
+    thr = load_thresholds(a.thresholds)
+    p = O.OrientParams(**{k: v for k, v in thr["orient"].items() if k in O.OrientParams.__dataclass_fields__})
+    father, mother, sex, trio = _resolve_trio(a)
     blocks, stats = O.orient_child(trio, sex, p)
     os.makedirs(a.out_dir, exist_ok=True)
     stem = os.path.join(a.out_dir, a.child)
@@ -65,20 +71,55 @@ def cmd_orient(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_transmission(a: argparse.Namespace) -> int:
+    thr = load_thresholds(a.thresholds)
+    p = T.TransmissionParams(**{k: v for k, v in thr["transmission"].items() if k in T.TransmissionParams.__dataclass_fields__})
+    father, mother, sex, trio = _resolve_trio(a)
+    stem = os.path.join(a.out_dir, a.child)
+    orient_path = a.orientation or (stem + ".orientation.tsv")
+    if not os.path.exists(orient_path):
+        sys.exit("orientation table not found (%s); run `phase-dnm orient` first" % orient_path)
+    orientation = T.Orientation.from_tsv(orient_path)
+    segments, changes, stats = T.build_transmission(trio, orientation, sex, p)
+    os.makedirs(a.out_dir, exist_ok=True)
+    T.write_segments(segments, stem + ".transmission.tsv")
+    T.write_changes(changes, stem + ".changepoints.tsv")
+    summ = T.summarise(stats, p)
+    summ.update(child=a.child, father=father, mother=mother, sex=sex, thresholds_version=thr.get("version"))
+    T.write_summary(summ, stem + ".transmission.summary.json")
+    for parent in ("F", "M"):
+        pp = summ["per_parent"].get(parent, {})
+        sys.stderr.write("transmission %s parent %s: %d blocks, %d resolved segments (%.1f%% of parent hets), "
+                         "%d change points (crossover-or-switch candidates), informative %d, Mendelian-inconsistent %d\n"
+                         % (a.child, parent, pp.get("n_blocks", 0), pp.get("n_segments_resolved", 0),
+                            100 * (pp.get("frac_het_resolved") or 0), pp.get("n_change_points", 0),
+                            pp.get("n_informative", 0), pp.get("n_mendel_inconsistent", 0)))
+    return 0
+
+
+def _trio_args(sp: argparse.ArgumentParser):
+    sp.add_argument("--child", required=True, help="child sample id")
+    sp.add_argument("--father"), sp.add_argument("--mother"), sp.add_argument("--sex", help="child sex 1/2/M/F")
+    sp.add_argument("--manifest", help="cohort manifest TSV; supplies parents and sex")
+    sp.add_argument("--child-vcf"), sp.add_argument("--father-vcf"), sp.add_argument("--mother-vcf")
+    sp.add_argument("--joint-vcf", help="alternatively one multi-sample phased VCF")
+    sp.add_argument("--out-dir", required=True)
+    sp.add_argument("--thresholds", help="config/thresholds.yaml (default: the module's)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="phase-dnm", description=__doc__)
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     o = sub.add_parser("orient", help="M1a: orient the child's phase blocks to parent of origin")
-    o.add_argument("--child", required=True, help="child sample id")
-    o.add_argument("--father"), o.add_argument("--mother"), o.add_argument("--sex", help="child sex 1/2/M/F")
-    o.add_argument("--manifest", help="cohort manifest TSV; supplies parents and sex")
-    o.add_argument("--child-vcf"), o.add_argument("--father-vcf"), o.add_argument("--mother-vcf")
-    o.add_argument("--joint-vcf", help="alternatively one multi-sample phased VCF")
-    o.add_argument("--out-dir", required=True)
-    o.add_argument("--thresholds", help="config/thresholds.yaml (default: the module's)")
+    _trio_args(o)
     o.set_defaults(func=cmd_orient)
+
+    t = sub.add_parser("transmission", help="M1b: transmitted/untransmitted map per parent + change points")
+    _trio_args(t)
+    t.add_argument("--orientation", help="<child>.orientation.tsv (default: <out-dir>/<child>.orientation.tsv)")
+    t.set_defaults(func=cmd_transmission)
 
     for name, when in PLANNED.items():
         s = sub.add_parser(name, help="planned (%s)" % when)

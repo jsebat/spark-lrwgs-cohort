@@ -12,8 +12,12 @@ orient:                      # P2
   split_min_sites: 2         # smallest isolated minority run that counts as a switch; a lone genotype error cannot split a block
 
 transmission:                # P3
-  xo_min_sites: 10           # informative sites required on EACH side of a within-block switch to call a crossover
+  xo_min_sites: 10           # informative sites required on EACH side of a within-block change point (crossover OR parental switch error;
+                             #   the two are indistinguishable at the VCF level and are resolved by read support in M1b2)
+  min_sites: 10              # informative sites needed to call a segment's transmitted haplotype
+  min_frac: 0.95
   min_gq: 20
+  max_splits: 6              # change points per parent block
 
 hapmatrix:                   # P7
   k: [3, 5]                  # per-haplotype depth thresholds for "observed"; k=5 is the working one at ~11x/hap

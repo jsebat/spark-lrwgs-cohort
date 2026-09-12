@@ -187,5 +187,5 @@ def test_cli_end_to_end(minitrio, tmp_path):
     assert summ["child"] == c and summ["father"] == f and summ["mother"] == m
     assert os.path.exists(out / ("%s.orientation.dissent.tsv" % c))
     # planned sub-commands refuse cleanly
-    r2 = subprocess.run([sys.executable, "-m", "phase_dnm.cli", "transmission"], capture_output=True, text=True, env=env)
+    r2 = subprocess.run([sys.executable, "-m", "phase_dnm.cli", "haplotag"], capture_output=True, text=True, env=env)
     assert r2.returncode != 0 and "not implemented" in (r2.stderr + r2.stdout)

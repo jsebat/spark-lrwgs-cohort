@@ -39,6 +39,11 @@
   (`frac_het_ambiguous`, `frac_het_mixed_votes`), with bp-weighted values reported alongside.
   **Het-weighted cohort result: 96.9 % of phased hets carry a parent-of-origin label (ambiguous median 3.1 %,
   range 1.9–4.4 %; `MIXED_VOTES` median 0.15 %, max 0.39 %); all 35 children pass.**
+- **Week 2 started (2026-09-12): `transmission.py` (M1b) done at the VCF level** — per-parent transmitted/untransmitted
+  segments and change-point candidates, `phase-dnm transmission`, 4 tests; 12-seed sweep: 0/858 resolved segment ends
+  wrong, 49/49 change points explained by a planted crossover or parental switch, 32/48 crossovers recovered
+  (rest between blocks or < 10 votes on a side), 95.9 % parental hets resolved. Crossover vs. parental switch is
+  **not** decidable from the VCF (P3) → read-level step M1b2 next, together with `hapdepth`.
 - **ICR spot check (independent truth from `09_methylation`, nearest-informative-SNV parent of origin at 18
   imprinting control regions, 4 children, 41 ICR rows): 30 concordant, 0 discordant**; 3 ICRs had no local phase
   in the methylation table, 6 fell in gaps between blocks, 2 in `LOW_SITES` segments. Lustre was reachable again

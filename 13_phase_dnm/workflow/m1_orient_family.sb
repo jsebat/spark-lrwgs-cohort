@@ -8,7 +8,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1G
 #SBATCH --time=00:30:00
-# M1a for one family: orient every complete-trio child's phase blocks to parent of origin (DESIGN P2).
+# M1a+M1b for one family: orient every complete-trio child's phase blocks to parent of origin (DESIGN P2), then
+# build the per-parent transmission map and change-point candidates (P3). Both are VCF-level.
 # Usage: sbatch workflow/m1_orient_family.sb <FAMILY_ID>
 # Reads config/cohort.env then config/phase_dnm.env (both gitignored). Family and sample identifiers come
 # from the manifest at run time; nothing is embedded. Duos (a parent missing) are skipped with a note (P19).
@@ -44,6 +45,11 @@ while IFS=$'\t' read -r child father mother; do
       --child-vcf "$CV" --father-vcf "$FV" --mother-vcf "$MV" --out-dir "$OUT" \
       --thresholds "$HERE/config/thresholds.yaml"
   echo "orient done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
+  t1=$(date +%s)
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli transmission --child "$child" --manifest "$MANIFEST" \
+      --child-vcf "$CV" --father-vcf "$FV" --mother-vcf "$MV" --out-dir "$OUT" \
+      --thresholds "$HERE/config/thresholds.yaml"
+  echo "transmission done for one child of $FAMILY in $(( $(date +%s) - t1 )) s"
   n_done=$((n_done+1))
 done < <(awk -F'\t' -v f="$FAMILY" 'NR>1 && $2==f && $7=="offspring" {print $1"\t"$3"\t"$4}' "$MANIFEST")
 
