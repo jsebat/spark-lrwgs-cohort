@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_orient
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=1G
+#SBATCH --time=00:30:00
+# M1a over the cohort as a job array (EXPANSE.md rule 4): one task per family, family id read from a list file.
+# Usage: from the 13_phase_dnm directory:
+#   sbatch --array=1-$(wc -l < "$LIST")%20 --export=ALL,LIST="$LIST" workflow/m1_orient_array.sb
+# where LIST is a text file with one family id per line (build it from the manifest at submission time; it is
+# data, so it lives under $PHASE_DIR and is never committed - *families.txt is gitignored).
+# Measured on the two quads (2026-09-12): 146-152 s and 240-300 MB per child.
+set -euo pipefail
+: "${LIST:?LIST=/path/to/families.txt must be exported}" "${SLURM_ARRAY_TASK_ID:?run as an array}"
+FAMILY=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST")
+[ -n "$FAMILY" ] || { echo "ERROR: no family on line $SLURM_ARRAY_TASK_ID of $LIST" >&2; exit 2; }
+HERE="${PHASE_DNM_HOME:-${SLURM_SUBMIT_DIR:?}}"
+[ -f "$HERE/workflow/m1_orient_family.sb" ] || { echo "ERROR: $HERE is not the 13_phase_dnm directory" >&2; exit 2; }
+exec bash "$HERE/workflow/m1_orient_family.sb" "$FAMILY"
