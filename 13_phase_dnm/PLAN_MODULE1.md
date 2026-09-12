@@ -23,6 +23,20 @@
   and leaves 45–53 non-unanimous small segments per genome ambiguous → adopted as a second tier
   (`small_min_sites: 10`, `small_min_frac: 1.0`; P2). The gate is now stated per reason
   (`max_frac_bp_mixed_votes: 0.01`).
+- **Cohort run (2026-09-12, array 54269186, 33 families / 35 complete-trio children, 1 core 1 GB, 20 concurrent):
+  33/33 tasks COMPLETED**, 150–312 s per family (quads longest), max MaxRSS 354 MB. Under the two-tier rule:
+  block bp oriented median 92.0 % (90.0–97.0), ambiguous 8.0 % (3.0–10.0) = `LOW_SITES` 7.0 % + `NO_INFORMATIVE`
+  0.8 % + `MIXED_VOTES` median 0.07 % (0–0.92 %); Mendelian-inconsistent per informative site median 0.0009
+  (0.0006–0.0020); 300–470 switches located per genome; 19 male / 16 female children. **All 35 children pass every
+  gate** (`cohort_orientation_qc.tsv` on the filer). One male child sits at `MIXED_VOTES` 0.92 % — under the
+  1 % gate but 5× the next child. **Separating check:** 0.8 of the 0.92 % is a single 18.2 Mb segment,
+  chr1:125.09–143.31 Mb = the 1q12 pericentromeric heterochromatin, holding 384 phased hets and 54 informative
+  votes (50:4); the next two are chr9:40.7–41.6 Mb and chr21:10.3–10.8 Mb, also pericentromeric segdup
+  regions. The child's switches (405 vs median 379), Mendelian ratio (0.00135 vs cohort max 0.0020) and low-GQ
+  share (0.25 vs 0.18) are unremarkable → mismapping-prone regions, not a sample or pedigree problem.
+  Consequence: bp-weighted ambiguity is dominated by giant sparse blocks (10 segments ≥ 5 Mb with < 5 informative
+  sites/Mb across the cohort, 181.6 Mb, 6 ambiguous), so the gated quantity is now **het-weighted**
+  (`frac_het_ambiguous`, `frac_het_mixed_votes`), with bp-weighted values reported alongside.
 - **ICR spot check (independent truth from `09_methylation`, nearest-informative-SNV parent of origin at 18
   imprinting control regions, 4 children, 41 ICR rows): 30 concordant, 0 discordant**; 3 ICRs had no local phase
   in the methylation table, 6 fell in gaps between blocks, 2 in `LOW_SITES` segments. Lustre was reachable again

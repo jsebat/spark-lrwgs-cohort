@@ -163,6 +163,10 @@ def test_summary_and_ambiguity_gate(minitrio):
     assert s["n_blocks"] == len({(b.chrom, b.ps) for b in blocks})
     assert s["n_blocks_split"] >= 1
     assert s["frac_bp_ambiguous"] is not None and s["frac_bp_ambiguous"] < 0.5
+    assert s["frac_het_ambiguous"] is not None and 0 <= s["frac_het_ambiguous"] < 0.5
+    assert s["frac_het_mixed_votes"] is not None and s["frac_bp_mixed_votes"] is not None
+    het_all = s["total"]["het_oriented"] + s["total"]["het_ambiguous"]
+    assert het_all == s["total"]["n_het_phased"], "every phased het must be in exactly one segment"
     assert s["total"]["n_informative"] > 100
 
 

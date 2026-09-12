@@ -258,9 +258,14 @@ def orient_child(trio_sites: Iterable[TrioSite], child_sex: str, params: OrientP
             if b.orientation == AMBIGUOUS:
                 st["n_segments_ambiguous"] += 1
                 st["bp_ambiguous"] += max(0, b.end - b.start)
+                st["het_ambiguous"] += b.n_het_phased
+                if b.reason == "MIXED_VOTES":
+                    st["bp_mixed_votes"] += max(0, b.end - b.start)
+                    st["het_mixed_votes"] += b.n_het_phased
             else:
                 st["n_segments_oriented"] += 1
                 st["bp_oriented"] += max(0, b.end - b.start)
+                st["het_oriented"] += b.n_het_phased
                 st["n_dissent"] += b.n_dissent
     return result, {k: dict(v) for k, v in stats.items()}
 
@@ -297,7 +302,15 @@ def summarise(stats: Dict[str, Dict[str, int]], blocks: List[BlockOrientation], 
     n_segments = len(blocks)
     n_amb = sum(1 for b in blocks if b.orientation == AMBIGUOUS)
     bp_all = tot["bp_oriented"] + tot["bp_ambiguous"]
+    het_all = tot["het_oriented"] + tot["het_ambiguous"]
+    # Two weightings, deliberately: bp-weighted ambiguity is dominated by a handful of giant blocks spanning
+    # pericentromeric het deserts (an 18 Mb chr1q12 block with 384 hets was 0.8% of one genome's bp);
+    # het-weighted ambiguity measures what phasing quality actually is - the fraction of phased hets whose
+    # parent of origin is unknown - and is the gated quantity (thresholds.yaml).
     return {
+        "frac_het_ambiguous": round(tot["het_ambiguous"] / het_all, 4) if het_all else None,
+        "frac_het_mixed_votes": round(tot["het_mixed_votes"] / het_all, 5) if het_all else None,
+        "frac_bp_mixed_votes": round(tot["bp_mixed_votes"] / bp_all, 5) if bp_all else None,
         "params": params.__dict__,
         "total": dict(tot),
         "per_chrom": stats,

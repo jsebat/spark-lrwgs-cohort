@@ -30,6 +30,8 @@ phase_class:                 # P8 / P10
 
 qc_gates:                    # M1d — values measured on the two quads 2026-09-12 in brackets
   crossovers_per_meiosis: [15, 60]     # generous; expected roughly 25-45 (unverified exact figure)
-  max_frac_bp_ambiguous: 0.10          # all AMBIGUOUS reasons, block-bp weighted [0.094-0.108 before the small-block tier]
-  max_frac_bp_mixed_votes: 0.01        # the reason that signals a pedigree / phasing problem [0.0015-0.0019]
+  max_frac_het_ambiguous: 0.10         # phased hets in AMBIGUOUS segments; het-weighted because bp-weighting is dominated by
+                                       #   giant sparse blocks over pericentromeric het deserts (cohort 2026-09-12: bp 3.0-10.0%)
+  max_frac_het_mixed_votes: 0.005      # the reason that signals a pedigree / phasing problem; het-weighted
+  max_frac_bp_mixed_votes: 0.01        # same, bp-weighted, reported alongside [cohort median 0.0007, max 0.0092 = one 18 Mb 1q12 block]
   max_mendel_inconsistent_per_informative: 0.01   # [0.0006-0.0011]
