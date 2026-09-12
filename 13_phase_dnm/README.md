@@ -47,6 +47,9 @@ assumptions made in their absence are marked `ASSUMED`.
 │   │   ├── registry.py        loads features.yaml; REFUSES rf_safe:false columns in RF matrices
 │   │   └── extract.py         evidence matrix + caller/context/read features → one vector
 │   ├── sim/spike.py           spike-in harness: edit haplotagged reads, all three classes
+│   ├── eval/                  ONE harness for every arm (DESIGN P22): heuristics.py reproduces the original
+│   │                          pipeline's per-class filters verbatim (pass + sweep_score); harness.py scores
+│   │                          H, H+P, RF, RF+P on identical outer folds and external truth
 │   ├── train/                 M4: folds.py (swap-closed), swap.py, nested_cv.py, calibrate.py
 │   └── io/                    tables.py (core columns), vcfinfo.py (INFO equivalents)
 ├── workflow/                  Snakefile + profiles/expanse (ASSUMED, Q9) + *.sb wrappers
