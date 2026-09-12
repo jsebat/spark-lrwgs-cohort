@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_orient
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=4G
+#SBATCH --time=00:40:00
+# M1a for one family: orient every complete-trio child's phase blocks to parent of origin (DESIGN P2).
+# Usage: sbatch workflow/m1_orient_family.sb <FAMILY_ID>
+# Reads config/cohort.env then config/phase_dnm.env (both gitignored). Family and sample identifiers come
+# from the manifest at run time; nothing is embedded. Duos (a parent missing) are skipped with a note (P19).
+# Measured: ~50k sites/s single core => ~3 min per child for an 8M-site family VCF; 40 min covers a quad twice.
+set -euo pipefail
+FAMILY="${1:?family id}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -f "$HERE/../config/cohort.env" ] && source "$HERE/../config/cohort.env"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+OUT="$PHASE_DIR/$FAMILY"; mkdir -p "$OUT"
+
+vcf_of() {  # sample -> its HiPhase per-sample phased small-variant VCF
+  ls "$CALLSET_ROOT/$FAMILY"/out/phased_small_variant_vcf/*/"$1".*small_variants.phased.vcf.gz 2>/dev/null | head -1
+}
+
+n_done=0
+while IFS=$'\t' read -r child father mother; do
+  if [ -z "$father" ] || [ "$father" = "0" ] || [ -z "$mother" ] || [ "$mother" = "0" ]; then
+    echo "skip (duo, P19): child has a missing parent in the manifest"; continue
+  fi
+  CV=$(vcf_of "$child"); FV=$(vcf_of "$father"); MV=$(vcf_of "$mother")
+  for v in "$CV" "$FV" "$MV"; do [ -s "$v" ] || { echo "ERROR: phased VCF not found for a member of $FAMILY" >&2; exit 2; }; done
+  t0=$(date +%s)
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli orient --child "$child" --manifest "$MANIFEST" \
+      --child-vcf "$CV" --father-vcf "$FV" --mother-vcf "$MV" --out-dir "$OUT" \
+      --thresholds "$HERE/config/thresholds.yaml"
+  echo "orient done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
+  n_done=$((n_done+1))
+done < <(awk -F'\t' -v f="$FAMILY" 'NR>1 && $2==f && $7=="offspring" {print $1"\t"$3"\t"$4}' "$MANIFEST")
+
+[ "$n_done" -gt 0 ] || { echo "ERROR: no offspring oriented for $FAMILY" >&2; exit 3; }
+# terminal state first, atomically (EXPANSE.md rule 16)
+printf 'OK\t%s\t%d children\n' "$(date -Is)" "$n_done" > "$OUT/.m1_orient.status.tmp" && mv "$OUT/.m1_orient.status.tmp" "$OUT/m1_orient.status"
+echo "wrote $OUT ($n_done children)"

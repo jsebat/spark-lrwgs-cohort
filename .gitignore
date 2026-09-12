@@ -20,3 +20,5 @@ DECISIONS.md
 *report*.html
 *report*.pdf
 __pycache__/
+13_phase_dnm/config/phase_dnm.env
+13_phase_dnm/.pytest_cache/

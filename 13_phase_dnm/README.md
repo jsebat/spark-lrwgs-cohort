@@ -58,6 +58,11 @@ assumptions made in their absence are marked `ASSUMED`.
 └── containers/                phase_dnm.def (Apptainer): pysam, cyvcf2, polars, xgboost, sklearn
 ```
 
+**Python ≥ 3.10 is required** (`pyproject.toml`). On Expanse the login-node `python3` is 3.6 and is never
+used for this module; run inside `containers/phase_dnm.def` or with the lab micromamba environment named in
+`config/phase_dnm.env` (`PHASE_DNM_PYTHON`). Module 1 has no compiled dependencies (pure-Python VCF reader),
+so the same code runs unchanged on a laptop, the login node's env and inside a job.
+
 CLI surface — one command per sub-module. Every command takes `--family --proband --father
 --mother` (or `--ped`) and resolves paths from the env, never from embedded identifiers:
 
