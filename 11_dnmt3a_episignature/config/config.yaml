@@ -77,7 +77,7 @@ tools:
   cpg_scores: aligned_bam_to_cpg_scores     # pb-CpG-tools
   cpg_scores_args: "--modsites-mode reference --pileup-mode model"
   fallback: "modkit pileup --cpg --combine-strands"
-  rscript: /home/jsebat/micromamba/envs/dnmt3a-r/bin/Rscript   # R env (EpiDISH, methylclock) on Expanse
+  rscript: ${HOME}/micromamba/envs/dnmt3a-r/bin/Rscript   # R env (EpiDISH, methylclock); set per site
 
 qc:
   primary_clock: Horvath      # dnam_age / age_accel_resid columns; PedBE, skinHorvath, Hannum, Levine also reported
