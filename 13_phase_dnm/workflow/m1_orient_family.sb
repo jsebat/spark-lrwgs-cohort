@@ -6,13 +6,13 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=4G
-#SBATCH --time=00:40:00
+#SBATCH --mem=1G
+#SBATCH --time=00:30:00
 # M1a for one family: orient every complete-trio child's phase blocks to parent of origin (DESIGN P2).
 # Usage: sbatch workflow/m1_orient_family.sb <FAMILY_ID>
 # Reads config/cohort.env then config/phase_dnm.env (both gitignored). Family and sample identifiers come
 # from the manifest at run time; nothing is embedded. Duos (a parent missing) are skipped with a note (P19).
-# Measured: ~50k sites/s single core => ~3 min per child for an 8M-site family VCF; 40 min covers a quad twice.
+# Measured on the two quads (2026-09-12): 146-152 s and MaxRSS 240-300 MB per child; 1 GB / 30 min covers a quad twice.
 set -euo pipefail
 FAMILY="${1:?family id}"
 # sbatch runs a COPY of this script from the Slurm spool directory, so BASH_SOURCE does not point at the

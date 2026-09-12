@@ -45,6 +45,8 @@ def assign(child_alleles: Tuple[int, int], father: set, mother: set) -> Optional
 class OrientParams:
     min_sites: int = 20        # informative sites needed to orient a block (or a segment after a split)
     min_frac: float = 0.95     # majority fraction needed
+    small_min_sites: int = 10  # second tier: a segment with small_min_sites..min_sites-1 votes orients only if ...
+    small_min_frac: float = 1.0  # ... its majority fraction reaches this (default: unanimous)
     min_gq: int = 20           # applied to child and both parents
     max_splits: int = 3        # phase-switch errors located per block; 0 disables splitting
     split_min_sites: int = 2   # minimum isolated minority run to accept a change point (a lone genotype error cannot split)
@@ -158,13 +160,13 @@ def _orientation_row(bv: BlockVotes, votes: List[Tuple[int, int]], start: int, e
     n = n_pat + n_mat
     if n == 0:
         orient, reason, minority = AMBIGUOUS, "NO_INFORMATIVE_SITES", 0
-    elif n < p.min_sites:
+    elif n < p.min_sites and (n < p.small_min_sites or frac < p.small_min_frac):
         orient, reason, minority = AMBIGUOUS, "LOW_SITES", 0
-    elif frac < p.min_frac:
+    elif n >= p.min_sites and frac < p.min_frac:
         orient, reason, minority = AMBIGUOUS, "MIXED_VOTES", 0
     else:
         orient = HAP1_PAT if n_pat > n_mat else HAP1_MAT
-        reason = "OK" if n_segments == 1 else "SPLIT_AT_SWITCH"
+        reason = ("OK" if n >= p.min_sites else "OK_SMALL_UNANIMOUS") if n_segments == 1 else "SPLIT_AT_SWITCH"
         minority = -1 if orient == HAP1_PAT else 1
     dissent = [pos for pos, v in votes if v == minority] if minority else []
     n_het = sum(1 for h in bv.het_positions if start <= h <= end)

@@ -97,6 +97,28 @@ def test_clean_blocks_never_get_a_wrongly_oriented_segment(minitrio):
     assert all(b.n_segments == 1 for b in blocks0)
 
 
+def test_small_block_tier():
+    p = O.OrientParams(min_sites=20, min_frac=0.95, small_min_sites=10, small_min_frac=1.0)
+    mk = lambda signs: O.BlockVotes(chrom="chr1", ps=1, start=1, end=1000 * len(signs),
+                                    het_positions=[i * 1000 for i in range(len(signs))],
+                                    votes=[(i * 1000, s) for i, s in enumerate(signs)])
+    # 12 unanimous votes: oriented under the second tier
+    r = O.decide(mk([-1] * 12), p)[0]
+    assert r.orientation == O.HAP1_MAT and r.reason == "OK_SMALL_UNANIMOUS"
+    # 12 votes with one dissenter: not unanimous -> LOW_SITES (never MIXED_VOTES below min_sites)
+    r = O.decide(mk([-1] * 11 + [1]), p)[0]
+    assert r.orientation == O.AMBIGUOUS and r.reason == "LOW_SITES"
+    # 9 unanimous votes: below the second tier
+    r = O.decide(mk([-1] * 9), p)[0]
+    assert r.orientation == O.AMBIGUOUS and r.reason == "LOW_SITES"
+    # 25 votes with 2 dissenters interior: full tier, frac 0.92 < 0.95 -> MIXED_VOTES (no clean split: interior pair)
+    r = O.decide(mk([-1] * 12 + [1, 1] + [-1] * 11), p)
+    assert len(r) == 1 and r[0].reason == "MIXED_VOTES"
+    # tier disabled by setting small_min_sites == min_sites
+    p0 = O.OrientParams(min_sites=20, small_min_sites=20)
+    assert O.decide(mk([-1] * 12), p0)[0].reason == "LOW_SITES"
+
+
 def test_segment_votes_rules():
     p = O.OrientParams(min_sites=5, split_min_sites=2, max_splits=3)
     P, M = 1, -1

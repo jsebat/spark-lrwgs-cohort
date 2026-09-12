@@ -6,8 +6,27 @@
   haplotypes, one crossover per parent per chromosome, HiPhase-shaped per-sample phased VCFs, switch errors,
   planted DNMs, truth tables), `config/thresholds.yaml`, `containers/phase_dnm.def`. Orientation splits blocks at
   located phase-switch errors (P2 addendum). Reader throughput ~50 k sites/s → ~3 min per real family, single core.
-  Not yet done from the week-1 list: the read-level minitrio (needs the container; moves to week 2) and the
-  two-real-family run (needs an sbatch line shown first).
+  Not yet done from the week-1 list: the read-level minitrio (needs the container; moves to week 2).
+- **Two-quad real run (2026-09-12, jobs 54269013/4, `ind-shared` 1 core 4 GB): COMPLETED.** Measured per child:
+  **146–152 s**, MaxRSS 240–300 MB (the 4 GB request is 13× too generous → 1 GB from now on); 9.9–16.4 k HiPhase
+  blocks, 278–324 split at located switches (313–367 switches per genome ≈ 1 per 8 k phased hets, same order as
+  HiPhase's published 1 per 3.3 k variants), 1.9–2.2 M informative sites, Mendelian-inconsistent per informative
+  site 0.0006–0.0011 (gate 0.01: pass), ambiguous block-bp fraction 0.094–0.108 (gate 0.10: two of four marginally
+  over — see the reason breakdown below before reading this as a problem). Female chrX is 0.20–0.21 ambiguous.
+  The first submission (54268976/7) failed on the sbatch spool-path bug noted under Risks.
+- **Breakdown of the ambiguous bp (all four children alike):** `LOW_SITES` 8.4–9.9 % (segments with 0–4 votes
+  dominate: 2.8–5.6 k of them; 10–19 votes: 0.7–1.0 k), `NO_INFORMATIVE_SITES` 0.6–0.9 %, **`MIXED_VOTES` 0.15–0.19 %**
+  (15–19 segments per genome, vote fraction 0.52–0.95, largest 0.45–1.5 Mb) — the reason that would signal a
+  pedigree or phasing problem is essentially absent. Female chrX: ~1,000–1,200 segments, 20 % ambiguous, all
+  `LOW_SITES`/`NO_INFORMATIVE` with a median of 4–5 informative sites per segment (autosomes 9–13): X blocks are
+  short and het-poor, not mis-phased. What-if: orienting 10–19-vote *unanimous* segments recovers 2.6–2.7 % of bp
+  and leaves 45–53 non-unanimous small segments per genome ambiguous → adopted as a second tier
+  (`small_min_sites: 10`, `small_min_frac: 1.0`; P2). The gate is now stated per reason
+  (`max_frac_bp_mixed_votes: 0.01`).
+- **ICR spot check (independent truth from `09_methylation`, nearest-informative-SNV parent of origin at 18
+  imprinting control regions, 4 children, 41 ICR rows): 30 concordant, 0 discordant**; 3 ICRs had no local phase
+  in the methylation table, 6 fell in gaps between blocks, 2 in `LOW_SITES` segments. Lustre was reachable again
+  (backgrounded probe, 20 s kill-timeout).
 
 Three weeks, then a gate. Each week ends with something that runs on `tests/data/minitrio`
 **and** on at least two real families (one of each quad, so sib structure is exercised from day

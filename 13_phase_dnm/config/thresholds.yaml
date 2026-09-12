@@ -5,6 +5,8 @@ version: "0.1.0"
 orient:                      # P2
   min_sites: 20              # informative sites needed to orient a child block
   min_frac: 0.95             # majority fraction below which the block is AMBIGUOUS (MIXED_VOTES)
+  small_min_sites: 10        # second tier (measured on the two quads, 2026-09-12): 10-19 votes orient only if unanimous;
+  small_min_frac: 1.0        #   recovers ~2.6% of block bp per genome; ~50 small non-unanimous segments/genome stay AMBIGUOUS
   min_gq: 20                 # child and both parents; same value as 03_trio_phase_x.py
   max_splits: 3              # phase-switch errors located per block (0 = never split)
   split_min_sites: 2         # smallest isolated minority run that counts as a switch; a lone genotype error cannot split a block
@@ -26,7 +28,8 @@ phase_class:                 # P8 / P10
   mosaic_min_minority_reads: 3
   inherited_min_frac_on_T: 0.3
 
-qc_gates:                    # M1d
+qc_gates:                    # M1d — values measured on the two quads 2026-09-12 in brackets
   crossovers_per_meiosis: [15, 60]     # generous; expected roughly 25-45 (unverified exact figure)
-  max_frac_blocks_ambiguous: 0.10
-  max_mendel_inconsistent_per_informative: 0.01
+  max_frac_bp_ambiguous: 0.10          # all AMBIGUOUS reasons, block-bp weighted [0.094-0.108 before the small-block tier]
+  max_frac_bp_mixed_votes: 0.01        # the reason that signals a pedigree / phasing problem [0.0015-0.0019]
+  max_mendel_inconsistent_per_informative: 0.01   # [0.0006-0.0011]
