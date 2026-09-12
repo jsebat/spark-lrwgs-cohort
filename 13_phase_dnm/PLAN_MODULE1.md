@@ -37,6 +37,8 @@
   Consequence: bp-weighted ambiguity is dominated by giant sparse blocks (10 segments ≥ 5 Mb with < 5 informative
   sites/Mb across the cohort, 181.6 Mb, 6 ambiguous), so the gated quantity is now **het-weighted**
   (`frac_het_ambiguous`, `frac_het_mixed_votes`), with bp-weighted values reported alongside.
+  **Het-weighted cohort result: 96.9 % of phased hets carry a parent-of-origin label (ambiguous median 3.1 %,
+  range 1.9–4.4 %; `MIXED_VOTES` median 0.15 %, max 0.39 %); all 35 children pass.**
 - **ICR spot check (independent truth from `09_methylation`, nearest-informative-SNV parent of origin at 18
   imprinting control regions, 4 children, 41 ICR rows): 30 concordant, 0 discordant**; 3 ICRs had no local phase
   in the methylation table, 6 fell in gaps between blocks, 2 in `LOW_SITES` segments. Lustre was reachable again
