@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -13,7 +14,7 @@ from .phasing import orient as O
 from .phasing import transmission as T
 
 PLANNED = {
-    "haplotag": "M1c, week 3", "phase-qc": "M1d, week 3",
+    "haplotag": "M1c export to BAM (optional, IGV); labels are the orientation/transmission tables",
     "candidates": "M2, week 4", "review": "M2, weeks 4-5", "features": "weeks 6-8",
     "spike": "weeks 6-8", "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
 }
@@ -133,6 +134,40 @@ def cmd_xo_reads(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_phase_qc(a: argparse.Namespace) -> int:
+    from .phasing import qc as Q
+    thr = load_thresholds(a.thresholds)
+    gates = thr.get("qc_gates", {})
+    man = read_manifest(a.manifest)
+    families = [a.family] if a.family else sorted({r["family_id"] for r in man.values()})
+    rows = []
+    for fam in families:
+        fam_dir = os.path.join(a.phase_dir, fam)
+        if not os.path.isdir(fam_dir):
+            continue
+        for sid, r in man.items():
+            if r["family_id"] != fam or r["role"] != "offspring":
+                continue
+            try:
+                father, mother = trio_of(man, sid)
+            except ValueError:
+                continue                                        # duo (P19)
+            q = Q.child_qc(fam_dir, sid, father, mother, a.hapdepth_dir, gates, thr.get("version"))
+            with open(os.path.join(fam_dir, sid + ".phase_qc.json"), "w") as fh:
+                json.dump(q, fh, indent=1, sort_keys=True)
+            rows.append(Q.cohort_row(fam, q))
+    if not rows:
+        sys.exit("no children with M1 outputs under %s" % a.phase_dir)
+    out = a.out or os.path.join(a.phase_dir, "cohort_phase_qc.tsv")
+    Q.write_cohort_table(rows, out)
+    summ = Q.cohort_summary(rows)
+    with open(out.replace(".tsv", ".summary.json"), "w") as fh:
+        json.dump(summ, fh, indent=1, sort_keys=True)
+    sys.stderr.write("phase-qc: %d children, %d PASS; flags seen: %s; wrote %s\n"
+                     % (summ["n_children"], summ["n_pass"], ", ".join(summ["flags"]) or "none", out))
+    return 0
+
+
 def _trio_args(sp: argparse.ArgumentParser):
     sp.add_argument("--child", required=True, help="child sample id")
     sp.add_argument("--father"), sp.add_argument("--mother"), sp.add_argument("--sex", help="child sex 1/2/M/F")
@@ -174,6 +209,15 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--child-orientation", help="<child>.orientation.tsv: marks intervals containing a located child switch")
     x.add_argument("--thresholds")
     x.set_defaults(func=cmd_xo_reads)
+
+    qc = sub.add_parser("phase-qc", help="M1d: per-child phase_qc.json and the cohort QC table with gates")
+    qc.add_argument("--manifest", required=True)
+    qc.add_argument("--phase-dir", required=True, help="$PHASE_DIR holding <FAMILY>/ sub-directories")
+    qc.add_argument("--hapdepth-dir", help="$PHASE_DIR/hapdepth (optional)")
+    qc.add_argument("--family", help="one family only (default: every family present under --phase-dir)")
+    qc.add_argument("--out", help="cohort table path (default: <phase-dir>/cohort_phase_qc.tsv)")
+    qc.add_argument("--thresholds")
+    qc.set_defaults(func=cmd_phase_qc)
 
     for name, when in PLANNED.items():
         s = sub.add_parser(name, help="planned (%s)" % when)

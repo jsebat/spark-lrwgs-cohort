@@ -42,8 +42,12 @@ phase_class:                 # P8 / P10
   mosaic_min_minority_reads: 3
   inherited_min_frac_on_T: 0.3
 
-qc_gates:                    # M1d — values measured on the two quads 2026-09-12 in brackets
-  crossovers_per_meiosis: [15, 60]     # generous; expected roughly 25-45 (unverified exact figure)
+qc_gates:                    # M1d — cohort values measured 2026-09-12 in brackets
+  crossovers_per_meiosis: [15, 65]     # CROSSOVER excl. child-switch overlaps [F median 30 (18-53), M 43 (30-61)]; lower bound method
+  min_frac_het_transmission_resolved: 0.90   # [0.962-0.988]
+  min_total_depth: 12                  # autosome-averaged total depth per sample [median 23.1; three genomes 8.3-10.0 -> flagged, R11]
+  min_tagged_frac: 0.75                # (hap1+hap2)/(hap1+hap2+untagged) [0.82-0.96]
+  min_hap_balance: 0.90                # min/max of hap1, hap2 [0.99-1.00]
   max_frac_het_ambiguous: 0.10         # phased hets in AMBIGUOUS segments; het-weighted because bp-weighting is dominated by
                                        #   giant sparse blocks over pericentromeric het deserts (cohort 2026-09-12: bp 3.0-10.0%)
   max_frac_het_mixed_votes: 0.005      # the reason that signals a pedigree / phasing problem; het-weighted
