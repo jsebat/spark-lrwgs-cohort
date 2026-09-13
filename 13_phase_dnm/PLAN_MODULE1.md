@@ -220,6 +220,14 @@
   SNV/indel range (the phased-germline six-haplotype subset is purer: 0.71–0.76), so the P15 combination — rescue of phased
   germline rows below τ, demotion above it — is doing real work; the yield-matched point (~60 YES/child ≈ the expected DNM
   count) is τ_q ≈ 0.997. **Provisional τ_q until the WES external truth: SNV/indel 0.997, SV 0.999, TR 0.999; τ_rescue,q 0.99.**
+- **P14 attribution, seed-0 fold models (2026-09-13, job 54285775, TreeSHAP |SHAP| share by family on held-out rows):**
+  SNV/indel real rows caller 0.74 / context 0.09 / **phase 0.17** (synthetic 0.20; classifier-called real rows 0.21); SV
+  0.68 / 0.03 / **0.29** (synthetic 0.30); TR 0.18 / 0.14 / **0.68** (synthetic 0.61; called rows 0.57). Top features:
+  SNV/indel `site_qual`, `max_PL0`, `child_PL0`, `cpg_context`, `p_max_alt_hap_frac`; SV `site_qual`, `child_sv_support`,
+  `c_alt_hapA`, `max_parent_sv_support`, `p_max_alt_any_hap`; TR `p_max_alt_hap_frac`, `delta_motif_units_nearest_parent`,
+  `c_tr_al_hapA_sd`, `child_SD_expanded`, `c_alt_hap_frac`. The read-quality family (C) is absent because those columns are
+  empty on real rows until the cohort re-review. Caveats as recorded in P14: the classifier share undercounts phase (the
+  transmitted-haplotype test is rf_safe:false, rule layer), and synthetic-label shares can carry leakage — the WES arm checks.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
