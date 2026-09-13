@@ -112,8 +112,8 @@ def interval_gap_concordance(bam, chrom: str, hets: List[Tuple[int, str, str]], 
 
 def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[str, Optional[str]]],
              parent_vcf: Dict[str, Tuple[str, Optional[str], str]], min_spanning: int = 3, min_mapq: int = 20,
-             crossover_max_disc: float = 0.2, switch_min_disc: float = 0.8, max_hets_per_interval: int = 400
-             ) -> Dict[str, int]:
+             crossover_max_disc: float = 0.2, switch_min_disc: float = 0.8, max_hets_per_interval: int = 400,
+             flank_pad: int = 20000) -> Dict[str, int]:
     """parent_bam: {'F': (bam, bai), 'M': (bam, bai)}; parent_vcf: {'F': (vcf, index, sample_name), ...}."""
     import pysam
     bams = {k: (pysam.AlignmentFile(p, "rb", index_filename=i) if i else pysam.AlignmentFile(p, "rb")) for k, (p, i) in parent_bam.items()}
@@ -133,6 +133,14 @@ def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[st
             else:
                 vcf, sample = vcfs[parent]
                 hets = parent_phased_snv_hets(vcf, sample, chrom, left, right, ps)
+                if len(hets) < 2:
+                    # endpoints are indel hets or the interval is tiny: widen to the nearest phased SNV het of the
+                    # same block on each side (a switch inside the interval is still inside the wider gap)
+                    wider = parent_phased_snv_hets(vcf, sample, chrom, max(1, left - flank_pad), right + flank_pad, ps)
+                    lefts = [h for h in wider if h[0] < left]
+                    rights = [h for h in wider if h[0] > right]
+                    inside = [h for h in wider if left <= h[0] <= right]
+                    hets = ([lefts[-1]] if lefts else []) + inside + ([rights[0]] if rights else [])
                 if len(hets) > max_hets_per_interval:           # a huge interval: thin to evenly spaced sites + last
                     step = len(hets) // max_hets_per_interval + 1
                     hets = hets[::step] + [hets[-1]]

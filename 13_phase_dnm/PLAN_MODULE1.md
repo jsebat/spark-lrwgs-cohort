@@ -53,6 +53,15 @@
   (1,663 < 1 kb; 214 ≥ 100 kb). Measurement only: the maternal excess of ~23 candidates per meiosis has the sign
   and order of the known maternal excess of crossovers (~1.6×; unverified figure) but could equally be more
   maternal switch errors — the read-level step decides. Table: `cohort_transmission_qc.tsv` on the filer.
+- **M1b2 `xo-reads` on the first quad (2026-09-12, job 54270761, 542–557 s per child, 115 MB).** First version
+  (spanning-read *count*) passed 137–179 "crossovers" per meiosis — with 15 kb reads ≥ 3 tagged reads span almost
+  any gap — and was replaced by **allele concordance** across consecutive phased SNV hets. Result per meiosis:
+  **CROSSOVER 32 / 29 (paternal), 59 / 41 (maternal)** against the known ~26 / ~43 (deCODE; ratio ~1.6 reproduced);
+  SWITCH_ERROR 5–13; AMBIGUOUS 223–234 (`no_snv_gap` 281 → widened to the nearest flanking SNV hets; `low_reads`
+  376 = gaps longer than a read, het deserts; `mixed_disc` 254 = reads disagree with each other, left ambiguous by
+  design). Flag: chr9 holds 19 of 161 crossovers across four meioses (~3× its genetic-map share) — pericentromeric
+  mismapping; per-chromosome crossover counts vs. genetic-map length become a cohort QC table. Child-side switch
+  errors account for 5.7 % of candidates (27× chance) and are flagged, not resolved, by any parent-read test.
 - **Read-level steps written (2026-09-12):** `hapdepth` (per-haplotype depth in 1 kb bins over each primary read's
   reference span; pysam, lazily imported) and `xo-reads` (M1b2: weakest-link count of the parent's haplotagged
   reads spanning consecutive phased hets across each change interval → CROSSOVER / SWITCH_ERROR / AMBIGUOUS).
