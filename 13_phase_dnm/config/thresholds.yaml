@@ -67,6 +67,11 @@ final:                       # P15 — decision layer (M3). tau / tau_rescue per
   tau_rescue: {}             #   (call_mode = phase_only): YES iff germline_DNM_phased, hap_obs_k5 == 6, phase_score >= phase_only_min_score
   phase_only_min_score: 0.9  # the rule ∩ posterior set carried the parent-of-origin signal on the cohort (0.72 vs 0.50; PLAN 2026-09-13)
   require_hap_obs: 6
+  tau_q:                     # fold-quantile score thresholds (rf_q = 1 - pass rate among held-out real candidates); PROVISIONAL from the
+    snv_indel: 0.997         #   cohort sweep 2026-09-13 (yield-matched ~60 YES/child; paternal fraction flat ~0.67 from 0.999 to 0.995)
+    sv: 0.999                #   0-3 per child, 23 cohort-wide
+    tr: 0.999                #   31 per child, paternal 0.68 (best TR purity in the sweep)
+  tau_q_rescue: 0.99         # rescue: rf_q >= this AND germline_DNM_phased AND six haplotypes observed
 
 qc_gates:                    # M1d — cohort values measured 2026-09-12 in brackets
   crossovers_per_meiosis: [15, 65]     # CROSSOVER excl. child-switch overlaps [F median 30 (18-53), M 43 (30-61)]; lower bound method

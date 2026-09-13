@@ -165,3 +165,10 @@ def test_load_rf_probs_column_choice(tmp_path):
     assert I.load_rf_probs(str(p), column="rf_q") == {"v1": 0.9995, "v2": 0.5}
     q = tmp_path / "old.tsv"; q.write_text("variant_id\trf_prob\nv1\t0.3\n")
     assert I.load_rf_probs(str(q), column="rf_q") == {"v1": 0.3}        # falls back when the column is absent
+
+
+def test_thresholds_carry_provisional_tau_q():
+    import yaml, os
+    thr = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), "..", "config", "thresholds.yaml")))
+    f = thr["final"]
+    assert f["tau_q"]["snv_indel"] == 0.997 and f["tau_q"]["sv"] == 0.999 and f["tau_q"]["tr"] == 0.999 and f["tau_q_rescue"] == 0.99

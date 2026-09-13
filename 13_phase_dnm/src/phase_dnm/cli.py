@@ -301,9 +301,12 @@ def cmd_integrate(a: argparse.Namespace) -> int:
             tj = json.load(fh)
         if score_col == "auto":
             score_col = tj.get("score_column", "rf_prob")
+        fq = thr.get("final", {})
         for vc in ({"snv_indel": ("SNV", "INDEL"), "sv": ("SV",), "tr": ("TR",)}[a.class_group]):
             if score_col == "rf_q":
-                p.tau[vc] = float(tj.get("tau_q", 0.999)); p.tau_rescue[vc] = float(tj.get("tau_q_rescue", 0.99))
+                # thresholds.yaml final.tau_q per class group wins over the tau json's uniform value (recorded provisional choice)
+                tq = (fq.get("tau_q") or {}).get(a.class_group, tj.get("tau_q", 0.999))
+                p.tau[vc] = float(tq); p.tau_rescue[vc] = float(fq.get("tau_q_rescue", tj.get("tau_q_rescue", 0.99)))
             else:
                 if tj.get("tau") is not None:
                     p.tau[vc] = float(tj["tau"])
