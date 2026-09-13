@@ -72,7 +72,7 @@ CLI surface — one command per sub-module. Every command takes `--family --prob
 ```
 phase-dnm orient        phase-dnm transmission   phase-dnm haplotag    phase-dnm phase-qc
 phase-dnm candidates    phase-dnm review         phase-dnm reclassify  phase-dnm likelihood   phase-dnm features
-phase-dnm spike         phase-dnm integrate      phase-dnm train       phase-dnm classify
+phase-dnm spike         phase-dnm integrate      phase-dnm concordance   phase-dnm train       phase-dnm classify
 ```
 
 ## 2. Interfaces
@@ -154,12 +154,13 @@ read `{rid, sample_role, HP, PS, XP|XT, support{ALT,REF,AMB}, mapq, nm, clip, (T
 
 ### 2.3 Module 3 — integration / final tables
 
-One **unfiltered** table per class, `final/<FAMILY>.<CLASS>.dnm.tsv` (+ Parquet): common core
+One **unfiltered** table per class group and child, `final/<FAMILY>.<child>.<snv_indel|sv|tr>.dnm.tsv` (+ `.vcf` sites file; Parquet when pyarrow is present): common core
 in this order, then class-specific columns, then the full registered feature vector:
 
 ```
 family_id sample_id chrom start end ref alt variant_class caller caller_gt caller_qual
-rf_prob dnm_call{YES,NO} parent_of_origin{paternal,maternal,undetermined} poo_reason poo_confidence
+rf_prob dnm_call{YES,NO} call_mode{rf+phase,phase_only} decision_reason mosaic_flag
+parent_of_origin{paternal,maternal,undetermined} poo_reason poo_confidence
 phase_class hap_obs_k3 hap_obs_k5 child_alt_hap_frac child_alt_other_hap
 transmitted_parent_alt_reads untransmitted_parent_alt_reads phase_score flags
 [SV: svtype svlen bp_precision]
@@ -167,8 +168,8 @@ transmitted_parent_alt_reads untransmitted_parent_alt_reads phase_score flags
 <features.yaml columns…>
 ```
 
-`rf_prob`, `dnm_call` come from M4; everything else from M2 and is **filled for every row,
-including NO calls.** VCF INFO equivalents (`io/vcfinfo.py`), one header block per class VCF:
+`rf_prob` comes from M4 (`--rf-probs`); until then `dnm_call` is the documented provisional phase-only decision (`call_mode`, DESIGN P15). Everything else is from M2 and is **filled for every row,
+including NO calls.** `phase-dnm integrate` builds the table (`workflow/m3_integrate_family.sb`); `phase-dnm concordance` produces the P18 tables against `baselines/` (`workflow/m3_concordance.sb`). VCF INFO equivalents (`io/vcfinfo.py`), one header block per class VCF:
 
 ```
 PDNM_PROB  PDNM_CALL  PDNM_POO  PDNM_POOR(reason)  PDNM_POOC  PDNM_CLASS  PDNM_HAPOBS

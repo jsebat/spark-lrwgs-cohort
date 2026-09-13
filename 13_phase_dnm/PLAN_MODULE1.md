@@ -82,6 +82,11 @@
   `inherited_missed_in_parent`.** This is P10 measured: at ~10 reads per haplotype a transmitted parental mosaic below
   ~25 % is indistinguishable from germline and above it from missed inheritance; the mosaic classes are reported with
   that caveat and their posteriors, not as calls (DESIGN P10). The array's cohort-wide summary follows.
+- **Module 3 built (2026-09-13): `integrate.py` (final unfiltered table per child and class group: README §2.3 core →
+  class columns → registered feature vector; P15 decision with the provisional phase-only mode until M4; demotion; mosaics
+  flagged, never YES), `io/vcfinfo.py` (PDNM_* INFO block + sites VCF), `concordance.py` (P18 against the baselines copied
+  from Lustre the same morning), CLI `integrate` / `concordance`, `workflow/m3_integrate_family.sb` + `m3_concordance.sb`;
+  5 new tests (71 passing).** Cohort run next: integrate array over the 33 families, then the concordance job.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

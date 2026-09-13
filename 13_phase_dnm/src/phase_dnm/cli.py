@@ -15,7 +15,7 @@ from .phasing import transmission as T
 
 PLANNED = {
     "haplotag": "M1c export to BAM (optional, IGV); labels are the orientation/transmission tables",
-    "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
+ "train": "M4, weeks 11-13", "classify": "M4",
 }
 
 
@@ -270,6 +270,73 @@ def cmd_spike(a: argparse.Namespace) -> int:
     return 0
 
 
+def _final_params(thr: dict):
+    from .integrate import FinalParams
+    f = thr.get("final", {})
+    return FinalParams(tau=dict(f.get("tau", {}) or {}), tau_rescue=dict(f.get("tau_rescue", {}) or {}),
+                       phase_only_min_score=f.get("phase_only_min_score", 0.9), require_hap_obs=f.get("require_hap_obs", 6))
+
+
+def cmd_integrate(a: argparse.Namespace) -> int:
+    """M3: final unfiltered table for one child and class group (+ sites VCF, + Parquet when pyarrow exists)."""
+    from . import integrate as I
+    from .io import vcfinfo as V
+    thr = load_thresholds(a.thresholds)
+    p = _final_params(thr)
+    rf = I.load_rf_probs(a.rf_probs)
+    summ = I.integrate_table(a.evidence, a.features, a.out, p, a.class_group, rf_probs=rf)
+    summ["thresholds_version"] = thr.get("version")
+    summ["call_mode"] = "rf+phase" if rf else "phase_only"
+    pq = I.write_parquet(a.out)
+    summ["parquet"] = pq
+    if a.vcf_out:
+        rows = V.rows_from_final(a.out)
+        summ["vcf_records"] = V.write_sites_vcf(rows, a.vcf_out)
+    with open(a.out.replace(".tsv", ".summary.json"), "w") as fh:
+        json.dump(summ, fh, indent=1, sort_keys=True)
+    c = summ["counts"]
+    sys.stderr.write("integrate %s [%s]: %d rows, YES=%d NO=%d mosaic=%d; %s; %d columns (%d features)%s\n" % (
+        os.path.basename(a.evidence), summ["call_mode"], c["rows"], c["YES"], c["NO"], c["mosaic"],
+        " ".join("%s=%d" % kv for kv in sorted(summ["reasons"].items())), summ["columns"], summ["features"],
+        "" if pq else "; no pyarrow: TSV only"))
+    return 0
+
+
+def cmd_concordance(a: argparse.Namespace) -> int:
+    """M3/P18: concordance of the final tables (one class group, all families) with the original pipeline's de novo set."""
+    import csv, glob
+    from . import concordance as C
+    rows = []
+    for f in sorted(glob.glob(os.path.join(a.final_dir, "*.%s.dnm.tsv" % a.class_group))):
+        with open(f, newline="") as fh:
+            rows.extend(csv.DictReader(fh, delimiter="\t"))
+    per_row, per_proband, summ = C.concordance(rows, a.class_group, a.baselines, sv_bp_tol=a.sv_bp_tol, sv_recip=a.sv_recip)
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    def dump(path, rs):
+        if not rs:
+            open(path, "w").close(); return
+        cols = []
+        for r in rs:
+            for k in r:
+                if k not in cols:
+                    cols.append(k)
+        with open(path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t", lineterminator="\n")
+            w.writeheader()
+            for r in rs:
+                w.writerow({k: ("" if r.get(k) is None else r.get(k)) for k in cols})
+    dump(a.out, [d for d in per_row if d["status"] != "neither"] if a.drop_neither else per_row)
+    dump(a.out.replace(".tsv", ".per_proband.tsv"), per_proband)
+    with open(a.out.replace(".tsv", ".summary.json"), "w") as fh:
+        json.dump(summ, fh, indent=1, sort_keys=True)
+    sys.stderr.write("concordance %s: rows=%d probands=%d concordant_YES=%d original_only=%d module_only=%d original_unseen=%d; "
+                     "per-proband original median %s -> module YES median %s; module YES paternal fraction %s\n" % (
+                         a.class_group, summ["n_rows"], summ["n_probands"], summ["concordant_YES"], summ["original_only"], summ["module_only"],
+                         summ["original_unseen_as_candidate"], summ["per_proband_original_median"], summ["per_proband_module_YES_median"],
+                         summ["module_YES_paternal_fraction"]))
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
@@ -427,6 +494,19 @@ def build_parser() -> argparse.ArgumentParser:
     sk.add_argument("--out", help="evaluate: summary TSV (per-site table written next to it)")
     sk.add_argument("--k", type=int, default=5), sk.add_argument("--thresholds")
     sk.set_defaults(func=cmd_spike)
+    ig = sub.add_parser("integrate", help="M3: final unfiltered table per child and class group (P15 decision, class columns, feature vector)")
+    ig.add_argument("--evidence", required=True, help="<child>.<class>.evidence.lik.tsv"), ig.add_argument("--features", help="<child>.<class>.features.tsv")
+    ig.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"])
+    ig.add_argument("--out", required=True, help="final/<FAMILY>.<child>.<class>.dnm.tsv"), ig.add_argument("--vcf-out")
+    ig.add_argument("--rf-probs", help="M4 output: TSV with variant_id, rf_prob (absent -> provisional phase_only mode)")
+    ig.add_argument("--thresholds")
+    ig.set_defaults(func=cmd_integrate)
+    cc = sub.add_parser("concordance", help="M3/P18: final calls vs the original pipeline's de novo set, one class group")
+    cc.add_argument("--final-dir", required=True), cc.add_argument("--baselines", required=True)
+    cc.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), cc.add_argument("--out", required=True)
+    cc.add_argument("--sv-bp-tol", type=int, default=500), cc.add_argument("--sv-recip", type=float, default=0.5)
+    cc.add_argument("--drop-neither", action="store_true", help="omit rows that are neither called nor in the baseline from the per-row table")
+    cc.set_defaults(func=cmd_concordance)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")

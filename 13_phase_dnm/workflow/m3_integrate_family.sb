@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_int
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=4G
+#SBATCH --time=01:00:00
+# M3 integration for one family: final unfiltered table + sites VCF per child and class group, from the likelihood-scored
+# evidence and the feature tables. RF_PROBS_DIR (optional) holds <child>.<class>.rf_probs.tsv from Module 4; without it the
+# decision is provisional (phase_only). Outputs: $FINAL_DIR/<FAMILY>.<child>.<class>.dnm.tsv (+ .summary.json, .vcf).
+# Usage: sbatch workflow/m3_integrate_family.sb <FAMILY_ID>   (or LIST + array)
+set -euo pipefail
+FAMILY="${1:-}"
+if [ -z "$FAMILY" ] && [ -n "${LIST:-}" ] && [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then FAMILY=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST"); fi
+[ -n "$FAMILY" ] || { echo "usage: $0 <FAMILY_ID>  (or LIST + array)" >&2; exit 2; }
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$HERE/src/phase_dnm" ] || { echo "ERROR: cannot locate the 13_phase_dnm directory; got '$HERE'" >&2; exit 2; }
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+THR="$HERE/config/thresholds.yaml"
+FINAL_DIR="${FINAL_DIR:-$EVIDENCE_DIR/../final}"; mkdir -p "$FINAL_DIR"
+ED="$EVIDENCE_DIR/$FAMILY"
+n_done=0
+while IFS=$'\t' read -r child father mother; do
+  [ -n "$father" ] && [ "$father" != "0" ] && [ -n "$mother" ] && [ "$mother" != "0" ] || { echo "skip duo (P19)"; continue; }
+  for cls in snv_indel sv tr; do
+    EV="$ED/evidence/$child.$cls.evidence.lik.tsv"; FE="$ED/features/$child.$cls.features.tsv"
+    [ -s "$EV" ] || { echo "ERROR: $EV missing" >&2; exit 3; }
+    RF=""; [ -n "${RF_PROBS_DIR:-}" ] && [ -s "$RF_PROBS_DIR/$child.$cls.rf_probs.tsv" ] && RF="--rf-probs $RF_PROBS_DIR/$child.$cls.rf_probs.tsv"
+    t0=$(date +%s)
+    "$PHASE_DNM_PYTHON" -m phase_dnm.cli integrate --evidence "$EV" ${FE:+--features "$FE"} --class-group "$cls" \
+        --out "$FINAL_DIR/$FAMILY.$child.$cls.dnm.tsv" --vcf-out "$FINAL_DIR/$FAMILY.$child.$cls.dnm.vcf" $RF --thresholds "$THR"
+    echo "integrate $cls done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
+  done
+  n_done=$((n_done+1))
+done < <(awk -F'\t' -v f="$FAMILY" 'NR>1 && $2==f && $7=="offspring" {print $1"\t"$3"\t"$4}' "$MANIFEST")
+[ "$n_done" -gt 0 ] || { echo "ERROR: no child processed for $FAMILY" >&2; exit 3; }
+printf 'OK\t%s\t%d children\tthresholds=%s\n' "$(date -Is)" "$n_done" "$(grep -m1 '^version' "$THR" | cut -d'"' -f2)" > "$ED/.int.status.tmp" && mv "$ED/.int.status.tmp" "$ED/m3_integrate.status"
