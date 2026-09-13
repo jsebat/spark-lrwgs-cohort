@@ -10,9 +10,11 @@
 #SBATCH --time=08:00:00
 # M4: the harness for one class group over the given seeds (real rf matrices of all families + synthetic-trio matrices of
 # those seeds). Writes $TRAIN_DIR/harness/{harness.<cls>.tsv, cv_report.<cls>.json, tau.<cls>.json, rf_probs/, models/}.
-# Usage: sbatch workflow/m4_train.sb <snv_indel|sv|tr> [SEEDS=0,1,2,3,4] [MAX_REAL=20000]
+# Usage: sbatch workflow/m4_train.sb <snv_indel|sv|tr> [seeds e.g. 0,1,2,3,4] [MAX_REAL=20000] [OUT_DIR=...]
+# The seed list is a POSITIONAL argument: a comma-separated value cannot travel through --export (sbatch splits it at the commas;
+# 2026-09-13 the first "5-seed" run was five copies of seed 0 for that reason).
 set -euo pipefail
-CLS="${1:?class group}"; SEEDS="${SEEDS:-0}"; MAX_REAL="${MAX_REAL:-20000}"
+CLS="${1:?class group}"; SEEDS="${2:-${SEEDS:-0}}"; MAX_REAL="${MAX_REAL:-20000}"
 HERE="${PHASE_DNM_HOME:-}"
 [ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
 [ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

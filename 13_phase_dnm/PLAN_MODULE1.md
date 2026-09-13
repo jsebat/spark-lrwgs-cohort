@@ -178,6 +178,16 @@
   large in every class. The guard dropped 17/27/23 columns, all with 0 % presence on both sides (the never-produced
   annotation/context features) — none of them a real leak this time. τ (0.1 % real pass rate): 0.974 / 0.998 / 0.809;
   τ_rescue (1 %): 0.432 / 0.983 / 0.420. Seeds 1–4 synthetic trios: 140/140 COMPLETED; annotation 135/140.
+- **P18 re-issued in rf+phase mode with the corrected seed-0 classifier (2026-09-13, integrate array 54284892, concordance
+  54284893; τ at a 0.1 % pass rate on held-out real candidates):** SNV/indel concordant 621, original-only 714 (614 below τ,
+  96 demoted, 4 mosaic), module-only 1,722; per proband 38 → **52**; paternal fraction of module YES 0.696; 64 % of YES come
+  through the rescue branch (rf ≥ τ_rescue 0.43 with `germline_DNM_phased` and six haplotypes observed), 36 % through
+  rf ≥ τ 0.974. SV: 9 / 8,120 / 14, per proband 247 → 0 (23 calls cohort-wide: τ 0.998 lets ~0.6 of ~600 candidates per
+  child through — the 0.1 % rule is class-blind, and for SVs the expected true count is that order of magnitude anyway; to be
+  set on external truth, P15). TR: 28 / 190 / 2,134, per proband 6 → 57. The SNV/indel per-child YES range is 10–480 — one
+  outlier child under investigation. **Bug found in the same pass:** the "5-seed" training jobs were five copies of seed 0
+  — `--export=ALL,SEEDS=0,1,2,3,4` is split by sbatch at the commas; `m4_train.sb` now takes the seed list as a positional
+  argument and the run is resubmitted into `harness_5seed/`.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
