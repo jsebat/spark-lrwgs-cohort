@@ -72,6 +72,7 @@ def snv_indel_candidates(vcf_path: str, family: str, child: str, father: str, mo
                 caller_filter=rec.filter, child_ad=cs.get("AD", "."), father_gt=fs.get("GT", "."), mother_gt=ms.get("GT", "."),
                 father_gq=_ival(fs, "GQ"), mother_gq=_ival(ms, "GQ"), father_dp=_ival(fs, "DP"), mother_dp=_ival(ms, "DP"),
                 father_ad=fs.get("AD", "."), mother_ad=ms.get("AD", "."),
+                child_pl=cs.get("PL", "."), father_pl=fs.get("PL", "."), mother_pl=ms.get("PL", "."),
                 class_payload={"allele_index": a, "n_alts": len(rec.alts), "rnc": cs.get("RNC", ".")})
 
 
@@ -103,7 +104,7 @@ def sv_candidates(vcf_path: str, family: str, child: str, father: str, mother: s
             variant_class="SV", caller=caller, caller_gt=cs.get("GT", "."), caller_gq=_ival(cs, "GQ"), caller_dp=None,
             caller_qual=rec.qual, caller_filter=rec.filter, child_ad=cs.get("AD", "."), father_gt=fs.get("GT", "."),
             mother_gt=ms.get("GT", "."), father_gq=_ival(fs, "GQ"), mother_gq=_ival(ms, "GQ"), father_ad=fs.get("AD", "."),
-            mother_ad=ms.get("AD", "."),
+            mother_ad=ms.get("AD", "."), child_pl=cs.get("PL", "."), father_pl=fs.get("PL", "."), mother_pl=ms.get("PL", "."),
             class_payload={"svtype": svtype, "svlen": svlen, "end": end, "homlen": _ival(rec.info, "HOMLEN"),
                            "imprecise": rec.info.get("IMPRECISE") == "1", "mateid": rec.info.get("MATEID"),
                            "svclaim": rec.info.get("SVCLAIM"), "caller_id": rec.id, "child_cn": cs.get("CN"),

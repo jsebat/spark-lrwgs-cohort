@@ -41,6 +41,9 @@ class CandidateRecord:
     mother_dp: Optional[int] = None
     father_ad: str = "."
     mother_ad: str = "."
+    child_pl: str = "."                  # Phred-scaled genotype likelihoods, comma-joined (SynthDNM universal set)
+    father_pl: str = "."
+    mother_pl: str = "."
     source_tier: str = "UNFILTERED"      # HIGH | LOW | UNFILTERED (P5)
     source_list: str = "joint_vcf"       # which list(s) this row came from, ';'-joined
     mask_overlap: int = 0                # filled by the context step; a FLAG, never a filter (P5)
@@ -88,5 +91,7 @@ def read_candidates(path: str) -> Iterator[CandidateRecord]:
                 child_ad=r["child_ad"], father_gt=r["father_gt"], mother_gt=r["mother_gt"],
                 father_gq=_opt_int(r["father_gq"]), mother_gq=_opt_int(r["mother_gq"]),
                 father_dp=_opt_int(r["father_dp"]), mother_dp=_opt_int(r["mother_dp"]),
-                father_ad=r["father_ad"], mother_ad=r["mother_ad"], source_tier=r["source_tier"], source_list=r["source_list"],
+                father_ad=r["father_ad"], mother_ad=r["mother_ad"],
+                child_pl=r.get("child_pl", "."), father_pl=r.get("father_pl", "."), mother_pl=r.get("mother_pl", "."),
+                source_tier=r["source_tier"], source_list=r["source_list"],
                 mask_overlap=int(r["mask_overlap"] or 0), class_payload=json.loads(r["class_payload"] or "{}"))

@@ -15,7 +15,6 @@ from .phasing import transmission as T
 
 PLANNED = {
     "haplotag": "M1c export to BAM (optional, IGV); labels are the orientation/transmission tables",
-    "features": "weeks 6-8",
     "spike": "weeks 6-8", "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
 }
 
@@ -221,6 +220,25 @@ def cmd_review(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_features(a: argparse.Namespace) -> int:
+    from .features import extract as X
+    from .features.registry import Registry
+    reg = Registry(a.registry)
+    man = read_manifest(a.manifest)
+    sex = man[a.child]["sex"]
+    mask = X.BedMask(a.mask) if a.mask else None
+    seqctx = X.SeqContext(a.reference) if a.reference else None
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    summ = X.extract_child(a.evidence, a.candidates, reg, sex, a.out, a.rf_out, mask=mask, seqctx=seqctx)
+    summ["registry"] = reg.manifest()
+    with open(a.out.replace(".tsv", ".summary.json"), "w") as fh:
+        json.dump(summ, fh, indent=1, sort_keys=True)
+    sys.stderr.write("features %s: %d rows, %d/%d applicable features produced; never produced: %s\n"
+                     % (os.path.basename(a.evidence), summ["rows"], summ.get("features_produced", 0), summ.get("features_applicable", 0),
+                        ", ".join(summ.get("never_produced", [])[:12]) + (" ..." if len(summ.get("never_produced", [])) > 12 else "")))
+    return 0
+
+
 def _trio_args(sp: argparse.ArgumentParser):
     sp.add_argument("--child", required=True, help="child sample id")
     sp.add_argument("--father"), sp.add_argument("--mother"), sp.add_argument("--sex", help="child sex 1/2/M/F")
@@ -285,6 +303,16 @@ def build_parser() -> argparse.ArgumentParser:
     rv.add_argument("--salt", help="salt for read-id hashing (default: the output path)")
     rv.add_argument("--thresholds")
     rv.set_defaults(func=cmd_review)
+
+    fe = sub.add_parser("features", help="registry-driven feature vectors from an evidence table (+ rf_safe classifier matrix)")
+    fe.add_argument("--evidence", required=True), fe.add_argument("--candidates", required=True)
+    fe.add_argument("--child", required=True), fe.add_argument("--manifest", required=True)
+    fe.add_argument("--out", required=True, help="<child>.<class>.features.tsv")
+    fe.add_argument("--rf-out", help="<child>.<class>.features.rf.tsv (rf_safe columns only; refused if unsafe)")
+    fe.add_argument("--mask", action="append", help="BED file(s) of the lab region mask (flag, never a filter)")
+    fe.add_argument("--reference", help="reference FASTA for sequence-context features (pysam)")
+    fe.add_argument("--registry", help="config/features.yaml (default: the module's)")
+    fe.set_defaults(func=cmd_features)
 
     qc = sub.add_parser("phase-qc", help="M1d: per-child phase_qc.json and the cohort QC table with gates")
     qc.add_argument("--manifest", required=True)
