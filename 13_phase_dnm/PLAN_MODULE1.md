@@ -68,6 +68,20 @@
   alternative (best alternative for 2,596 of 2,747 rule-phased rows), not a definitional mismatch. Likelihood-only stays
   7,463 at 0.511 (unobservable haplotypes; the posterior does not encode observability). Feature coverage after the fix:
   58/89 applicable SNV/indel features.
+- **Spike-in harness built and smoke-run (2026-09-13, `sim/edit.py` + `sim/spike.py`, `phase-dnm spike plan|apply|evaluate`,
+  `workflow/m2_spike_family.sb`; smoke job 54279524 on family 1, N_PER = 4, ~5 min; cohort array 54279525, N_PER = 12).**
+  Plants SNV / indel (1–12 bp) / SV (DEL 200–1,500, INS 100–400 bp) / TR (3–8 motif units) into the REAL haplotagged
+  reads (CIGAR surgery on plain tuples, pysam only for I/O), on a child haplotype whose parent of origin and the parent's
+  transmitted haplotype come from the M1 tables at the site; four scenarios G / CM (15, 30 %) / PM (10, 25 %) / IM; sites
+  pass a read-level QC (>= 5 readable reads per haplotype per sample, unanimous base, indel-free window, outside the mask).
+  Smoke: 82/96 planned sites placed (skips: haplotype QC 2,642, window 2,071, mask 1,659 of 6,751 tries); the review ran
+  on the spiked slices unchanged. **Recovery among observable sites: G class 1.0 and parent of origin 1.0 for all four
+  classes (posterior 0.98); IM 1.0 (posterior of germline 0.00); CM 0.0–0.25 — every miss is `TOO_FEW_ALT_READS` (15 % of
+  ~10 reads = 2 alt reads) or `MOSAIC_UNDERPOWERED` (< 15 readable reads on A); PM 0.0 — m = 0.10 leaves 0–1 alt reads on
+  T (within the allowance → germline, posterior 0.72–0.98), m = 0.25 gives 2–4 alt reads → `PARENTAL_ALT_LOW_DEPTH` or
+  `inherited_missed_in_parent`.** This is P10 measured: at ~10 reads per haplotype a transmitted parental mosaic below
+  ~25 % is indistinguishable from germline and above it from missed inheritance; the mosaic classes are reported with
+  that caveat and their posteriors, not as calls (DESIGN P10). The array's cohort-wide summary follows.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
