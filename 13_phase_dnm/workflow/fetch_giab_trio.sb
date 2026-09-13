@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_giab
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=4G
+#SBATCH --time=08:00:00
+#SBATCH --array=1-3
+# Fetch the GIAB Ashkenazi trio PacBio HiFi Revio UNALIGNED reads (public bucket, no credentials) for the
+# validation-only external test (DESIGN P16; JS 2026-09-12: "not super valuable but ok go"). One task per sample.
+# Unaligned reads, not the GIAB GRCh38 alignments, so the lab pipeline (pbmm2 -> DeepVariant/GLnexus -> HiPhase ->
+# sawfish -> TRGT) can be reproduced end to end. Coriell LCL DNA - state the cell-line caveat wherever used.
+# Sizes: HG002 (48x) 83 GB, HG003 (46x) 75 GB, HG004 (36x) 57 GB. md5 verified against the bucket's checksums.md5.
+set -euo pipefail
+DEST="${GIAB_DIR:-/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031}"
+BASE="https://giab.s3.amazonaws.com/data/AshkenazimTrio"
+case "${SLURM_ARRAY_TASK_ID:?}" in
+  1) S=HG002; P="HG002_NA24385_son"; FILES="HG002_PacBio-Revio_m84039_230928_213653_s3.hifi_reads.bam HG002_PacBio-Revio_m84039_231005_222902_s1.hifi_reads.bam";;
+  2) S=HG003; P="HG003_NA24149_father"; FILES="HG003_PacBio-Revio_m84039_230928_220759_s4.hifi_reads.bam HG003_PacBio-Revio_m84039_231006_220627_s2.hifi_reads.bam";;
+  3) S=HG004; P="HG004_NA24143_mother"; FILES="HG004_PacBio-Revio_m84039_230929_004333_s1.hifi_reads.bam HG004_PacBio-Revio_m84039_231006_223645_s3.hifi_reads.bam";;
+  *) echo "bad task id" >&2; exit 2;;
+esac
+mkdir -p "$DEST/$S"; cd "$DEST/$S"
+for f in "README_${S}-PacBio-Revio.md" checksums.md5 $FILES; do
+  url="$BASE/$P/PacBio_HiFi-Revio_20231031/$f"
+  echo "$(date -Is) fetching $f"
+  curl -sSL --retry 5 --retry-delay 30 -C - -o "$f.part" "$url" && mv "$f.part" "$f"
+done
+echo "$(date -Is) verifying md5"
+grep -E "hifi_reads.bam" checksums.md5 | while read -r sum name; do
+  name=$(basename "$name")
+  [ -f "$name" ] || continue
+  got=$(md5sum "$name" | cut -d' ' -f1)
+  if [ "$got" = "$sum" ]; then echo "OK   $name"; else echo "MD5 MISMATCH $name" >&2; exit 4; fi
+done
+du -sh "$DEST/$S"
+printf 'OK\t%s\n' "$(date -Is)" > "$DEST/$S/.fetch.status.tmp" && mv "$DEST/$S/.fetch.status.tmp" "$DEST/$S/fetch.status"
