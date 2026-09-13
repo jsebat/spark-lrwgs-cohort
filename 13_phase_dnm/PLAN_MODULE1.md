@@ -144,6 +144,20 @@
   different column sets (rf columns came from the first row's class), TR candidate ids shared by two alleles of one locus
   (now `TRID:a<idx>`; old tables deduplicated at load), and τ chosen at a fixed pass rate on REAL held-out candidates
   (0.1 % / 1 %) instead of precision on the positive-heavy mix (which gave τ = 0). SNV/indel and TR runs rerun after the fixes.
+- **Seed-0 harness table, all classes (2026-09-13, jobs 54283205/6/7 after the fixes; ROC-AUC on identical swap-closed
+  family folds, real raw candidates = 0, synthetic = 1; population-frequency features excluded from every classifier arm):**
+  SNV/indel (698,885 real ≤ 20k/child + 210,000 synthetic, 68 features): RF 0.986, no-phase 0.997, phase-only 0.975,
+  sklearn RF 0.999, LR 0.984; H1 slivar sweep 0.887 with operating point TPR 0.48 / FPR 0.0078; H2/H3 0.874 (synthetic-label
+  caveat). SV (22,434 + 105,000, 61 features): RF 0.998, no-phase 0.990, phase-only 0.977, RF/LR 0.999/0.989; H1 genotype
+  rule 0.61 (its operating point passes every candidate). TR (700,000 + 105,000, 61 features): **RF 0.977, no-phase 0.835,
+  phase-only 0.975**, RF/LR 0.990/0.851; H1 family rule 0.59 (TPR 0.005), H2 cohort rule 0.59. Read-out: phase features are
+  decisive for TR and additive for SV; for SNV/indel the caller features already saturate on synthetic labels (no-phase >
+  full is inner-grid variance on a saturated task; the sklearn RF at 0.999 says the ceiling is the label construction, not
+  the features) — the SNV/indel phase benefit has to be shown on the external truth (WES-confirmed exonic calls, spike-ins,
+  P22). "+P(demote)" lowers every arm on synthetic labels, as expected from the construction (P22 caveat). τ (0.1 % pass
+  rate on held-out real candidates): SNV/indel 0.348, SV 0.989, TR 0.258; τ_rescue (1 %): 0.054 / 0.764 / 0.059. Frozen
+  seed-0 models + manifests in `$TRAIN_DIR/harness/models/`; rf_probs for every real candidate in `harness/rf_probs/`.
+  Next: integrate in rf+phase mode → P18 re-issue; seeds 1–4 for the mean ± range.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
