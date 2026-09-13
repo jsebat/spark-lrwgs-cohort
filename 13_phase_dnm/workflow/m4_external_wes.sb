@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_extwes
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=02:00:00
+# P27 arm 2: merge the per-chromosome WES labels and evaluate the small-variant arms on WES-confirmed truth.
+# Usage: sbatch workflow/m4_external_wes.sb  [SEED=0] [OUT_DIR=harness dir with fold_models]
+set -euo pipefail
+SEED="${SEED:-0}"
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2
+TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"; HARNESS_DIR="${OUT_DIR:-$TRAIN_DIR/harness}"; WES_DIR="${WES_DIR:-$EVIDENCE_DIR/../wes_truth}"
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli wes-merge --out-dir "$WES_DIR"
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli external --class-group snv_indel --manifest "$MANIFEST" --evidence-dir "$EVIDENCE_DIR" --harness-dir "$HARNESS_DIR" \
+    --folds-dir "$TRAIN_DIR/folds" --seed "$SEED" --truth wes --labels-dir "$WES_DIR/labels" --out "$HARNESS_DIR/external_wes.snv_indel.seed$SEED.json"

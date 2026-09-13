@@ -147,3 +147,74 @@ def evaluate_spikes(evidence_dir: str, harness_dir: str, class_group: str, seed:
         out["recall_at_tau_by_class"] = {vc: float((df[col][g & (df["variant_class"] == vc)] >= tau).mean()) for vc in sorted(set(df["variant_class"][g]))}
         out["real_pass_rate_at_tau"] = float((df[col][df["origin"] == "real"] >= tau).mean())
     return out
+
+
+def evaluate_labelled(evidence_dir: str, harness_dir: str, class_group: str, seed: int, family_of_child: Dict[str, str],
+                      fold_of_family: Dict[str, int], taus: Dict[str, float], labels_dir: str, label_suffix: str = ".snv_indel.wes.tsv",
+                      log=None) -> Dict[str, object]:
+    """External truth from labelled REAL rows (e.g. WES-confirmed exonic calls): label 1 / 0 per (child, variant_id), -1 ignored.
+    Rows are scored by the fold model that held the child's family out; rf_q against the fold's labelled real rows."""
+    log = log or (lambda m: None)
+    fms = load_fold_models(harness_dir, class_group, seed)
+    rows: List[dict] = []
+    for lp in sorted(glob.glob(os.path.join(labels_dir, "*" + label_suffix))):
+        child = os.path.basename(lp).split(".")[0]
+        fam = family_of_child.get(child)
+        if fam is None or fam not in fold_of_family or fold_of_family[fam] not in fms:
+            continue
+        lab = pd.read_csv(lp, sep="\t", dtype=str, keep_default_na=False)
+        lab = lab[lab["label"].isin(["0", "1"])]
+        if lab.empty:
+            continue
+        rf = glob.glob(os.path.join(evidence_dir, fam, "features", "%s.%s.features.rf.tsv" % (child, class_group)))
+        if not rf:
+            continue
+        X = pd.read_csv(rf[0], sep="\t", dtype=str, keep_default_na=False)
+        X = X[X["variant_id"].isin(set(lab["variant_id"]))].reset_index(drop=True)
+        if X.empty:
+            continue
+        ev = HZ._read_cols(os.path.join(evidence_dir, fam, "evidence", "%s.%s.evidence.lik.tsv" % (child, class_group)), HZ.EV_COLS + HZ.CAND_COLS).drop_duplicates("variant_id")
+        side = X[["variant_id"]].merge(lab[["variant_id", "label"]], on="variant_id", how="left").merge(ev, on="variant_id", how="left").fillna("")
+        fm = fms[fold_of_family[fam]]
+        p, raw = fm.predict(X)
+        for i, r in side.iterrows():
+            rows.append(dict(child=child, fold=fold_of_family[fam], label=int(r["label"]), variant_id=r["variant_id"], prob=float(p[i]), raw=float(raw[i]),
+                             phase_class=r["phase_class"], hap_obs_k5=r["hap_obs_k5"], phase_score=r["phase_score"], cand={k: r.get(k, "") for k in HZ.CAND_COLS}))
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return {"class_group": class_group, "n_rows": 0, "note": "no labelled rows"}
+    df["rf_q"] = np.nan
+    for k, g in df.groupby("fold"):
+        ref = RS.ecdf_ref(g["prob"].to_numpy())
+        df.loc[g.index, "rf_q"] = RS.quantile(ref, g["prob"].to_numpy())
+    y = df["label"].to_numpy()
+    out: Dict[str, object] = {"class_group": class_group, "seed": seed, "truth": labels_dir, "n_rows": int(len(df)), "n_pos": int(y.sum()),
+                              "n_children": int(df["child"].nunique()), "arms": {}}
+    raw = df["raw"].to_numpy(); prob = df["prob"].to_numpy(); rfq = df["rf_q"].to_numpy()
+    pc = df["phase_class"].to_numpy(); ho = df["hap_obs_k5"].to_numpy(); ps = df["phase_score"].to_numpy()
+    use_q = taus.get("score_column") == "rf_q"
+    tau = taus.get("tau_q", 0.999) if use_q else taus.get(class_group)
+    out["decision_score"] = "rf_q" if use_q else "rf_prob"; out["tau"] = tau
+    def arm(name, score, pass_=None):
+        rec = dict(roc_auc=CV.roc_auc(y, score), pr_auc=CV.pr_auc(y, score))
+        if pass_ is not None:
+            rec.update(HZ.operating_point(y, pass_))
+        out["arms"][name] = rec
+        log("  %-22s auc=%s pr=%s%s" % (name, None if rec["roc_auc"] is None else round(rec["roc_auc"], 4), None if rec["pr_auc"] is None else round(rec["pr_auc"], 4),
+                                        "" if pass_ is None else " op(tpr=%.3f fpr=%.4f)" % (rec["tpr"], rec["fpr"])))
+    arm("RF", raw, ((rfq if use_q else prob) >= tau) if tau is not None else None)
+    arm("RF+P(demote)", HZ.phase_rerank(raw, pc, ho, ps, allow_rescue=False))
+    arm("RF+P(demote+rescue)", HZ.phase_rerank(raw, pc, ho, ps, allow_rescue=True))
+    cand = pd.DataFrame(list(df["cand"]))
+    hs = []
+    for r in cand.to_dict("records"):
+        try:
+            r["class_payload"] = json.loads(r.get("class_payload") or "{}")
+        except ValueError:
+            r["class_payload"] = {}
+        hs.append(Hx.score_row(class_group, r, r))
+    hs = pd.DataFrame(hs)
+    for a in sorted({c[:-6] for c in hs.columns if c.endswith("_score")}):
+        arm(a, hs[a + "_score"].to_numpy(dtype=float), hs[a + "_pass"].to_numpy().astype(bool))
+        arm(a + "+P(demote+rescue)", HZ.phase_rerank(hs[a + "_score"].to_numpy(dtype=float), pc, ho, ps, allow_rescue=True))
+    return out

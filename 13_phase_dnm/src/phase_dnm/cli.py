@@ -510,7 +510,10 @@ def cmd_external(a: argparse.Namespace) -> int:
             if k in t:
                 taus[k] = t[k]
     log = lambda m: sys.stderr.write(m + "\n")
-    rep = EX.evaluate_spikes(a.evidence_dir, a.harness_dir, a.class_group, a.seed, fam_of, fold_of, taus, max_real_per_child=a.max_real_per_child, log=log)
+    if a.truth == "wes":
+        rep = EX.evaluate_labelled(a.evidence_dir, a.harness_dir, a.class_group, a.seed, fam_of, fold_of, taus, a.labels_dir, log=log)
+    else:
+        rep = EX.evaluate_spikes(a.evidence_dir, a.harness_dir, a.class_group, a.seed, fam_of, fold_of, taus, max_real_per_child=a.max_real_per_child, log=log)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w") as fh:
         json.dump(rep, fh, indent=1, sort_keys=True, default=str)
@@ -548,6 +551,70 @@ def cmd_attribution(a: argparse.Namespace) -> int:
     for kind, d in rep["share_by_family"].items():
         log("ATTRIBUTION %-12s %s (n=%d)" % (kind, json.dumps(d), rep["n_rows"].get(kind, 0)))
     log("ATTRIBUTION top features: %s" % json.dumps(rep["top_features"]))
+    return 0
+
+
+def cmd_wes_truth(a: argparse.Namespace) -> int:
+    """P27 arm 2: WES-confirmed labels for exonic small-variant candidates from the iWES pVCF (per chromosome)."""
+    import glob
+    from .eval import wes_truth as W
+    man = read_manifest(a.manifest)
+    cand_paths = {os.path.basename(p).split(".")[0]: p for p in glob.glob(a.cand_glob)}
+    log = lambda m: sys.stderr.write(m + "\n")
+    os.makedirs(a.out_dir, exist_ok=True)
+    if a.step in ("sites", "extract"):
+        targets = W.Targets(a.target_bed)
+        sites = W.exonic_sites(cand_paths.values(), targets)
+        n = W.write_regions(sites, a.chrom, os.path.join(a.out_dir, "sites.%s.bed" % a.chrom))
+        log("wes-truth %s: %d exonic candidate positions" % (a.chrom, n))
+        if a.step == "sites" or n == 0:
+            return 0
+        samples = os.path.join(a.out_dir, "cohort_samples.txt")
+        with open(samples, "w") as fh:
+            fh.write("\n".join(sorted(man)) + "\n")
+        pvcf = a.pvcf_pattern.replace("{CHROM}", a.chrom)
+        n_rec = W.extract_chrom(pvcf, os.path.join(a.out_dir, "sites.%s.bed" % a.chrom), samples, os.path.join(a.out_dir, "wes.%s.tsv" % a.chrom), a.bcftools)
+        order = W.sample_order(pvcf, samples, a.bcftools)
+        with open(os.path.join(a.out_dir, "wes.%s.samples.txt" % a.chrom), "w") as fh:
+            fh.write("\n".join(order) + "\n")
+        log("wes-truth %s: %d records extracted for %d cohort samples present" % (a.chrom, n_rec, len(order)))
+        return 0
+    # label
+    order = open(os.path.join(a.out_dir, "wes.%s.samples.txt" % a.chrom)).read().split()
+    trios = {}
+    for sid, r in man.items():
+        if r.get("role") == "offspring" and r.get("father_id") in man and r.get("mother_id") in man:
+            trios[sid] = (r["father_id"], r["mother_id"])
+    st = W.label_children(os.path.join(a.out_dir, "wes.%s.tsv" % a.chrom), order, trios, cand_paths, os.path.join(a.out_dir, "labels"), chrom_filter=a.chrom)
+    tot = {}
+    for c in st.values():
+        for k, v in c.items():
+            tot[k] = tot.get(k, 0) + v
+    log("wes-truth label %s: %d children; %s" % (a.chrom, len(st), " ".join("%s=%d" % kv for kv in sorted(tot.items()))))
+    return 0
+
+
+def cmd_wes_merge(a: argparse.Namespace) -> int:
+    """Concatenate per-chromosome label files into one <child>.snv_indel.wes.tsv per child (labels != -1 summarised)."""
+    import glob, csv
+    from collections import Counter
+    labels_dir = os.path.join(a.out_dir, "labels")
+    by_child = {}
+    for f in sorted(glob.glob(os.path.join(labels_dir, "*.snv_indel.wes.chr*.tsv"))):
+        by_child.setdefault(os.path.basename(f).split(".")[0], []).append(f)
+    tot = Counter()
+    for child, files in by_child.items():
+        out = os.path.join(labels_dir, "%s.snv_indel.wes.tsv" % child)
+        with open(out, "w", newline="") as fh:
+            w = None
+            for f in files:
+                with open(f, newline="") as ih:
+                    rd = csv.DictReader(ih, delimiter="\t")
+                    if w is None:
+                        w = csv.DictWriter(fh, fieldnames=rd.fieldnames, delimiter="\t", lineterminator="\n"); w.writeheader()
+                    for r in rd:
+                        w.writerow(r); tot[r["label"]] += 1
+    sys.stderr.write("wes-merge: %d children; labels %s\n" % (len(by_child), dict(tot)))
     return 0
 
 
@@ -759,6 +826,7 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), ex.add_argument("--manifest", required=True)
     ex.add_argument("--evidence-dir", required=True), ex.add_argument("--harness-dir", required=True), ex.add_argument("--folds-dir", required=True)
     ex.add_argument("--seed", type=int, default=0), ex.add_argument("--max-real-per-child", type=int, default=20000), ex.add_argument("--out", required=True)
+    ex.add_argument("--truth", default="spike", choices=["spike", "wes"]), ex.add_argument("--labels-dir", help="wes: directory of <child>.snv_indel.wes.tsv label files")
     ex.set_defaults(func=cmd_external)
     rs = sub.add_parser("rescore", help="M4 post-step: fold-quantile score rf_q from saved fold models; writes rf_probs/ (rf_prob + rf_q) and tau_q")
     rs.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), rs.add_argument("--manifest", required=True)
@@ -770,6 +838,16 @@ def build_parser() -> argparse.ArgumentParser:
     at.add_argument("--evidence-dir", required=True), at.add_argument("--train-dir", required=True), at.add_argument("--harness-dir", required=True)
     at.add_argument("--folds-dir", required=True), at.add_argument("--seed", type=int, default=0), at.add_argument("--out", required=True)
     at.set_defaults(func=cmd_attribution)
+    wt = sub.add_parser("wes-truth", help="P27 arm 2: exonic candidate sites -> iWES pVCF extraction -> trio labels, one chromosome")
+    wt.add_argument("step", choices=["sites", "extract", "label"]), wt.add_argument("--chrom", required=True)
+    wt.add_argument("--manifest", required=True), wt.add_argument("--cand-glob", required=True, help="<child>.snv_indel.candidates.tsv tables")
+    wt.add_argument("--target-bed", action="append", default=[], help="capture target BED(s); repeatable")
+    wt.add_argument("--pvcf-pattern", help="per-chromosome pVCF path with {CHROM}"), wt.add_argument("--bcftools", default="bcftools")
+    wt.add_argument("--out-dir", required=True)
+    wt.set_defaults(func=cmd_wes_truth)
+    wm = sub.add_parser("wes-merge", help="merge per-chromosome WES label files per child")
+    wm.add_argument("--out-dir", required=True)
+    wm.set_defaults(func=cmd_wes_merge)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")

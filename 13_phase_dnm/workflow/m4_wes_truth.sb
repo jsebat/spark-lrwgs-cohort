@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_wes
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=16G
+#SBATCH --time=06:00:00
+# P27 arm 2: for one chromosome (array task 1-23 -> chr1..chr22, chrX) collect the cohort's exonic small-variant candidate
+# sites, extract the 101 cohort samples' WES genotypes from the iWES v3 pVCF (random access on a 100 GB, 142k-sample file),
+# and label every child's candidates. Then `phase-dnm wes-merge` and `phase-dnm external --truth wes` (m4_external_wes.sb).
+set -euo pipefail
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}" "${WES_PVCF_PATTERN:?}" "${WES_TARGET_BEDS:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+BCFTOOLS="${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}"
+WES_DIR="${WES_DIR:-$EVIDENCE_DIR/../wes_truth}"; mkdir -p "$WES_DIR"
+CHROMS=(chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX)
+CHROM="${1:-${CHROMS[$((SLURM_ARRAY_TASK_ID - 1))]}}"
+TB=""; for b in $WES_TARGET_BEDS; do [ -s "$b" ] && TB="$TB --target-bed $b"; done
+t0=$(date +%s)
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli wes-truth extract --chrom "$CHROM" --manifest "$MANIFEST" --cand-glob "$EVIDENCE_DIR/*/candidates/*.snv_indel.candidates.tsv" \
+    $TB --pvcf-pattern "$WES_PVCF_PATTERN" --bcftools "$BCFTOOLS" --out-dir "$WES_DIR"
+echo "extract $CHROM done in $(( $(date +%s) - t0 )) s"
+[ -s "$WES_DIR/wes.$CHROM.tsv" ] || { echo "no records for $CHROM"; exit 0; }
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli wes-truth label --chrom "$CHROM" --manifest "$MANIFEST" --cand-glob "$EVIDENCE_DIR/*/candidates/*.snv_indel.candidates.tsv" --out-dir "$WES_DIR"
+printf 'OK\t%s\n' "$(date -Is)" > "$WES_DIR/.done.$CHROM"
