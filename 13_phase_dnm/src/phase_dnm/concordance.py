@@ -21,17 +21,48 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
+def norm_allele(pos: int, ref: str, alt: str) -> Tuple[int, str, str]:
+    """Canonical key (position of the first changed base, deleted sequence, inserted sequence): trim the shared prefix
+    (moving pos), then the shared suffix, allowing EMPTY cores - so `GAT>GT` at 100 and `AT>T` at 101 (padded vs
+    anchor-after forms of the same 1-bp deletion) both become (101, "A", ""). The original pipeline matched after
+    `bcftools norm`; the joint VCF's multi-allelic-split records keep their padding, which hid 120 indels on
+    2026-09-13. Left-alignment through a repeat needs the reference and is covered by the position-window fallback."""
+    ref, alt = ref.upper(), alt.upper()
+    while ref and alt and ref[0] == alt[0]:
+        ref, alt, pos = ref[1:], alt[1:], pos + 1
+    while ref and alt and ref[-1] == alt[-1]:
+        ref, alt = ref[:-1], alt[:-1]
+    return pos, ref, alt
+
+
 def load_small(path: str) -> Dict[Tuple[str, str, int, str, str], dict]:
+    """Keyed by the NORMALISED (proband, chrom, pos, ref, alt)."""
     out = {}
     if not os.path.exists(path):
         return out
     with open(path, newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
             try:
-                out[(r["proband"], r["chrom"], int(r["pos"]), r["ref"], r["alt"])] = r
+                p, a, b = norm_allele(int(r["pos"]), r["ref"], r["alt"])
+                out[(r["proband"], r["chrom"], p, a, b)] = r
             except (KeyError, ValueError):
                 continue
     return out
+
+
+def small_match(small: Dict, sid: str, chrom: str, pos: int, ref: str, alt: str, window: int = 20) -> Optional[Tuple]:
+    """Exact normalised match, else (indels only) the same length change within `window` bp for the same proband."""
+    p, a, b = norm_allele(pos, ref, alt)
+    key = (sid, chrom, p, a, b)
+    if key in small:
+        return key
+    if len(a) == len(b):
+        return None
+    delta = len(b) - len(a)
+    for k in small:
+        if k[0] == sid and k[1] == chrom and abs(k[2] - p) <= window and (len(k[4]) - len(k[3])) == delta:
+            return k
+    return None
 
 
 def load_sv_bed(path: str) -> Dict[str, List[dict]]:
@@ -95,8 +126,8 @@ def concordance(final_rows: Iterable[dict], vclass_group: str, baselines_dir: st
         sid = r["sample_id"]
         hit = None
         if vclass_group == "snv_indel":
-            key = (sid, r["chrom"], int(r["start"]), r["ref"], r["alt"])
-            hit = small.get(key)
+            key = small_match(small, sid, r["chrom"], int(r["start"]), r["ref"], r["alt"])
+            hit = small.get(key) if key is not None else None
             if hit is not None:
                 matched_baseline.add(key)
         elif vclass_group == "sv":

@@ -138,3 +138,16 @@ def test_concordance_small_and_sv(tmp_path):
     per_row, per_prob, s = C.concordance(final_sv, "sv", str(b))
     st = {d["variant_id"]: d["status"] for d in per_row}
     assert st == {"s1": "concordant_YES", "s2": "original_only", "s3": "module_only"} and s["original_unseen_as_candidate"] == 0
+
+
+def test_small_variant_matching_is_representation_independent():
+    assert C.norm_allele(100, "GAT", "GT") == (101, "A", "")          # padded deletion -> first changed base, deleted seq
+    assert C.norm_allele(101, "AT", "T") == (101, "A", "")            # anchor-after form of the same deletion
+    assert C.norm_allele(99, "GA", "GAT") == (101, "", "T")           # padded insertion
+    assert C.norm_allele(100, "A", "AT") == (101, "", "T")
+    assert C.norm_allele(100, "A", "G") == (100, "A", "G")            # SNV untouched
+    small = {("kid", "chr1", 101, "A", ""): {"tier": "t1"}}
+    assert C.small_match(small, "kid", "chr1", 100, "GAT", "GT") == ("kid", "chr1", 101, "A", "")      # exact after normalisation
+    assert C.small_match(small, "kid", "chr1", 105, "CA", "C") == ("kid", "chr1", 101, "A", "")        # same 1-bp deletion, shifted (repeat)
+    assert C.small_match(small, "kid", "chr1", 105, "CAA", "C") is None                                # different length change
+    assert C.small_match(small, "kid", "chr1", 101, "A", "T") is None                                   # SNVs: exact only
