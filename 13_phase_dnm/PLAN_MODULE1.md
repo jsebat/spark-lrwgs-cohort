@@ -26,6 +26,13 @@
   regions (tagged depth median 7, `hap_obs_k5 = 0` in 42 %). Remaining TR defect — 56 % "alt on both child
   haplotypes" from a read-length tolerance as wide as the allele separation — fixed by capping the tolerance at
   half the distance to the nearest competing allele. Cohort review array follows.
+- **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
+  HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
+  `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
+  caveat wherever used. Validation only (P16). Truths to pair with it: HG002 **Q100** assembly-based benchmark (the
+  only truth that reaches inside the lab mask; haplotype-resolved), v4.2.1 mapping-based genotypes for all three
+  (trio-level inherited/false-positive labels), GIAB stratifications for reporting. Running the lab WDL on the
+  three genomes is a separate, larger job to be shown first.
 - **Week 1 (2026-09-12): scaffold, VCF-level minitrio, `orient.py` — done, 12 tests passing.** Package `src/phase_dnm`
   (pure-Python trio VCF reader, `phase-dnm orient` CLI), `tests/make_minitrio_vcf.py` (simulated trio with known
   haplotypes, one crossover per parent per chromosome, HiPhase-shaped per-sample phased VCFs, switch errors,
