@@ -19,9 +19,11 @@ transmission:                # P3
   min_gq: 20
   max_splits: 6              # change points per parent block
 
-xo_reads:                    # P3, M1b2 — crossover vs parental switch error from the parent's reads
-  min_spanning_reads: 3      # haplotagged reads (same PS) spanning EVERY consecutive het pair across the change interval -> CROSSOVER
-  min_mapq: 20               # 0 spanning reads at any gap -> SWITCH_ERROR; 1-2 -> AMBIGUOUS
+xo_reads:                    # P3, M1b2 — crossover vs parental switch error from the parent's reads, by ALLELE CONCORDANCE
+  min_spanning_reads: 3      # informative reads (bases at both flanking SNV hets support a haplotype) needed per gap
+  crossover_max_disc: 0.2    # every gap informative and discordance <= this -> CROSSOVER (parent phasing intact)
+  switch_min_disc: 0.8       # any informative gap with discordance >= this -> SWITCH_ERROR located at that gap
+  min_mapq: 20               # (first version counted spanning reads only and passed ~150 "crossovers"/meiosis; see xo_reads.py)
 
 hapdepth:                    # P7 input
   bin_size: 1000

@@ -126,7 +126,8 @@ def cmd_xo_reads(a: argparse.Namespace) -> int:
     if not parent_bam:
         sys.exit("give at least one parent's --*-bam and --*-vcf")
     counts = classify(a.changepoints, a.out, parent_bam, parent_vcf,
-                      min_spanning=xo.get("min_spanning_reads", 3), min_mapq=xo.get("min_mapq", 20))
+                      min_spanning=xo.get("min_spanning_reads", 3), min_mapq=xo.get("min_mapq", 20),
+                      crossover_max_disc=xo.get("crossover_max_disc", 0.2), switch_min_disc=xo.get("switch_min_disc", 0.8))
     sys.stderr.write("xo-reads: %s -> %s\n" % (a.changepoints, " ".join("%s=%d" % kv for kv in sorted(counts.items()))))
     return 0
 

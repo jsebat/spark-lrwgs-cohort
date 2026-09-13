@@ -1,13 +1,23 @@
 """M1b2 — classify transmission change points as CROSSOVER or SWITCH_ERROR from the parent's reads (DESIGN P3).
 
 A change of the transmitted haplotype inside a parent's phase block is a crossover if the parent's phasing is
-intact across the change point and only the child's inheritance changes; it is a phase-switch error if HiPhase
-had no read evidence bridging two consecutive heterozygous sites there. So, for each candidate (left_pos = last
-informative site before the change, right_pos = first after), take the parent's PHASED heterozygous sites in the
-block between the two, and for every consecutive pair count the parent's haplotagged reads (HP present, PS equal to
-the block, MAPQ >= min_mapq, primary) whose reference span covers both sites. The WEAKEST LINK across the interval
-decides: >= min_spanning reads at every gap -> CROSSOVER; a gap with 0 spanning tagged reads -> SWITCH_ERROR;
-otherwise AMBIGUOUS. The weakest gap is reported, which is also the switch error's location when it is one.
+intact across the change point and only the child's inheritance changes; it is a phase-switch error if the
+parent's tagged phase is wrong across some gap between consecutive heterozygous sites. The test is ALLELE
+CONCORDANCE, not read count: for each consecutive pair of the parent's phased SNV hets inside the candidate
+interval, take the parent's primary reads (MAPQ >= min_mapq, HP and PS present, PS = block) whose reference span
+covers both sites and read their base at each. A read is CONCORDANT when both bases support the same tagged
+haplotype (the phase across the gap is what the read says it is) and DISCORDANT when they support different
+haplotypes. Intact phasing gives discordance near 0 (sequencing error only); a switch error between the two sites
+makes every correct read discordant relative to the tags. Verdict over the interval: any gap with >= min_spanning
+informative reads and discordance >= switch_min_disc -> SWITCH_ERROR (located at that gap); all gaps with
+>= min_spanning informative reads and discordance <= crossover_max_disc -> CROSSOVER; otherwise AMBIGUOUS (too
+few informative reads at some gap, or mixed).
+
+The first version of this step counted spanning tagged reads only; with 15 kb reads and ~11 reads per haplotype
+almost every gap has >= 3, so it passed 137-179 "crossovers" per meiosis against an expected ~26-42 (2026-09-12).
+Change points caused by a CHILD-side switch error (which flips the child's parental allele) cannot be seen in the
+parent's reads at all - the parent's phasing is intact there; they are flagged by `child_boundary_bp` (distance to
+the nearest boundary of the child's oriented segments) computed downstream, and by M2's dist_block_edge.
 
 pysam is imported lazily so the rest of the package (and its tests) stays pysam-free.
 """
@@ -19,7 +29,8 @@ from typing import Dict, List, Optional, Tuple
 
 COLUMNS = ["chrom", "parent", "parent_phase_block_id", "left_pos", "right_pos", "resolution_bp", "n_left", "n_right",
            "left_hap", "right_hap", "status", "n_parent_hets_in_interval", "n_gaps", "weakest_gap_start",
-           "weakest_gap_end", "weakest_gap_spanning_reads", "min_spanning_reads_required"]
+           "weakest_gap_end", "weakest_gap_informative_reads", "weakest_gap_discordant", "max_gap_disc_frac",
+           "min_spanning_reads_required"]
 
 
 @dataclass
@@ -31,38 +42,70 @@ class Resolved:
     weakest: Tuple[int, int, int]   # (gap_start, gap_end, n_spanning)
 
 
-def parent_phased_hets(vcf, sample: str, chrom: str, start: int, end: int, ps: int) -> List[int]:
-    """Positions of the parent's phased heterozygous sites with phase set `ps` in [start, end]."""
+def parent_phased_snv_hets(vcf, sample: str, chrom: str, start: int, end: int, ps: int) -> List[Tuple[int, str, str]]:
+    """(pos, hap1_base, hap2_base) of the parent's phased heterozygous SNVs with phase set `ps` in [start, end]."""
     out = []
     for rec in vcf.fetch(chrom, max(0, start - 1), end):
+        if not (start <= rec.pos <= end):
+            continue
         s = rec.samples[sample]
         gt = s.get("GT")
         if gt is None or len(gt) != 2 or gt[0] is None or gt[1] is None or gt[0] == gt[1] or not s.phased:
             continue
         if s.get("PS") != ps:
             continue
-        if start <= rec.pos <= end:
-            out.append(rec.pos)
+        alleles = rec.alleles
+        a1, a2 = alleles[gt[0]], alleles[gt[1]]
+        if len(a1) != 1 or len(a2) != 1:
+            continue                                            # indel het: base lookup is not well defined
+        out.append((rec.pos, a1, a2))
     return out
 
 
-def spanning_tagged_reads(bam, chrom: str, a: int, b: int, ps: int, min_mapq: int) -> int:
-    n = 0
-    for read in bam.fetch(chrom, a - 1, b):
+def _hap_of_base(base: Optional[str], h1: str, h2: str) -> Optional[int]:
+    if base == h1:
+        return 1
+    if base == h2:
+        return 2
+    return None
+
+
+def gap_concordance(bam, chrom: str, a: Tuple[int, str, str], b: Tuple[int, str, str], ps: int, min_mapq: int
+                    ) -> Tuple[int, int]:
+    """(concordant, discordant) reads spanning SNV hets a and b, judged by the haplotype their bases support."""
+    (pa, a1, a2), (pb, b1, b2) = a, b
+    conc = disc = 0
+    for read in bam.fetch(chrom, pa - 1, pb):
         if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
             continue
-        if read.mapping_quality < min_mapq or not read.has_tag("HP") or not read.has_tag("PS"):
+        if read.mapping_quality < min_mapq or not read.has_tag("HP") or not read.has_tag("PS") or read.get_tag("PS") != ps:
             continue
-        if read.get_tag("PS") != ps:
+        if not (read.reference_start <= pa - 1 and read.reference_end is not None and read.reference_end >= pb):
             continue
-        if read.reference_start <= a - 1 and read.reference_end is not None and read.reference_end >= b:
-            n += 1
-    return n
+        seq = read.query_sequence
+        if seq is None:
+            continue
+        base_a = base_b = None
+        for qpos, rpos in read.get_aligned_pairs(matches_only=True):
+            if rpos == pa - 1:
+                base_a = seq[qpos]
+            elif rpos == pb - 1:
+                base_b = seq[qpos]
+                break
+        ha, hb = _hap_of_base(base_a, a1, a2), _hap_of_base(base_b, b1, b2)
+        if ha is None or hb is None:
+            continue                                            # sequencing error or deletion at a flank: uninformative
+        if ha == hb:
+            conc += 1
+        else:
+            disc += 1
+    return conc, disc
 
 
 def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[str, Optional[str]]],
              parent_vcf: Dict[str, Tuple[str, Optional[str], str]], min_spanning: int = 3, min_mapq: int = 20,
-             max_hets_per_interval: int = 400) -> Dict[str, int]:
+             crossover_max_disc: float = 0.2, switch_min_disc: float = 0.8, max_hets_per_interval: int = 400
+             ) -> Dict[str, int]:
     """parent_bam: {'F': (bam, bai), 'M': (bam, bai)}; parent_vcf: {'F': (vcf, index, sample_name), ...}."""
     import pysam
     bams = {k: (pysam.AlignmentFile(p, "rb", index_filename=i) if i else pysam.AlignmentFile(p, "rb")) for k, (p, i) in parent_bam.items()}
@@ -74,34 +117,45 @@ def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[st
         for r in rd:
             parent, chrom, ps = r["parent"], r["chrom"], int(r["parent_phase_block_id"])
             left, right = int(r["left_pos"]), int(r["right_pos"])
+            n_hets = n_gaps = 0
+            weakest = (left, right, -1, -1)                    # (gap_start, gap_end, informative reads, discordant)
+            max_disc = -1.0
             if parent not in bams or parent not in vcfs:
-                status, n_hets, n_gaps, weakest = "UNTESTABLE", 0, 0, (left, right, -1)
+                status = "UNTESTABLE"
             else:
                 vcf, sample = vcfs[parent]
-                hets = parent_phased_hets(vcf, sample, chrom, left, right, ps)
-                if len(hets) > max_hets_per_interval:           # a huge interval: thin to the flanks + evenly spaced sites
+                hets = parent_phased_snv_hets(vcf, sample, chrom, left, right, ps)
+                if len(hets) > max_hets_per_interval:           # a huge interval: thin to evenly spaced sites + last
                     step = len(hets) // max_hets_per_interval + 1
                     hets = hets[::step] + [hets[-1]]
-                pts = sorted(set([left] + hets + [right]))
-                gaps = list(zip(pts[:-1], pts[1:]))
-                weakest = (left, right, 10 ** 9)
-                for a, b in gaps:
-                    n = spanning_tagged_reads(bams[parent], chrom, a, b, ps, min_mapq)
-                    if n < weakest[2]:
-                        weakest = (a, b, n)
-                    if n == 0:
-                        break
-                n_hets, n_gaps = len(pts) - 2, len(gaps)
-                if weakest[2] >= min_spanning:
-                    status = "CROSSOVER"
-                elif weakest[2] == 0:
-                    status = "SWITCH_ERROR"
+                n_hets, n_gaps = len(hets), max(0, len(hets) - 1)
+                if n_gaps == 0:
+                    status = "AMBIGUOUS"                        # fewer than two SNV hets to bridge: nothing to test
                 else:
-                    status = "AMBIGUOUS"
+                    all_supported = True
+                    status = None
+                    weakest = (hets[0][0], hets[-1][0], 10 ** 9, 0)
+                    for a, b in zip(hets[:-1], hets[1:]):
+                        conc, disc = gap_concordance(bams[parent], chrom, a, b, ps, min_mapq)
+                        n = conc + disc
+                        frac = disc / n if n else 0.0
+                        if n < weakest[2]:
+                            weakest = (a[0], b[0], n, disc)
+                        if n >= min_spanning:
+                            max_disc = max(max_disc, frac)
+                            if frac >= switch_min_disc:
+                                status, weakest = "SWITCH_ERROR", (a[0], b[0], n, disc)
+                                break
+                            if frac > crossover_max_disc:
+                                all_supported = False
+                        else:
+                            all_supported = False
+                    if status is None:
+                        status = "CROSSOVER" if all_supported else "AMBIGUOUS"
             counts[status] += 1
             out.write("\t".join(str(x) for x in (chrom, parent, ps, left, right, right - left, r["n_left"], r["n_right"],
                                                  r["left_hap"], r["right_hap"], status, n_hets, n_gaps, weakest[0], weakest[1],
-                                                 weakest[2], min_spanning)) + "\n")
+                                                 weakest[2], weakest[3], round(max_disc, 3), min_spanning)) + "\n")
     for b in bams.values():
         b.close()
     return counts
