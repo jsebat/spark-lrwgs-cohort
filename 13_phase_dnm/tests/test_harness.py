@@ -67,3 +67,20 @@ def test_choose_tau_fpr_on_real_rows():
     assert HZ.choose_tau_fpr(y, p, 0.0) == 0.9           # no real row above threshold
     assert HZ.choose_tau_fpr(y, p, 0.1) == 0.8           # one of ten real rows may pass
     assert HZ.choose_tau_fpr(np.ones(3), p[:3], 0.1) is None
+
+
+def test_presence_leak_guard_drops_label_encoding_columns(tmp_path):
+    import csv
+    # real matrix: column q empty; synthetic matrix: q filled -> q must be dropped, x kept
+    cols = ["family_id", "sample_id", "variant_id", "variant_class", "x", "q"]
+    def write(path, sid, fam, fill_q):
+        with open(path, "w", newline="") as fh:
+            w = csv.writer(fh, delimiter="\t"); w.writerow(cols)
+            for i in range(50):
+                w.writerow([fam, sid, "v%d" % i, "SNV", str(i % 7), str(0.5) if fill_q else ""])
+    (tmp_path / "real").mkdir(); (tmp_path / "syn").mkdir()
+    write(str(tmp_path / "real" / "a.rf.tsv"), "kidA", "famA", False)
+    write(str(tmp_path / "syn" / "b.rf.tsv"), "kidB", "famB", True)
+    d = CV.load_matrices(str(tmp_path / "real" / "*.rf.tsv"), str(tmp_path / "syn" / "*.rf.tsv"), "snv_indel", {"kidA": "famA", "kidB": "famB"})
+    assert d.features == ["x"] and "q" in CV.load_matrices.last_dropped
+    assert CV.load_matrices.last_dropped["q"] == (0.0, 1.0)

@@ -53,7 +53,8 @@ def _read_matrix(path: str) -> pd.DataFrame:
 
 
 def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_child: Dict[str, str],
-                  max_real_per_child: Optional[int] = None, seed: int = 0, allowed: Optional[Iterable[str]] = None) -> Data:
+                  max_real_per_child: Optional[int] = None, seed: int = 0, allowed: Optional[Iterable[str]] = None,
+                  max_presence_gap: float = 0.5, min_real_presence: float = 0.01) -> Data:
     """Concatenate real (label 0) and synthetic (label 1) rf matrices for one class group. Real rows may be thinned per
     child (seeded) for speed; the fold assignment uses the CHILD's family for both kinds of rows."""
     rng = np.random.default_rng(seed)
@@ -86,6 +87,20 @@ def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_c
     if bad:
         raise ValueError("rf_safe violation in matrices: %s" % bad)
     X = all_[feats].apply(pd.to_numeric, errors="coerce")
+    # presence leak guard (2026-09-13): a column that is filled for one label class and empty for the other encodes the
+    # label through its missingness (e.g. read-quality summaries that exist only in reviews run after a code change).
+    # Drop any feature whose non-missing fraction differs between classes by more than `max_presence_gap`, and any
+    # feature that is essentially never present in the real rows; report both.
+    lab = all_["label"].to_numpy().astype(int)
+    present = X.notna()
+    p_real = present[lab == 0].mean() if (lab == 0).any() else present.mean()
+    p_syn = present[lab == 1].mean() if (lab == 1).any() else present.mean()
+    dropped = {c: (round(float(p_real[c]), 3), round(float(p_syn[c]), 3)) for c in feats
+               if abs(float(p_real[c]) - float(p_syn[c])) > max_presence_gap or float(p_real[c]) < min_real_presence}
+    if dropped:
+        feats = [c for c in feats if c not in dropped]
+        X = X[feats]
+    load_matrices.last_dropped = dropped  # type: ignore[attr-defined]
     fam = all_["sample_id"].map(lambda s: family_of_child.get(s, "?")).to_numpy()
     if (fam == "?").any():
         raise ValueError("%d rows whose child is not in the manifest" % int((fam == "?").sum()))

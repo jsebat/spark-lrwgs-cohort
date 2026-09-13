@@ -166,6 +166,10 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
         synth_glob = os.path.join(train_dir, "seed%d" % seed, "*", "features", "*.%s.features.rf.tsv" % class_group)
         d = CV.load_matrices(real_glob, synth_glob, class_group, family_of_child, max_real_per_child=max_real_per_child, seed=seed, allowed=allowed_cols)
         log("harness %s seed %d: %d real + %d synthetic rows, %d features" % (class_group, seed, d.n_real, d.n_synth, len(d.features)))
+        dropped = getattr(CV.load_matrices, "last_dropped", {})
+        if dropped:
+            log("  presence-leak guard dropped %d features (non-missing fraction real vs synthetic): %s" % (len(dropped), dropped))
+            report.setdefault("presence_leak_dropped", []).append(dict(seed=seed, dropped=dropped))
         side = side_tables(d.ids, evidence_dir, train_dir, class_group, seed, family_of_child, synth_dir_of)
         side = d.ids[["sample_id", "variant_id", "origin"]].merge(side, on=["sample_id", "variant_id", "origin"], how="left").fillna("")
         pc, ho, ps = side["phase_class"].to_numpy(), side["hap_obs_k5"].to_numpy(), side["phase_score"].to_numpy()

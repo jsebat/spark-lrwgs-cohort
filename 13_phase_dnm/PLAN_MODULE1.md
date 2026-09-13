@@ -158,6 +158,17 @@
   rate on held-out real candidates): SNV/indel 0.348, SV 0.989, TR 0.258; τ_rescue (1 %): 0.054 / 0.764 / 0.059. Frozen
   seed-0 models + manifests in `$TRAIN_DIR/harness/models/`; rf_probs for every real candidate in `harness/rf_probs/`.
   Next: integrate in rf+phase mode → P18 re-issue; seeds 1–4 for the mean ± range.
+- **Seed-0 RF / phase-only numbers above are INVALID — presence leak found 2026-09-13 (JS asked why no-phase beat the full
+  model):** per-fold AUC showed the gap was one fold, then one child (full 0.843 / no-phase 0.979 / phase-only 0.685 for
+  that child; the other six 0.9998–1.000). Not coverage (25.9×), not the surrogates (the deepest parents), not the feature
+  marginals (identical). Cause: the four read-quality columns added to the D block that morning (`c_alt_rq_mean`,
+  `c_alt_readlen_median`, `c_alt_mapq0_frac`, `c_alt_supp_frac`) are filled in 34/35 synthetic trios (reviewed after the
+  code pull) and in 0 % of real rows (all real reviews predate it); the one synthetic trio reviewed before the pull (the
+  smoke) is the collapsing child. The model learned presence ⇒ positive. The no-phase arm (immune) and the heuristic
+  arms stand; RF and phase-only are rerun with a **presence-leak guard** in `load_matrices` (drop a feature whose
+  non-missing fraction differs by > 0.5 between classes or is < 1 % present in real rows; dropped features logged in
+  `cv_report`). Process rule: synthetic reviews and real reviews must come from the same code revision — the final cohort
+  run re-reviews the real trios so the four columns are filled on both sides and the guard keeps them.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
