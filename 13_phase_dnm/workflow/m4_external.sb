@@ -19,7 +19,8 @@ source "$HERE/config/phase_dnm.env"
 : "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
 export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2
 TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+HARNESS_DIR="${OUT_DIR:-$TRAIN_DIR/harness}"
 for c in snv_indel sv tr; do
   "$PHASE_DNM_PYTHON" -m phase_dnm.cli external --class-group "$c" --manifest "$MANIFEST" --evidence-dir "$EVIDENCE_DIR" \
-      --harness-dir "$TRAIN_DIR/harness" --folds-dir "$TRAIN_DIR/folds" --seed "$SEED" --out "$TRAIN_DIR/harness/external.$c.seed$SEED.json"
+      --harness-dir "$HARNESS_DIR" --folds-dir "$TRAIN_DIR/folds" --seed "$SEED" --out "$HARNESS_DIR/external.$c.seed$SEED.json"
 done

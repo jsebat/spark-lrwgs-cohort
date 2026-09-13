@@ -20,5 +20,6 @@ source "$HERE/config/phase_dnm.env"
 : "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
 export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4
 TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+OUT_DIR="${OUT_DIR:-$TRAIN_DIR/harness}"     # separate runs must use separate OUT_DIRs (two runs writing one dir overwrite each other)
 "$PHASE_DNM_PYTHON" -m phase_dnm.cli train --class-group "$CLS" --manifest "$MANIFEST" --evidence-dir "$EVIDENCE_DIR" --train-dir "$TRAIN_DIR" \
-    --folds-dir "$TRAIN_DIR/folds" --out-dir "$TRAIN_DIR/harness" --seeds "$SEEDS" --max-real-per-child "$MAX_REAL" --registry "$HERE/config/features.yaml"
+    --folds-dir "$TRAIN_DIR/folds" --out-dir "$OUT_DIR" --seeds "$SEEDS" --max-real-per-child "$MAX_REAL" --registry "$HERE/config/features.yaml"
