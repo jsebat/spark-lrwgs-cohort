@@ -268,7 +268,7 @@ child is hom-ref in WES as negatives, exonic rows only; added when the WES extra
 reproducibility anchor once the trio is run (P16). Reported per class: ROC/PR-AUC of RF, RF+P (demotion **and**
 rescue, allowed here because real trios have transmitted haplotypes), the heuristic arms including H2/H3 (population
 filters are legitimate on these labels), and recall at the τ operating point. The spike-in arm is the only TR
-external truth and is said so.
+external truth and is said so. *First result (seed 0, 2026-09-13):* RF 0.986 / 0.988 / 0.992 (SNV/indel / SV / TR) rising to 0.998 / 0.999 / 0.996 with the P15 layer including rescue; the slivar-type heuristic arms cannot be evaluated on spike-ins (no caller genotype on a planted candidate) — that comparison belongs to the WES-confirmed exonic set.
 
 ## 3. SynthDNM one-pager: what the code does, and what it implies for phase features
 

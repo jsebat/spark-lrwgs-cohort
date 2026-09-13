@@ -503,6 +503,9 @@ def cmd_external(a: argparse.Namespace) -> int:
         t = json.load(open(tj))
         if t.get("tau") is not None:
             taus[a.class_group] = float(t["tau"])
+        for k in ("score_column", "tau_q", "tau_q_rescue"):
+            if k in t:
+                taus[k] = t[k]
     log = lambda m: sys.stderr.write(m + "\n")
     rep = EX.evaluate_spikes(a.evidence_dir, a.harness_dir, a.class_group, a.seed, fam_of, fold_of, taus, max_real_per_child=a.max_real_per_child, log=log)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)

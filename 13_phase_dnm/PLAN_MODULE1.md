@@ -196,6 +196,15 @@
   Fix: `rf_q` fold-quantile score (`train/rescore.py`, `phase-dnm rescore`, `integrate --score-column rf_q`), τ as a pass
   rate (0.999 / 0.99) by construction; fold models are now saved per seed/fold (`fold_models/`), which the P27 external arm
   also needs. Rescored integration + concordance queued behind the fold-model training (harness_seed0fm).
+- **P27 external-truth arm, spike-ins, seed-0 fold models (2026-09-13, job 54285056, 105 children×class tables):** planted
+  germline DNMs (positives) vs the children's raw candidates + planted inherited-missed (negatives), scored by the model that
+  held the family out. ROC-AUC RF / RF+P(demote) / **RF+P(demote+rescue)**: SNV/indel 0.986 / 0.989 / **0.998**; SV 0.988 /
+  0.996 / **0.999**; TR 0.992 / 0.996 / **0.996** — on real reads with known truth the rescue branch is measurably worth
+  having, which synthetic labels could not show. Recall at the probability τ was 0 for SNV/indel and SV (the inflated
+  probability scale that `rf_q` replaces; rerun with `rf_q` pending) and 0.83 for TR; mosaic sensitivity at τ: TR
+  parental mosaics 0.31, child mosaics 0.02, SNV/SV 0. Heuristic arms are **not evaluable on spike-ins** for SNV/indel and
+  SV (planted candidates carry no caller genotype/GQ — the "caller" is the spike); the TR family rule works from allele
+  lengths: 0.975 vs RF 0.992. Recorded as such; the WES-confirmed exonic set is the external truth for the slivar arms.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

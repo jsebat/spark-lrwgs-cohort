@@ -23,6 +23,7 @@ import pandas as pd
 from . import harness as HZ
 from . import heuristics as Hx
 from ..train import nested_cv as CV
+from ..train import rescore as RS
 
 GROUP_OF = {"SNV": "snv_indel", "INDEL": "snv_indel", "SV": "sv", "TR": "tr"}
 
@@ -70,7 +71,7 @@ def evaluate_spikes(evidence_dir: str, harness_dir: str, class_group: str, seed:
             continue
         p_s, raw_s = fm.predict(Xs)
         for i, r in side.reset_index(drop=True).iterrows():
-            rows.append(dict(child=child, origin="spike", scenario=r["scenario"], variant_class=r["variant_class"], variant_id=r["variant_id"],
+            rows.append(dict(child=child, fold=fold_of_family[fam], origin="spike", scenario=r["scenario"], variant_class=r["variant_class"], variant_id=r["variant_id"],
                              prob=float(p_s[i]), raw=float(raw_s[i]), phase_class=r["phase_class"], hap_obs_k5=r["hap_obs_k5"], phase_score=r["phase_score"],
                              cand={k: r.get(k, "") for k in HZ.CAND_COLS}))
         # the child's real raw candidates as the negative pool (thinned)
@@ -83,20 +84,28 @@ def evaluate_spikes(evidence_dir: str, harness_dir: str, class_group: str, seed:
             sr = Xr[["variant_id"]].merge(ev.drop_duplicates("variant_id"), on="variant_id", how="left").fillna("")
             p_r, raw_r = fm.predict(Xr)
             for i, r in sr.iterrows():
-                rows.append(dict(child=child, origin="real", scenario="", variant_class="", variant_id=r["variant_id"], prob=float(p_r[i]), raw=float(raw_r[i]),
+                rows.append(dict(child=child, fold=fold_of_family[fam], origin="real", scenario="", variant_class="", variant_id=r["variant_id"], prob=float(p_r[i]), raw=float(raw_r[i]),
                                  phase_class=r["phase_class"], hap_obs_k5=r["hap_obs_k5"], phase_score=r["phase_score"], cand={k: r.get(k, "") for k in HZ.CAND_COLS}))
         log("external %s: child scored (%d spike rows)" % (class_group, len(Xs)))
     df = pd.DataFrame(rows)
     if df.empty:
         return {"class_group": class_group, "n_rows": 0}
+    # fold-quantile score against the fold's REAL rows (the same construction as train/rescore.py)
+    df["rf_q"] = np.nan
+    for k, g in df.groupby("fold"):
+        ref = RS.ecdf_ref(g.loc[g["origin"] == "real", "prob"].to_numpy())
+        df.loc[g.index, "rf_q"] = RS.quantile(ref, g["prob"].to_numpy())
     lab = np.where((df["origin"] == "spike") & (df["scenario"] == "G"), 1, np.where((df["origin"] == "real") | (df["scenario"] == "IM"), 0, -1))
     keep = lab >= 0
     y = lab[keep]
     out: Dict[str, object] = {"class_group": class_group, "seed": seed, "n_rows": int(keep.sum()), "n_pos": int(y.sum()),
                               "n_real_neg": int((df["origin"][keep] == "real").sum()), "n_IM_neg": int((df["scenario"][keep] == "IM").sum()), "arms": {}}
-    prob = df["prob"].to_numpy()[keep]; raw = df["raw"].to_numpy()[keep]
+    prob = df["prob"].to_numpy()[keep]; raw = df["raw"].to_numpy()[keep]; rfq = df["rf_q"].to_numpy()[keep]
     pc = df["phase_class"].to_numpy()[keep]; ho = df["hap_obs_k5"].to_numpy()[keep]; ps = df["phase_score"].to_numpy()[keep]
-    tau = taus.get(class_group)
+    use_q = taus.get("score_column") == "rf_q"
+    tau = taus.get("tau_q", 0.999) if use_q else taus.get(class_group)
+    score_for_tau = rfq if use_q else prob
+    out["decision_score"] = "rf_q" if use_q else "rf_prob"; out["tau"] = tau
     def arm(name, score, pass_=None):
         rec = dict(roc_auc=CV.roc_auc(y, score), pr_auc=CV.pr_auc(y, score))
         if pass_ is not None:
@@ -104,7 +113,7 @@ def evaluate_spikes(evidence_dir: str, harness_dir: str, class_group: str, seed:
         out["arms"][name] = rec
         log("  %-22s auc=%s pr=%s%s" % (name, None if rec["roc_auc"] is None else round(rec["roc_auc"], 4), None if rec["pr_auc"] is None else round(rec["pr_auc"], 4),
                                         "" if pass_ is None else " op(tpr=%.3f fpr=%.4f)" % (rec["tpr"], rec["fpr"])))
-    arm("RF", raw, (prob >= tau) if tau is not None else None)
+    arm("RF", raw, (score_for_tau >= tau) if tau is not None else None)
     arm("RF+P(demote)", HZ.phase_rerank(raw, pc, ho, ps, allow_rescue=False))
     arm("RF+P(demote+rescue)", HZ.phase_rerank(raw, pc, ho, ps, allow_rescue=True))
     cand = pd.DataFrame(list(df["cand"][keep]))
@@ -116,16 +125,25 @@ def evaluate_spikes(evidence_dir: str, harness_dir: str, class_group: str, seed:
             r["class_payload"] = {}
         hs.append(Hx.score_row(class_group, r, r))
     hs = pd.DataFrame(hs)
+    # heuristic arms need caller fields; planted candidates carry none (caller = spike), so an arm whose positives are all
+    # "fixed-criterion failures" is NOT evaluable on this truth set and is reported as such (TR H1 works from allele lengths)
     for a in sorted({c[:-6] for c in hs.columns if c.endswith("_score")}):
-        arm(a, hs[a + "_score"].to_numpy(dtype=float), hs[a + "_pass"].to_numpy().astype(bool))
+        sc = hs[a + "_score"].to_numpy(dtype=float)
+        if (sc[y == 1] < Hx.FAIL / 2).all():
+            out["arms"][a] = dict(roc_auc=None, pr_auc=None, note="not evaluable on spike-ins: planted candidates carry no caller genotype/GQ")
+            log("  %-22s not evaluable (no caller fields on planted candidates)" % a)
+            continue
+        arm(a, sc, hs[a + "_pass"].to_numpy().astype(bool))
     # mosaic sensitivity at tau
+    col = "rf_q" if use_q else "prob"
     if tau is not None:
         for sc in ("CM", "PM"):
             m = (df["origin"] == "spike") & (df["scenario"] == sc)
             if m.any():
-                out["mosaic_sensitivity_at_tau_" + sc] = dict(n=int(m.sum()), frac_above_tau=float((df["prob"][m] >= tau).mean()))
-    # recall of G at tau per variant class (spike classes are finer than the group)
+                out["mosaic_sensitivity_at_tau_" + sc] = dict(n=int(m.sum()), frac_above_tau=float((df[col][m] >= tau).mean()))
+    # recall of G at tau per variant class (spike classes are finer than the group); real pass rate alongside
     g = (df["origin"] == "spike") & (df["scenario"] == "G")
     if tau is not None and g.any():
-        out["recall_at_tau_by_class"] = {vc: float((df["prob"][g & (df["variant_class"] == vc)] >= tau).mean()) for vc in sorted(set(df["variant_class"][g]))}
+        out["recall_at_tau_by_class"] = {vc: float((df[col][g & (df["variant_class"] == vc)] >= tau).mean()) for vc in sorted(set(df["variant_class"][g]))}
+        out["real_pass_rate_at_tau"] = float((df[col][df["origin"] == "real"] >= tau).mean())
     return out
