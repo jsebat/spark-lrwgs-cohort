@@ -1,6 +1,22 @@
 # Module 1 build plan — phasing orientation, transmission map, QC
 
 ## Status
+
+**Where things stand (2026-09-13, evening; commit see git log).** All four modules exist, are tested (102 tests) and have run
+on the whole cohort (33 complete-trio families, 35 children). M1 phasing/transmission: gate passed (31 PASS, 4 LOW_DEPTH).
+M2 review: 105 evidence tables (thresholds 0.2.0, readable-read observability), features + P9 likelihood + P26 annotation
+(gnomAD, LOFO founder counts) refreshed; spike-in harness cohort-wide (germline recovery ≥ 0.91 exact / ≥ 0.98 lenient, PoO
+1.00; mosaics 0.05–0.15 = the depth floor). M3: final tables + VCFs, P18 concordance in rf+phase mode (SNV/indel 749
+concordant / 586 original-only / 2,658 module-only, per proband 38 → 81, paternal 0.70; SV 4 / 8,125 / 10; TR 26 / 192 /
+2,044). M4: swap-closed folds, 5 seeds × 35 synthetic trios through the same chain, one harness; seed-0 table RF / no-phase
+/ phase-only vs H1: SNV/indel 0.997 / 0.997 / 0.951 vs 0.887, SV 0.994 / 0.990 / 0.864 vs 0.61, TR 0.890 / 0.835 / 0.877 vs
+0.59; attribution phase share 0.17 / 0.29 / 0.68; spike-in external truth RF → RF+P(rescue) 0.986 → 0.998, 0.988 → 0.999,
+0.992 → 0.996; decision on the fold-quantile score `rf_q` with provisional τ_q 0.997 / 0.999 / 0.999. Running: the 5-seed
+harness (mean ± range) and the WES-confirmed exonic external truth (P27 arm 2). Open before the paper: τ from external truth,
+the cohort re-review that fills the four read-quality columns, the long-insertion observation, Snakemake assembly, GIAB.
+Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatch splits `--export` values at commas
+(positional seeds), and one fold model's probability scale is not another's (rf_q).
+
 - **MODULE 1 GATE PASSED (2026-09-12).** `phase-dnm phase-qc` over all 33 complete-trio families / 35 children:
   **31 PASS**; the four flags are all `LOW_DEPTH` (children 9.4× and 11.5×, fathers 8.3× and 11.9×; R11) — every
   orientation, transmission, crossover and sex-consistency gate passes. Cohort table `cohort_phase_qc.tsv` +
