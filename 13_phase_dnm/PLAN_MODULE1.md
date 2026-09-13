@@ -270,6 +270,17 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   0.45), +demotion 0.934; the slivar arms and the RF operating point were mis-read by two bugs of mine (parental caller
   fields taken from the evidence table, which lacks them; rf_q recomputed on the labelled subset) — fixed, rerun pending.
   τ from external truth = the rf_q reached by 80 / 90 / 95 % of the WES positives (implied real pass rate 1 − τ_q).
+- **WES-confirmed external truth, corrected run (2026-09-13, job 54286899; 58 positives / 2,926 negatives / 33 children, real
+  caller fields):** ROC-AUC RF 0.930 (PR 0.45), RF+demotion 0.934, RF+demotion+rescue 0.933; slivar H1 0.880 (PR 0.54) with
+  its operating point at TPR 0.638 / FPR 0.023 (H2/H3 identical here — the population columns did not change any of these
+  rows). **Full P15 decision (v3, τ_q 0.997) on the 58: 24 called (41 %; 16 rf branch, 8 rescued), 33 below τ (their rf_q
+  median 0.995, IQR 0.986–0.997), 1 demoted; the original pipeline's de novo set contains 34 of the 58 (59 %).** Negatives: 0 of
+  1,864 WES-inherited candidates called (rf_q median 0.55 — the parental-haplotype features see the parent's alt reads), 11 of
+  1,062 WES-hom-ref rows called, all via rescue (LR-specific calls to examine). τ_q needed for WES recall 0.8 / 0.9 = 0.961 /
+  0.783 (real pass rate 3.9 % / 22 %) — i.e. true exonic DNMs rank around the top 0.5 % of real candidates, so the classifier
+  cannot be both strict and sensitive at this revision. Levers, in order: the cohort re-review that fills the four read-quality
+  features (submitted), the five-seed models, hard-negative attention in training, and possibly a two-tier call. **The
+  operating point is recorded as the paper's open decision (recall vs purity), not settled here.**
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

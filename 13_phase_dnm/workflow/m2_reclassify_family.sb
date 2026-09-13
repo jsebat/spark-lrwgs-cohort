@@ -35,6 +35,8 @@ while IFS=$'\t' read -r child father mother; do
   for cls in snv_indel sv tr; do
     EV="$ED/evidence/$child.$cls.evidence.tsv"; RV="$ED/evidence/$child.$cls.evidence.review.tsv"
     CA="$ED/candidates/$child.$cls.candidates.tsv"
+    # REPLACE_REVIEW=1: a fresh review output (m2_review_family.sb writes $EV) becomes the new immutable table
+    if [ "${REPLACE_REVIEW:-0}" = "1" ] && [ -s "$EV" ] && [ "$EV" -nt "$RV" ]; then mv "$EV" "$RV"; fi
     if [ ! -s "$RV" ]; then [ -s "$EV" ] || { echo "ERROR: neither $RV nor $EV exists" >&2; exit 3; }; mv "$EV" "$RV"; fi
     [ -s "$CA" ] || { echo "ERROR: candidates missing for $cls" >&2; exit 3; }
     t0=$(date +%s)
