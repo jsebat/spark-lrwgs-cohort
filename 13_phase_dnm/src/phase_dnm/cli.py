@@ -239,6 +239,31 @@ def cmd_features(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_likelihood(a: argparse.Namespace) -> int:
+    """Post-step over an evidence table: adds lik_post_* / phase_score columns (P9)."""
+    import csv
+    from .classify import likelihood as L
+    thr = load_thresholds(a.thresholds).get("likelihood", {})
+    prm = L.LikParams(eps=thr.get("eps", 0.01), delta=thr.get("delta", 0.03), grid=thr.get("grid", 40), prior=thr.get("prior"))
+    if a.eps is not None:
+        prm.eps = a.eps
+    n = 0
+    agree = 0
+    with open(a.evidence, newline="") as fh, open(a.out, "w", newline="") as out:
+        rd = csv.DictReader(fh, delimiter="\t")
+        extra = ["lik_post_" + h for h in L.HYPS] + ["lik_best_alternative", "lik_log10lr_germline", "phase_score"]
+        w = csv.DictWriter(out, fieldnames=rd.fieldnames + [c for c in extra if c not in rd.fieldnames], delimiter="\t", lineterminator="\n")
+        w.writeheader()
+        for r in rd:
+            r.update({k: ("" if v is None else v) for k, v in L.score_evidence_row(r, prm).items()})
+            n += 1
+            if r.get("phase_class") in ("germline_DNM_phased",) and r.get("phase_score") not in ("", None) and float(r["phase_score"]) > 0.5:
+                agree += 1
+            w.writerow(r)
+    sys.stderr.write("likelihood: %d rows scored -> %s (eps=%.3f delta=%.3f)\n" % (n, a.out, prm.eps, prm.delta))
+    return 0
+
+
 def _trio_args(sp: argparse.ArgumentParser):
     sp.add_argument("--child", required=True, help="child sample id")
     sp.add_argument("--father"), sp.add_argument("--mother"), sp.add_argument("--sex", help="child sex 1/2/M/F")
@@ -313,6 +338,12 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--reference", help="reference FASTA for sequence-context features (pysam)")
     fe.add_argument("--registry", help="config/features.yaml (default: the module's)")
     fe.set_defaults(func=cmd_features)
+
+    lk = sub.add_parser("likelihood", help="P9: posterior over germline/inherited/mosaic/artefact from an evidence table")
+    lk.add_argument("--evidence", required=True), lk.add_argument("--out", required=True)
+    lk.add_argument("--eps", type=float, help="override the per-read false-alt rate")
+    lk.add_argument("--thresholds")
+    lk.set_defaults(func=cmd_likelihood)
 
     qc = sub.add_parser("phase-qc", help="M1d: per-child phase_qc.json and the cohort QC table with gates")
     qc.add_argument("--manifest", required=True)

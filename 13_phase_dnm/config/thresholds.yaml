@@ -47,6 +47,17 @@ phase_class:                 # P8 / P10
   mosaic_min_minority_reads: 3
   inherited_min_frac_on_T: 0.3
 
+likelihood:                  # P9 — per-read false-alt rate, mis-tagging rate, per-candidate priors on the RAW set
+  eps: 0.01                  # to be re-estimated per class from cohort hom-ref sites (reported with the results)
+  delta: 0.03
+  grid: 40
+  prior:
+    germline: 0.003          # ~70 true DNMs among ~32k raw small-variant candidates per child (§0.2)
+    inherited: 0.10
+    parental_mosaic: 0.0003  # transmitted parental mosaics ~5-10% of apparent DNMs (unverified); at ~10 reads on T a low-fraction
+    child_mosaic: 0.0005     #   mosaic is nearly indistinguishable from germline, so this prior caps phase_score there (P10)
+    artefact: 0.8962
+
 qc_gates:                    # M1d — cohort values measured 2026-09-12 in brackets
   crossovers_per_meiosis: [15, 65]     # CROSSOVER excl. child-switch overlaps [F median 30 (18-53), M 43 (30-61)]; lower bound method
   min_frac_het_transmission_resolved: 0.90   # [0.962-0.988]
