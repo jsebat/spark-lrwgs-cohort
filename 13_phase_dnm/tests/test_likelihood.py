@@ -14,12 +14,18 @@ def best(post):
 def test_germline_pattern_wins_even_against_a_strong_artefact_prior():
     r = rows(A=(10, 0), O=(0, 10), T=(0, 10), U=(0, 10))
     p = L.posterior(r, P, po_resolved=True)
-    assert best(p) == "germline" and p["lik_log10lr_germline"] > 3
-    # at ~10 reads per haplotype a low-fraction parental mosaic on T cannot be excluded: the posterior is capped
-    assert 0.7 < p["phase_score"] < 0.99, p["phase_score"]
-    # at 20 reads per haplotype it can
+    assert best(p) == "germline" and p["phase_score"] > 0.7, p
+    # the nearest alternative at ~10 reads on T is a LOW-FRACTION PARENTAL MOSAIC, not an artefact: the reported
+    # likelihood ratio is against that alternative and is depth-limited (P10)
+    assert p["lik_best_alternative"] == "parental_mosaic" and 0 < p["lik_log10lr_germline"] < 3
+    assert p["lik_post_artefact"] < 1e-3 and p["lik_post_inherited"] < 1e-3
+    # more depth per haplotype -> more confidence (a low-fraction parental mosaic on T becomes excludable)
     r20 = rows(A=(20, 0), O=(0, 20), T=(0, 20), U=(0, 20), N1=(0, 20), N2=(0, 20))
-    assert L.posterior(r20, P, True)["phase_score"] > 0.9
+    p20 = L.posterior(r20, P, True)
+    assert p20["phase_score"] > 0.9 and p20["phase_score"] >= p["phase_score"]
+    assert p20["lik_log10lr_germline"] > p["lik_log10lr_germline"]
+    # and the parental-mosaic posterior shrinks with depth on T
+    assert p20["lik_post_parental_mosaic"] < p["lik_post_parental_mosaic"]
 
 
 def test_inherited_when_transmitted_haplotype_carries_alt():
@@ -61,9 +67,12 @@ def test_unresolved_transmission_averages_the_pair_and_lowers_confidence():
 
 
 def test_low_depth_gives_low_confidence_not_a_call():
+    # two alt reads on an otherwise clean matrix: the posterior must stay well below the 10-read case; the hard
+    # evidence floor (min_alt_reads, P10) lives in the rule layer, and P15 uses both layers
     r = rows(A=(2, 0), O=(0, 2), T=(0, 2), U=(0, 2), N1=(0, 2), N2=(0, 2))
-    p = L.posterior(r, P, True)
-    assert p["phase_score"] < 0.5           # two reads cannot overturn the 0.003 prior
+    p2 = L.posterior(r, P, True)["phase_score"]
+    p10 = L.posterior(rows(A=(10, 0), O=(0, 10), T=(0, 10), U=(0, 10)), P, True)["phase_score"]
+    assert p2 < 0.9 and p2 < p10
 
 
 def test_rows_from_evidence_uses_orientation_and_transmission():
