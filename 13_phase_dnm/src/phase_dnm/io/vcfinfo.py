@@ -10,7 +10,7 @@ INFO_FIELDS = [
     ("PDNM_PROB", "1", "Float", "Module 4 classifier probability (rf_prob); missing until a model is frozen"),
     ("PDNM_CALL", "1", "String", "Final de novo call after the P15 phase layer: YES or NO"),
     ("PDNM_MODE", "1", "String", "Decision mode: rf+phase or phase_only (provisional, no classifier)"),
-    ("PDNM_WHY", "1", "String", "Decision reason: RF, RESCUED, BELOW_TAU, PHASE_ONLY, DEMOTED:<class>, MOSAIC:<class>, NOT_PHASED_GERMLINE, HAP_UNOBSERVED, LOW_POSTERIOR"),
+    ("PDNM_WHY", "1", "String", "Decision reason: RF, RESCUED, BELOW_TAU, RF_UNSUPPORTED:<class>, PHASE_ONLY, DEMOTED:<class>, MOSAIC:<class>, NOT_PHASED_GERMLINE, HAP_UNOBSERVED, LOW_POSTERIOR"),
     ("PDNM_POO", "1", "String", "Parent of origin of the alt-carrying child haplotype: paternal, maternal, undetermined"),
     ("PDNM_POOR", "1", "String", "Parent-of-origin reason code"),
     ("PDNM_POOC", "1", "Float", "Parent-of-origin confidence (fraction of tagged alt reads on the origin haplotype)"),

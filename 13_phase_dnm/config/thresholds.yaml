@@ -72,6 +72,8 @@ final:                       # P15 — decision layer (M3). tau / tau_rescue per
     sv: 0.999                #   0-3 per child, 23 cohort-wide
     tr: 0.999                #   31 per child, paternal 0.68 (best TR purity in the sweep)
   tau_q_rescue: 0.99         # rescue: rf_q >= this AND germline_DNM_phased AND six haplotypes observed
+  tr_rescue_min_units: 3     # TR rescue also needs >= 3 motif units (one-haplotype stutter mimics a phased 1-unit change; cohort PoO 0.56 vs 0.75)
+                             # the rf branch (rf_q >= tau_q) requires a germline-consistent review class (not inconclusive): PoO 0.46 for inconclusive rows
 
 qc_gates:                    # M1d — cohort values measured 2026-09-12 in brackets
   crossovers_per_meiosis: [15, 65]     # CROSSOVER excl. child-switch overlaps [F median 30 (18-53), M 43 (30-61)]; lower bound method

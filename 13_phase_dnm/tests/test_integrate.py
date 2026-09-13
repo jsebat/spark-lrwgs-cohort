@@ -22,6 +22,10 @@ def test_decide_rf_mode():
     assert I.decide(row(), P, 0.5)["decision_reason"] == "RESCUED"
     assert I.decide(row(hap=5), P, 0.5)["dnm_call"] == "NO" and I.decide(row(hap=5), P, 0.5)["decision_reason"] == "BELOW_TAU"
     assert I.decide(row(cls="germline_DNM_unphased"), P, 0.5)["dnm_call"] == "NO"
+    # the rf branch needs a germline-consistent review: unphased passes on rf alone, inconclusive does not
+    assert I.decide(row(cls="germline_DNM_unphased", hap=4), P, 0.9)["decision_reason"] == "RF"
+    d = I.decide(row(cls="inconclusive"), P, 0.99)
+    assert d["dnm_call"] == "NO" and d["decision_reason"] == "RF_UNSUPPORTED:inconclusive"
     # demotion beats any probability
     d = I.decide(row(cls="inherited_missed_in_parent"), P, 0.99)
     assert d["dnm_call"] == "NO" and d["decision_reason"] == "DEMOTED:inherited_missed_in_parent"
@@ -172,3 +176,14 @@ def test_thresholds_carry_provisional_tau_q():
     thr = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), "..", "config", "thresholds.yaml")))
     f = thr["final"]
     assert f["tau_q"]["snv_indel"] == 0.997 and f["tau_q"]["sv"] == 0.999 and f["tau_q"]["tr"] == 0.999 and f["tau_q_rescue"] == 0.99
+
+
+def test_tr_rescue_needs_three_motif_units():
+    P2 = I.FinalParams(tau={"TR": 0.999}, tau_rescue={"TR": 0.99})
+    small = row(vclass="TR", class_payload=json.dumps({"delta_units": 1.0}))
+    big = row(vclass="TR", class_payload=json.dumps({"delta_units": 3.0}))
+    assert I.decide(small, P2, 0.995)["decision_reason"] == "RESCUE_TR_SIZE" and I.decide(small, P2, 0.995)["dnm_call"] == "NO"
+    assert I.decide(big, P2, 0.995)["decision_reason"] == "RESCUED"
+    assert I.decide(small, P2, 0.9995)["decision_reason"] == "RF"            # the rf branch keeps 1-unit calls
+    snv = row(vclass="SNV", class_payload="{}")
+    assert I.decide(snv, I.FinalParams(tau={"SNV": 0.999}, tau_rescue={"SNV": 0.99}), 0.995)["decision_reason"] == "RESCUED"

@@ -250,6 +250,12 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   demoted, 4 mosaic), module-only 2,658; per proband 38 → **81**; paternal fraction of module YES 0.697; YES = 2,585 via
   rf_q ≥ τ_q + 822 via rescue. SV: 4 / 8,125 / 10, per proband 0 (14 calls cohort-wide). TR: 26 / 192 / 2,044, 6 → 58.
   Per-child SNV/indel YES still has a high tail (19–353) to profile once the 5-seed rf_q exists.
+- **P15 refined from the cohort's parent-of-origin ratios (2026-09-13):** rf-branch SNV/indel calls: phased 0.79 / unphased 0.68 /
+  **inconclusive 0.46**; hap_obs 6 → 0.77, ≤ 4 → 0.58; child GQ ≥ 20 → 0.72, < 20 → 0.51; SNV 0.77 vs INDEL 0.57; rescue 0.75.
+  TR: rf branch 0.73 at 1-unit changes, 0.62 at ≥ 3; **rescue 0.56 at < 3 units, 0.75 at ≥ 3** (n = 20). Rules: the rf branch
+  requires a germline-consistent review class (`RF_UNSUPPORTED:<class>` otherwise); TR rescue requires ≥ 3 motif units
+  (`RESCUE_TR_SIZE`). The high-YES children (353, 264, …) were exactly the rf-branch `inconclusive`/unobserved rows.
+  Integration + concordance rerun as v3.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

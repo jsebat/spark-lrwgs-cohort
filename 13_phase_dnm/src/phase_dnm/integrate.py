@@ -31,6 +31,10 @@ CLASS_COLS = {"SV": ["svtype", "svlen", "bp_precision"],
               "TR": ["trid", "motif", "child_AL_pat", "child_AL_mat", "father_AL_T", "father_AL_U", "mother_AL_T", "mother_AL_U"]}
 DEMOTE = ("phase_conflict_artifact", "inherited_missed_in_parent")
 MOSAIC = ("child_postzygotic_mosaic", "parental_mosaic_transmitted")
+# the classifier branch requires the read-level review not to CONTRADICT it: an `inconclusive` row (no germline-consistent
+# pattern) cannot be YES on rf alone. Measured 2026-09-13 on the cohort (parent-of-origin ratio of rf-branch calls):
+# germline_DNM_phased 0.79, germline_DNM_unphased 0.68, inconclusive 0.46 (= noise). Rescue already requires phased germline.
+RF_BRANCH_CLASSES = ("germline_DNM_phased", "germline_DNM_unphased")
 
 
 @dataclass
@@ -39,6 +43,9 @@ class FinalParams:
     tau_rescue: Dict[str, Optional[float]] = field(default_factory=dict)
     phase_only_min_score: float = 0.9
     require_hap_obs: int = 6
+    tr_rescue_min_units: float = 3.0     # TR rescue needs an expansion of >= this many motif units: one-haplotype stutter of the longer
+                                         # parental allele looks like a phased 1-unit germline change (rescue-branch PoO ratio 0.56 at
+                                         # < 3 units vs 0.75 at >= 3, cohort 2026-09-13); the rf branch keeps 1-unit calls (0.73)
 
 
 def _f(x) -> Optional[float]:
@@ -62,8 +69,14 @@ def decide(row: Dict[str, object], p: FinalParams, rf_prob: Optional[float]) -> 
     tau, tau_r = p.tau.get(vclass), p.tau_rescue.get(vclass)
     if rf_prob is not None and tau is not None:
         if rf_prob >= tau:
-            return dict(dnm_call="YES", call_mode="rf+phase", decision_reason="RF", mosaic_flag=0)
+            if cls in RF_BRANCH_CLASSES:
+                return dict(dnm_call="YES", call_mode="rf+phase", decision_reason="RF", mosaic_flag=0)
+            return dict(dnm_call="NO", call_mode="rf+phase", decision_reason="RF_UNSUPPORTED:%s" % (cls or "none"), mosaic_flag=0)
         if tau_r is not None and rf_prob >= tau_r and cls == "germline_DNM_phased" and six:
+            if vclass == "TR":
+                du = _f(_payload(row).get("delta_units"))
+                if du is None or du < p.tr_rescue_min_units:
+                    return dict(dnm_call="NO", call_mode="rf+phase", decision_reason="RESCUE_TR_SIZE", mosaic_flag=0)
             return dict(dnm_call="YES", call_mode="rf+phase", decision_reason="RESCUED", mosaic_flag=0)
         return dict(dnm_call="NO", call_mode="rf+phase", decision_reason="BELOW_TAU", mosaic_flag=0)
     ps = _f(row.get("phase_score"))

@@ -286,7 +286,8 @@ def _final_params(thr: dict):
     from .integrate import FinalParams
     f = thr.get("final", {})
     return FinalParams(tau=dict(f.get("tau", {}) or {}), tau_rescue=dict(f.get("tau_rescue", {}) or {}),
-                       phase_only_min_score=f.get("phase_only_min_score", 0.9), require_hap_obs=f.get("require_hap_obs", 6))
+                       phase_only_min_score=f.get("phase_only_min_score", 0.9), require_hap_obs=f.get("require_hap_obs", 6),
+                       tr_rescue_min_units=float(f.get("tr_rescue_min_units", 3)))
 
 
 def cmd_integrate(a: argparse.Namespace) -> int:
