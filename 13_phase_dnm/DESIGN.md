@@ -116,7 +116,7 @@ Small variants: every site in the **family joint VCF** where a child is het and 
 Report §3.5 excludes calls shared by both siblings; here they are kept and flagged `SIB_SHARED` — a variant in both sibs and absent from both parents' genotypes is the parental-mosaic signature. Two quads: illustration, not a truth set (R2).
 
 ### P7 — The six-haplotype matrix
-Rows `M1 M2 F1 F2 CM CP`. A haplotype is *observed* when `dp ≥ k`; `hap_obs_k` counts over six; k=3 and k=5 are always both computed. At ~11× per haplotype, k=5 is the working threshold in unique sequence; k=3 is a fallback that carries `LOW_HAP_DEPTH`. Untagged reads count in `untagged_dp/alt` and in child-level allele support (as the existing DNM logic does) but never in a haplotype row. A read whose `HP` disagrees with `local_rephase_agreement` moves to `amb` and the candidate gets `HP_REPHASE_CONFLICT`. TR rows carry per-read allele-length distributions (from `AL:i` in the spanning-read BAM); "alt" for TR is the expanded child allele (`class_payload.expanded_allele_idx`).
+Rows `M1 M2 F1 F2 CM CP`. A haplotype is *observed* when `dp ≥ k`; `hap_obs_k` counts over six; k=3 and k=5 are always both computed. At ~11× per haplotype, k=5 is the working threshold in unique sequence; k=3 is a fallback that carries `LOW_HAP_DEPTH`. *Measured (hapdepth, 105 genomes, 2026-09-12):* per-haplotype depth median 10.0× / 10.0×, 88 % of depth haplotagged, but three genomes sit at 8.3–10.0× total (~4 reads per haplotype), where k=5 is mostly unreachable and even k=3 will often fail on one of six rows — for those families `hap_obs` is a property of the sample, not the site, and every M2 table carries the sample's per-haplotype depth so no reader mistakes low observability for evidence (R11). Untagged reads count in `untagged_dp/alt` and in child-level allele support (as the existing DNM logic does) but never in a haplotype row. A read whose `HP` disagrees with `local_rephase_agreement` moves to `amb` and the candidate gets `HP_REPHASE_CONFLICT`. TR rows carry per-read allele-length distributions (from `AL:i` in the spanning-read BAM); "alt" for TR is the expanded child allele (`class_payload.expanded_allele_idx`).
 
 ### P8 — `phase_class`: rule layer (transparent)
 Evaluated in order; first match wins. `T` transmitted parental haplotype, `U` untransmitted, `A` the child's alt-carrying haplotype, `O` the other; `f_A = alt/(alt+ref)` on A; `e` = per-read error allowance (`thresholds.yaml`: max(1 read, 5 %)).
@@ -231,6 +231,7 @@ The two mother–child duos have no paternal reads; `F1/F2` rows are unobservabl
 | R8 | read-level haplotype swap as leak-free | chimera test (P11b) |
 | R9 | rescue inflating DNM counts | P18 table; rate before/after vs expected ~60–80 (**unverified**); rescued calls must show the same parent-of-origin ratio |
 | R10 | WES concordance as "validation" of the small-variant set | exonic only (~1–2 % of DNMs); state the denominator; non-detection in WES is never refutation (same rule as METHODS §5) |
+| R11 | Low observability read as evidence in the three 8–10× genomes | `hap_obs` and per-haplotype depth reported per sample; `inconclusive` there is a coverage statement, not a variant property; report their families separately in every cohort summary (rates, parent-of-origin, rescues) |
 
 ---
 

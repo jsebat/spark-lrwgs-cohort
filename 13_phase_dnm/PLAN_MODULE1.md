@@ -73,6 +73,14 @@
   phased SNV het at/before `left` to the nearest at/after `right`, and every row records
   `child_switch_in_interval`. chr19 is 2–3× its physical-length share (its genetic length per Mb is ~1.8× the
   genome mean, so likely genuine); chr9 is no longer flagged. Table: `cohort_crossover_qc.tsv`. Rerun follows.
+- **hapdepth cohort run (2026-09-12, array 54271367, 105/105 COMPLETED, 139–895 s per sample, median 7 min,
+  max MaxRSS 117 MB).** Autosome-averaged depth per genome: total median **23.1×** (8.3–54.0; offspring 22.35,
+  parents 23.65 — matches the report's 22.4/24.4), **hap1 10.0× / hap2 10.0×** (balance 0.99–1.00), untagged 2.7×,
+  MAPQ < 20 0.64×; **88 % of depth is haplotagged** (82–96 %). Built-in sex check: chrX/autosome depth ratio median
+  0.54 in males (n=54), 1.08 in females (n=51), no exceptions. **Three genomes at 8.3–10.0× (one parent, two
+  offspring, ~4 reads per haplotype): the six-haplotype test at k=5 is mostly unreachable there (P7, R11)** — per-sample
+  depth becomes a column in every M2 table. The first submission failed 105/105 on the manifest's stale BAM paths
+  (see Risks). Table: `hapdepth/cohort_hapdepth_qc.tsv`.
 - **Read-level steps written (2026-09-12):** `hapdepth` (per-haplotype depth in 1 kb bins over each primary read's
   reference span; pysam, lazily imported) and `xo-reads` (M1b2: weakest-link count of the parent's haplotagged
   reads spanning consecutive phased hets across each change interval → CROSSOVER / SWITCH_ERROR / AMBIGUOUS).
