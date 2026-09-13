@@ -33,6 +33,19 @@
   only truth that reaches inside the lab mask; haplotype-resolved), v4.2.1 mapping-based genotypes for all three
   (trio-level inherited/false-positive labels), GIAB stratifications for reporting. Running the lab WDL on the
   three genomes is a separate, larger job to be shown first.
+- **M2 cohort review (2026-09-12, array 54274166, 32/33 done at 21:07, 22–73 min per family, 508 MB): first
+  six-haplotype evidence for every raw candidate of 34 children.** Per child (median): SNV `germline_DNM_phased` 192,
+  `germline_DNM_unphased` 1,568, `inherited_missed_in_parent` 398, `phase_conflict_artifact` 1,853, `inconclusive`
+  8,729; INDEL phased 783, inherited-missed 2,316, conflict 5,706; SV phased 7, conflict 273 of ~627; TR phased 938,
+  conflict 17,333 (both-child-haplotype fraction 0.13, was 0.56). **Sanity check (R4 — validates the class, not
+  calls): paternal fraction among `germline_DNM_phased` SNVs = 0.571 (95 % CI 0.559–0.583) over all quality,
+  0.668 (0.650–0.685) at child GQ ≥ 20;** INDEL 0.511, TR 0.511, SV 0.598 (n = 251). Interpretation (moderate–high
+  confidence): the phased-germline SNV class is a mixture of real DNMs (~0.77 paternal) and artefacts (0.50) whose
+  real share rises with quality; a two-component estimate gives ~26 % real overall and ~62 % at GQ ≥ 20 → ~50 real
+  phased SNV DNMs per child by either route, against ~50 expected for the phased half of ~60–70. INDEL and TR
+  phased-germline sets are artefact-dominated (homopolymer errors, stutter), as predicted for the raw set. The
+  rule layer therefore enriches but does not purify — which is the P11/P15 design: the classifier carries the
+  quality signal, the phase layer the transmission test. Table: `evidence/cohort_phase_class_counts.tsv`.
 - **Week 1 (2026-09-12): scaffold, VCF-level minitrio, `orient.py` — done, 12 tests passing.** Package `src/phase_dnm`
   (pure-Python trio VCF reader, `phase-dnm orient` CLI), `tests/make_minitrio_vcf.py` (simulated trio with known
   haplotypes, one crossover per parent per chromosome, HiPhase-shaped per-sample phased VCFs, switch errors,
