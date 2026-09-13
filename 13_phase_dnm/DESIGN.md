@@ -244,6 +244,16 @@ higher score means "more de novo-like"; rows failing any fixed criterion get a s
 sweep curve's operating point is the pipeline's actual decision. This makes the heuristic an ROC curve on the same folds
 and the same rows as the classifier without ever pretending the pipeline produced probabilities.
 
+### P26 — Cohort annotation is leave-one-FAMILY-out and symmetric between real and synthetic rows (M4, 2026-09-13)
+The cohort features (`cohort_AC_loo`, `pon_founder_recurrence_loo`, and the H2/H3 heuristic arms that use the panel of
+normals) are computed from the 65 unaffected founders' genotypes at the candidate sites (cohort BCF / SV VCF), excluding
+the founders of the CHILD's family **and** of the PARENTS' family. For a real trio the two coincide (the original
+pipeline's LOO, `03_panel/apply_pon_loo.sb`); for a synthetic trio both the child's real parents (who carry the
+"positive" allele) and the surrogate parents are excluded, so a positive and a negative row see the same kind of panel
+and the feature cannot encode which trio type a row came from. `gnomad_af` is a site property and needs no LOO;
+`sib_shared` is defined only in the two quads and is 0 elsewhere (a flag, P5). Annotation is one cohort-wide job over
+the union of candidate sites, written as `annot/<child>.<class>.annot.tsv` and merged by the feature extractor.
+
 ## 3. SynthDNM one-pager: what the code does, and what it implies for phase features
 
 **Construction.** `swap_pedigree.py` shuffles complete families, pairs them, and writes a PED in which family A's parents get family B's offspring and vice versa. `extract_dnm_features.py` extracts FORMAT-level trio features at sites that look de novo *under the swapped pedigree* (child het, surrogate parents hom-ref; an `AC=2` condition appears in the extractor) → `truth=1`; and at putative DNM sites under the *real* pedigree → `truth=0`. `preprocess_features.py` derives `child_AR/min_AR/max_AR` (ref/(alt+1)), min/max over parents of `GQ, DP, PL0–2`, `child_AB`, `indel_flag`, sex-aware `haploid_flag` (PSAM + PAR BED), and samples `--sample_n` rows. `train.py` fits XGBoost (1000 trees, depth 6, lr 0.1, early stopping) on a stratified row-level split; `classify.py` emits `synthdnm_prob`. Published: ~96 % recall of denovo-db SSC DNMs.

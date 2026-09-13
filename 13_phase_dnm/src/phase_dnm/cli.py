@@ -15,7 +15,7 @@ from .phasing import transmission as T
 
 PLANNED = {
     "haplotag": "M1c export to BAM (optional, IGV); labels are the orientation/transmission tables",
- "train": "M4, weeks 11-13", "classify": "M4",
+ "classify": "M4",
 }
 
 
@@ -295,6 +295,14 @@ def cmd_integrate(a: argparse.Namespace) -> int:
     from .io import vcfinfo as V
     thr = load_thresholds(a.thresholds)
     p = _final_params(thr)
+    if a.tau_json and os.path.exists(a.tau_json):
+        with open(a.tau_json) as fh:
+            tj = json.load(fh)
+        for vc in ({"snv_indel": ("SNV", "INDEL"), "sv": ("SV",), "tr": ("TR",)}[a.class_group]):
+            if tj.get("tau") is not None:
+                p.tau[vc] = float(tj["tau"])
+            if tj.get("tau_rescue") is not None:
+                p.tau_rescue[vc] = float(tj["tau_rescue"])
     rf = I.load_rf_probs(a.rf_probs)
     summ = I.integrate_table(a.evidence, a.features, a.out, p, a.class_group, rf_probs=rf)
     summ["thresholds_version"] = thr.get("version")
@@ -393,6 +401,26 @@ def cmd_swap(a: argparse.Namespace) -> int:
         sizes = [sum(1 for v in assign.values() if v == k) for k in range(a.n_folds)]
         sys.stderr.write("swap seed %d: %d families in %d folds (sizes %s), %d synthetic trios\n" % (seed, len(fams), a.n_folds, sizes, len(table)))
     sys.stderr.write("swap: %d synthetic-trio manifests -> %s\n" % (n_syn, os.path.join(a.out_dir, "manifests")))
+    return 0
+
+
+def cmd_train(a: argparse.Namespace) -> int:
+    """M4: the one harness - nested CV per class group over seeds, ablations, baselines, heuristic arms, rf_probs, tau, frozen model."""
+    from .eval import harness as HZ
+    from .features.registry import Registry
+    man = read_manifest(a.manifest)
+    fam_of = {sid: r["family_id"] for sid, r in man.items()}
+    reg = Registry(a.registry)
+    log = lambda m: sys.stderr.write(m + "\n")
+    seeds = [int(x) for x in a.seeds.split(",")]
+    rep = HZ.run_class(a.class_group, a.evidence_dir, a.train_dir, a.folds_dir, seeds, a.out_dir, fam_of, a.max_real_per_child,
+                       reg.manifest(), log=log, baselines=not a.no_baselines, freeze=not a.no_freeze)
+    for arm, sm in sorted(rep["summary"].items()):
+        log("SUMMARY %-22s roc_auc %s [%s-%s] pr_auc %s%s" % (arm, None if sm["roc_auc_mean"] is None else round(sm["roc_auc_mean"], 4),
+            None if sm["roc_auc_min"] is None else round(sm["roc_auc_min"], 4), None if sm["roc_auc_max"] is None else round(sm["roc_auc_max"], 4),
+            None if sm["pr_auc_mean"] is None else round(sm["pr_auc_mean"], 4),
+            "" if sm.get("op_tpr_mean") is None else "  op tpr %.3f fpr %.4f" % (sm["op_tpr_mean"], sm["op_fpr_mean"])))
+    log("tau: %s" % json.dumps(rep["tau"]))
     return 0
 
 
@@ -560,6 +588,7 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"])
     ig.add_argument("--out", required=True, help="final/<FAMILY>.<child>.<class>.dnm.tsv"), ig.add_argument("--vcf-out")
     ig.add_argument("--rf-probs", help="M4 output: TSV with variant_id, rf_prob (absent -> provisional phase_only mode)")
+    ig.add_argument("--tau-json", help="M4 output tau.<class>.json: tau / tau_rescue for this class group (overrides thresholds.yaml final:)")
     ig.add_argument("--thresholds")
     ig.set_defaults(func=cmd_integrate)
     cc = sub.add_parser("concordance", help="M3/P18: final calls vs the original pipeline's de novo set, one class group")
@@ -573,6 +602,13 @@ def build_parser() -> argparse.ArgumentParser:
     sw.add_argument("--n-folds", type=int, default=5), sw.add_argument("--seeds", default="0,1,2,3,4")
     sw.add_argument("--blood-family-prefix", default="REACH", help="family-id prefix of the blood-derived family (kept with company in fold 0)")
     sw.set_defaults(func=cmd_swap)
+    tr = sub.add_parser("train", help="M4: nested CV harness per class group (RF arms, ablations, baselines, heuristic sweeps), rf_probs, tau, frozen model")
+    tr.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"])
+    tr.add_argument("--manifest", required=True), tr.add_argument("--evidence-dir", required=True), tr.add_argument("--train-dir", required=True)
+    tr.add_argument("--folds-dir", required=True), tr.add_argument("--out-dir", required=True)
+    tr.add_argument("--seeds", default="0"), tr.add_argument("--max-real-per-child", type=int, default=20000)
+    tr.add_argument("--registry"), tr.add_argument("--no-baselines", action="store_true"), tr.add_argument("--no-freeze", action="store_true")
+    tr.set_defaults(func=cmd_train)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_train
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=08:00:00
+# M4: the harness for one class group over the given seeds (real rf matrices of all families + synthetic-trio matrices of
+# those seeds). Writes $TRAIN_DIR/harness/{harness.<cls>.tsv, cv_report.<cls>.json, tau.<cls>.json, rf_probs/, models/}.
+# Usage: sbatch workflow/m4_train.sb <snv_indel|sv|tr> [SEEDS=0,1,2,3,4] [MAX_REAL=20000]
+set -euo pipefail
+CLS="${1:?class group}"; SEEDS="${SEEDS:-0}"; MAX_REAL="${MAX_REAL:-20000}"
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4
+TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli train --class-group "$CLS" --manifest "$MANIFEST" --evidence-dir "$EVIDENCE_DIR" --train-dir "$TRAIN_DIR" \
+    --folds-dir "$TRAIN_DIR/folds" --out-dir "$TRAIN_DIR/harness" --seeds "$SEEDS" --max-real-per-child "$MAX_REAL" --registry "$HERE/config/features.yaml"

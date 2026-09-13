@@ -33,6 +33,7 @@ while IFS=$'\t' read -r child father mother; do
     EV="$ED/evidence/$child.$cls.evidence.lik.tsv"; FE="$ED/features/$child.$cls.features.tsv"
     [ -s "$EV" ] || { echo "ERROR: $EV missing" >&2; exit 3; }
     RF=""; [ -n "${RF_PROBS_DIR:-}" ] && [ -s "$RF_PROBS_DIR/$child.$cls.rf_probs.tsv" ] && RF="--rf-probs $RF_PROBS_DIR/$child.$cls.rf_probs.tsv"
+    [ -n "${TAU_DIR:-}" ] && [ -s "$TAU_DIR/tau.$cls.json" ] && RF="$RF --tau-json $TAU_DIR/tau.$cls.json"
     t0=$(date +%s)
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli integrate --evidence "$EV" ${FE:+--features "$FE"} --class-group "$cls" \
         --out "$FINAL_DIR/$FAMILY.$child.$cls.dnm.tsv" --vcf-out "$FINAL_DIR/$FAMILY.$child.$cls.dnm.vcf" $RF --thresholds "$THR"
