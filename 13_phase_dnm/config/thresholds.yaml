@@ -40,6 +40,7 @@ hapmatrix:                   # P7
   min_mapq: 20
 
 phase_class:                 # P8 / P10
+  min_alt_reads: 3           # evidence floor for germline/mosaic classes (first smoke run: single-read "germline" calls)
   germline_min_hap_frac: 0.8
   mosaic_max_hap_frac: 0.7
   mosaic_min_dp: 15

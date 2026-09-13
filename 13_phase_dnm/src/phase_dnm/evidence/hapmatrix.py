@@ -58,6 +58,7 @@ class ClassParams:
     mosaic_min_dp: int = 15
     mosaic_min_minority_reads: int = 3
     inherited_min_frac_on_T: float = 0.3
+    min_alt_reads: int = 3          # evidence floor for any germline / mosaic class: alt reads on A (+ untagged for unphased)
     working_k: int = 5
 
 
@@ -97,21 +98,34 @@ class LabelTables:
             v.sort()
         return t
 
+    # Segments are bounded by the block's heterozygous sites; reads carrying the block's PS extend past the
+    # first/last het by up to a read length. A candidate there belongs to the block, so the NEAREST segment of the
+    # same phase set applies within `margin` bp (first smoke run: 35% of candidates were left unoriented by an
+    # exact-cover lookup against a cohort-wide 3% ambiguity).
+    MARGIN = 30000
+
+    @staticmethod
+    def _pick(segs, pos: int, margin: int):
+        best, bestd = None, None
+        for s, e, lab in segs:
+            d = 0 if s <= pos <= e else (s - pos if pos < s else pos - e)
+            if d <= margin and (bestd is None or d < bestd):
+                best, bestd = lab, d
+                if d == 0:
+                    break
+        return best
+
     def child_hap1_is(self, chrom: str, ps: Optional[int], pos: int) -> Optional[str]:
         if ps is None:
             return None
-        for s, e, o in self.orient.get((chrom, ps), ()):
-            if s <= pos <= e:
-                return "P" if o == "HAP1_PAT" else ("M" if o == "HAP1_MAT" else None)
-        return None
+        o = self._pick(self.orient.get((chrom, ps), ()), pos, self.MARGIN)
+        return "P" if o == "HAP1_PAT" else ("M" if o == "HAP1_MAT" else None)
 
     def parent_transmitted(self, parent: str, chrom: str, ps: Optional[int], pos: int) -> Optional[int]:
         if ps is None:
             return None
-        for s, e, tr in self.trans.get((parent, chrom, ps), ()):
-            if s <= pos <= e:
-                return 1 if tr == "HAP1" else (2 if tr == "HAP2" else None)
-        return None
+        tr = self._pick(self.trans.get((parent, chrom, ps), ()), pos, self.MARGIN)
+        return 1 if tr == "HAP1" else (2 if tr == "HAP2" else None)
 
     def dist_change_point(self, parent: str, chrom: str, pos: int) -> Optional[int]:
         lst = self.changes.get((parent, chrom))
@@ -340,19 +354,26 @@ def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParam
             cls = "parental_mosaic_transmitted"
         else:
             cls = "inconclusive"; flags.append("PARENTAL_ALT_LOW_DEPTH")
+    # evidence floor for the remaining classes: enough alt reads to be a claim at all (P10; first smoke run made
+    # single-read "germline" calls at ~2,000 per child)
+    elif A.alt + m.untagged["C"].alt < cp.min_alt_reads:
+        cls = "inconclusive"; flags.append("TOO_FEW_ALT_READS")
     # 4 child postzygotic mosaic
     elif (A.alt_frac is not None and A.alt_frac <= cp.mosaic_max_hap_frac and O.alt <= e(O)
           and all(r.dp >= k and r.alt <= e(r) for r in prow)):
-        if A.dp >= cp.mosaic_min_dp and (A.ref) >= cp.mosaic_min_minority_reads:
+        if A.dp >= cp.mosaic_min_dp and A.alt >= cp.min_alt_reads and A.ref >= cp.mosaic_min_minority_reads:
             cls = "child_postzygotic_mosaic"
         else:
             cls = "inconclusive"; flags.append("MOSAIC_UNDERPOWERED")
-    # 5 germline phased
-    elif (A.alt_frac is not None and A.alt_frac >= cp.germline_min_hap_frac and O.alt <= e(O)
-          and T and T["T"].dp >= k and T["T"].alt <= e(T["T"]) and T["U"].dp >= k and A.dp >= k and O.dp >= k):
+    # 5 germline phased: alt confined to one child haplotype, all FOUR parental haplotypes observed and alt-free,
+    #   both child haplotypes observed, transmitted haplotype known and alt-free
+    elif (A.alt >= cp.min_alt_reads and A.alt_frac is not None and A.alt_frac >= cp.germline_min_hap_frac and O.alt <= e(O)
+          and A.dp >= k and O.dp >= k and all(r.dp >= k and r.alt <= e(r) for r in prow)
+          and T and T["T"].alt <= e(T["T"])):
         cls = "germline_DNM_phased"
-    # 6 germline unphased
-    elif (O.alt <= e(O) and all(r.alt <= e(r) for r in prow if r.dp > 0) and (A.alt > 0 or m.untagged["C"].alt > 0)):
+    # 6 germline unphased: consistent, but some haplotype unobserved or transmission unresolved
+    elif (O.alt <= e(O) and all(r.alt <= e(r) for r in prow if r.dp > 0)
+          and (A.alt_frac is None or A.alt_frac >= cp.germline_min_hap_frac or A.alt + O.alt == 0)):
         cls = "germline_DNM_unphased"
     else:
         cls = "inconclusive"

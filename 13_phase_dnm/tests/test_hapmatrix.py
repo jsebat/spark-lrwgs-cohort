@@ -123,6 +123,36 @@ def test_low_mapq_reads_are_dropped():
     assert m.row("C", 2).dp == 0 and m.n_reads == 50
 
 
+def test_single_alt_read_is_not_a_germline_call():
+    # 1 alt read on A (frac 1.0), everything else clean: an evidence floor, not a DNM
+    m, f, t, c = scenario(child_A=(1, 9))
+    assert c["phase_class"] == "inconclusive" and "TOO_FEW_ALT_READS" in c["flags"]
+    # 3 of 10 clears the floor but is a mosaic-like fraction at depth 10: under-powered mosaic, not germline
+    m, f, t, c = scenario(child_A=(3, 7))
+    assert c["phase_class"] == "inconclusive" and "MOSAIC_UNDERPOWERED" in c["flags"]
+    # 8 of 10 on A, clean elsewhere: germline
+    m, f, t, c = scenario(child_A=(8, 2))
+    assert c["phase_class"] == "germline_DNM_phased"
+
+
+def test_germline_phased_requires_all_parental_haplotypes_clean():
+    # non-transmitting parent (mother) carries alt on one haplotype: not phased-germline
+    m, f, t, c = scenario(M2=(4, 6))
+    assert c["phase_class"] != "germline_DNM_phased"
+    # non-transmitting parent's haplotype unobserved: cannot be 'phased' -> unphased
+    m, f, t, c = scenario(M2=(0, 0))
+    assert c["phase_class"] == "germline_DNM_unphased" and f["hap_obs_k5"] == 5
+
+
+def test_label_lookup_uses_nearest_segment_within_margin():
+    t = H.LabelTables()
+    t.orient[(CHROM, PS)].append((1_000_000, 1_100_000, "HAP1_MAT"))
+    assert t.child_hap1_is(CHROM, PS, 1_050_000) == "M"          # inside
+    assert t.child_hap1_is(CHROM, PS, 1_120_000) == "M"          # 20 kb past the last het, same block: still the block
+    assert t.child_hap1_is(CHROM, PS, 1_200_000) is None         # 100 kb away: not this block
+    assert t.child_hap1_is(CHROM, PS + 1, 1_050_000) is None     # different phase set
+
+
 def test_change_point_flags():
     L = labels()
     L.changes[("F", CHROM)] = [POS + 20_000]
