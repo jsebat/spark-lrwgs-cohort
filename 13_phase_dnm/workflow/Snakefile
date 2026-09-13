@@ -82,17 +82,21 @@ rule m1_xoreads:
     resources: mem_mb=4000, runtime=120, cpus=1
     shell: COMMON + "bash " + SB("m1_xoreads_family.sb") + " {wildcards.family} && printf 'OK\\n' > {output}"
 
+SAMPLES = sorted({r["sample_id"] for r in csv.DictReader(open(MANIFEST, newline=""), delimiter="\t") if r["family_id"] in FAMILIES})
+
 rule m1_hapdepth:
-    input: rules.m1_orient.output
-    output: os.path.join(PHASE_DIR, "{family}", "m1_hapdepth.status")
+    # hapdepth_array.sb is written for a sample array (LIST + SLURM_ARRAY_TASK_ID); one sample per rule instance
+    output: os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz")
     resources: mem_mb=4000, runtime=240, cpus=1
-    shell: COMMON + "FAMILY={wildcards.family} bash " + SB("hapdepth_array.sb") + " && printf 'OK\\n' > {output}"
+    shell:
+        COMMON + "mkdir -p %s/hapdepth/lists && echo {wildcards.sample} > %s/hapdepth/lists/{wildcards.sample}.txt && "
+        "LIST=%s/hapdepth/lists/{wildcards.sample}.txt SLURM_ARRAY_TASK_ID=1 bash " % (PHASE_DIR, PHASE_DIR, PHASE_DIR) + SB("hapdepth_array.sb")
 
 rule phase_qc:
-    input: expand(os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status"), family=FAMILIES), expand(os.path.join(PHASE_DIR, "{family}", "m1_hapdepth.status"), family=FAMILIES)
+    input: expand(os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status"), family=FAMILIES), expand(os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz"), sample=SAMPLES)
     output: os.path.join(PHASE_DIR, "cohort_phase_qc.tsv")
     resources: mem_mb=4000, runtime=30, cpus=1
-    shell: COMMON + "source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli phase-qc --manifest $MANIFEST --phase-dir $PHASE_DIR --thresholds %s/config/thresholds.yaml" % (ENV, HERE)
+    shell: COMMON + "source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli phase-qc --manifest $MANIFEST --phase-dir $PHASE_DIR --hapdepth-dir $PHASE_DIR/hapdepth --thresholds %s/config/thresholds.yaml" % (ENV, HERE)
 
 
 # ------------------------------------------------------------------ M2
