@@ -289,6 +289,13 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   polymorphic insertions whose parental genotypes the joint caller missed, removed by the read-level review — ~9 % of the
   original small-variant de novo set. Caveat: parental support is the review's insertion-signature hook (an insertion of the
   right length within tolerance at the site), not a genotyper call; the cohort recurrence is independent corroboration.
+- **Snakemake layer, first version (2026-09-13, plan step 4):** `workflow/Snakefile` (rules over the proven family scripts: M1
+  orient → xo-reads → hapdepth per sample → phase-qc; M2 candidates → review → reclassify(+likelihood+features) + P26
+  annotation; M3 integrate → concordance; M4 swap → synthetic trios per seed → train → rescore → external truth),
+  `workflow/config.yaml`, `workflow/profiles/expanse/config.yaml` (slurm executor plugin; snakemake 9.26.1 + plugin installed
+  in the module env). Dry run against the cohort layout: `all` = 101 jobs, `m4` = 81; M1/hapdepth/candidates recognised as up
+  to date. Untested so far: an actual slurm submission through the profile — to be exercised on one family after the
+  re-review chain (the DAG will then be current and a forced single rule is the smoke).
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

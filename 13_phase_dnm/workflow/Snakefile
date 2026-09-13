@@ -9,9 +9,10 @@
 #   M3  integrate -> concordance (cohort)
 #   M4  swap -> synthetic trios (per seed) -> annotate_synthetic -> train -> rescore -> external truth
 #
-# Usage on Expanse:   snakemake --profile workflow/profiles/expanse -j 40 all
-#                     snakemake --profile workflow/profiles/expanse m4            (after `all`)
-# Dry run:            snakemake -n -s workflow/Snakefile --configfile workflow/config.yaml
+# Usage on Expanse:   snakemake all --profile workflow/profiles/expanse -j 40
+#                     snakemake m4 --profile workflow/profiles/expanse            (after `all`)
+# Dry run:            snakemake all -n -s workflow/Snakefile --configfile workflow/config.yaml   (target BEFORE --configfile: it takes several files)
+# Dry run 2026-09-13 against the cohort layout: all = 101 jobs, m4 = 81 (M1, hapdepth and candidates recognised as up to date).
 # Families = the complete-trio families of the manifest (duos excluded, DESIGN P19). Identifiers stay in the manifest.
 import csv, os
 
