@@ -424,6 +424,61 @@ def cmd_train(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_annotate(a: argparse.Namespace) -> int:
+    """P26: gnomAD AF (slivar gnotate), leave-one-family-out founder counts, sib-shared, for one class group.
+    Real trios: all candidate tables matching --cand-glob; synthetic trio: one table with --exclude-families."""
+    import csv, glob, shlex
+    from . import annotate as AN
+    from .io.vcf import read_manifest
+    man = read_manifest(a.manifest)
+    rows = list(man.values())
+    founder_family = AN.founders(rows)
+    paths = sorted(glob.glob(a.cand_glob)) if a.cand_glob else [a.candidates]
+    if not paths:
+        sys.stderr.write("annotate: no candidate tables\n"); return 2
+    os.makedirs(a.out_dir, exist_ok=True); os.makedirs(a.work, exist_ok=True)
+    sites, _ = AN.union_sites(paths, a.class_group)
+    log = lambda m: sys.stderr.write(m + "\n")
+    log("annotate %s: %d candidate tables, %d distinct sites" % (a.class_group, len(paths), len(sites)))
+    gnomad = {}
+    if a.class_group == "snv_indel" and a.gnomad_zip and a.slivar_cmd:
+        sv_path = os.path.join(a.work, "sites.%s.vcf" % a.class_group)
+        n = AN.write_sites_vcf(sites, sv_path)
+        gnomad = AN.gnotate(sv_path, os.path.join(a.work, "sites.%s.gnotate.vcf" % a.class_group), shlex.split(a.slivar_cmd), a.gnomad_zip)
+        log("gnotate: %d sites written, %d with gnomad_af" % (n, len(gnomad)))
+    fgt, order = {}, []
+    if a.cohort_vcf and a.class_group in ("snv_indel", "sv"):
+        bed = os.path.join(a.work, "sites.%s.bed" % a.class_group)
+        AN.write_sites_bed(sites, bed)
+        if a.class_group == "snv_indel":
+            order, fgt = AN.founder_genotypes(a.cohort_vcf, bed, sorted(founder_family), a.bcftools, a.work)
+        else:
+            order, fgt = AN.founder_genotypes_sv(a.cohort_vcf, sorted(founder_family), a.bcftools, a.work) if hasattr(AN, "founder_genotypes_sv") else ([], {})
+        log("founder genotypes at %d sites (%d founders)" % (len(fgt), len(order)))
+    excl_extra = set(x for x in (a.exclude_families or "").split(",") if x)
+    total = {"rows": 0, "gnomad_annotated": 0, "founder_counts": 0}
+    for cp in paths:
+        child = os.path.basename(cp).split(".")[0]
+        fam = man[child]["family_id"] if child in man else None
+        excl = set(excl_extra)
+        if fam:
+            excl.add(fam)
+        sib: set = set()
+        if a.class_group == "snv_indel" and a.joint_vcf_pattern and fam and not excl_extra:
+            sibs = [r["sample_id"] for r in rows if r["family_id"] == fam and r.get("role") == "offspring" and r["sample_id"] != child
+                    and r.get("father_id") in man and r.get("mother_id") in man]
+            jv = glob.glob(a.joint_vcf_pattern.replace("{FAMILY}", fam))
+            if sibs and jv:
+                keys = {(r_.chrom,) + AN.norm_allele(r_.start, r_.ref, r_.alt) for r_ in AN.read_candidates(cp)}
+                sib = AN.sib_shared_sites(jv[0], child, sibs, keys)
+        out = os.path.join(a.out_dir, "%s.%s.annot.tsv" % (child, a.class_group))
+        st = AN.write_annot(cp, out, a.class_group, gnomad, fgt, order, founder_family, excl, sib)
+        for k in total:
+            total[k] += st[k]
+    log("annotate %s done: %s -> %s" % (a.class_group, " ".join("%s=%d" % kv for kv in total.items()), a.out_dir))
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
@@ -453,7 +508,12 @@ def cmd_features(a: argparse.Namespace) -> int:
     mask = X.BedMask(a.mask) if a.mask else None
     seqctx = X.SeqContext(a.reference) if a.reference else None
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-    summ = X.extract_child(a.evidence, a.candidates, reg, sex, a.out, a.rf_out, mask=mask, seqctx=seqctx)
+    annot = None
+    if a.annot and os.path.exists(a.annot):
+        import csv
+        with open(a.annot, newline="") as fh:
+            annot = {r["variant_id"]: r for r in csv.DictReader(fh, delimiter="\t")}
+    summ = X.extract_child(a.evidence, a.candidates, reg, sex, a.out, a.rf_out, mask=mask, seqctx=seqctx, annot=annot)
     summ["registry"] = reg.manifest()
     with open(a.out.replace(".tsv", ".summary.json"), "w") as fh:
         json.dump(summ, fh, indent=1, sort_keys=True)
@@ -559,6 +619,7 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--evidence", required=True), fe.add_argument("--candidates", required=True)
     fe.add_argument("--child", required=True), fe.add_argument("--manifest", required=True)
     fe.add_argument("--out", required=True, help="<child>.<class>.features.tsv")
+    fe.add_argument("--annot", help="annot/<child>.<class>.annot.tsv from `annotate` (gnomad_af, cohort_AC_loo, pon_founder_recurrence_loo, sib_shared)")
     fe.add_argument("--rf-out", help="<child>.<class>.features.rf.tsv (rf_safe columns only; refused if unsafe)")
     fe.add_argument("--mask", action="append", help="BED file(s) of the lab region mask (flag, never a filter)")
     fe.add_argument("--reference", help="reference FASTA for sequence-context features (pysam)")
@@ -609,6 +670,15 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--seeds", default="0"), tr.add_argument("--max-real-per-child", type=int, default=20000)
     tr.add_argument("--registry"), tr.add_argument("--no-baselines", action="store_true"), tr.add_argument("--no-freeze", action="store_true")
     tr.set_defaults(func=cmd_train)
+    an = sub.add_parser("annotate", help="P26: gnomAD AF, leave-one-family-out founder counts, sib-shared for one class group")
+    an.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), an.add_argument("--manifest", required=True)
+    an.add_argument("--cand-glob", help="real trios: glob of <child>.<class>.candidates.tsv tables"), an.add_argument("--candidates", help="one table (synthetic trio)")
+    an.add_argument("--exclude-families", help="synthetic trio: comma-separated families to exclude from the founder panel (child's and parents')")
+    an.add_argument("--out-dir", required=True), an.add_argument("--work", required=True)
+    an.add_argument("--cohort-vcf", help="cohort BCF (snv_indel) or cohort SV VCF (sv)"), an.add_argument("--bcftools", default="bcftools")
+    an.add_argument("--slivar-cmd", help="command prefix, e.g. 'singularity exec -B /expanse:/expanse slivar.sif slivar'"), an.add_argument("--gnomad-zip")
+    an.add_argument("--joint-vcf-pattern", help="family joint small-variant VCF glob with {FAMILY} (sib-shared in quads)")
+    an.set_defaults(func=cmd_annotate)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")

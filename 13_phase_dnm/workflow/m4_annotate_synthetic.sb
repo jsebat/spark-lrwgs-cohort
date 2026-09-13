@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_annsyn
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=8G
+#SBATCH --time=02:00:00
+# P26 for ONE synthetic trio (all three class groups): annotation excluding the child's and the surrogate parents'
+# families, then the features re-run with --annot. Array over TABLE rows like m4_synthetic_trio.sb.
+set -euo pipefail
+TABLE="${1:-${TABLE:-}}"; ROW="${2:-${SLURM_ARRAY_TASK_ID:-}}"
+[ -n "$TABLE" ] && [ -n "$ROW" ] || { echo "usage: TABLE=<synthetic_trios.seedK.tsv> sbatch --array=1-N $0" >&2; exit 2; }
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}" "${COHORT_BCF:?}" "${COHORT_SV_VCF:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+BCFTOOLS="${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}"
+TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+line=$(sed -n "$((ROW + 1))p" "$TABLE"); hdr=$(head -1 "$TABLE")
+col() { echo "$hdr" | tr '\t' '\n' | grep -n -x "$1" | cut -d: -f1; }
+SID=$(echo "$line" | cut -f"$(col synthetic_id)"); CHILD=$(echo "$line" | cut -f"$(col child)"); SEED=$(echo "$line" | cut -f"$(col seed)")
+CF=$(echo "$line" | cut -f"$(col child_family)"); PF=$(echo "$line" | cut -f"$(col parent_family)")
+SMAN="$(dirname "$TABLE")/manifests/$SID.manifest.tsv"
+W="$TRAIN_DIR/seed$SEED/$SID"; mkdir -p "$W/annot" "$W/annot/work"
+[ -s "$W/m4_synthetic.status" ] || { echo "synthetic trio $SID not finished yet" >&2; exit 3; }
+SLIVAR=""; [ -n "${SLIVAR_SIF:-}" ] && [ -s "$SLIVAR_SIF" ] && { source /etc/profile.d/modules.sh 2>/dev/null || true; module load singularitypro 2>/dev/null || module load singularitypro/4.1.2 2>/dev/null || true; SLIVAR="singularity exec -B /expanse:/expanse $SLIVAR_SIF slivar"; }
+MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --mask $m"; done
+REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "$REF_FA" ] && REFARG="--reference $REF_FA"
+for CLS in snv_indel sv tr; do
+  CA="$W/candidates/$CHILD.$CLS.candidates.tsv"; EV="$W/evidence/$CHILD.$CLS.evidence.tsv"; [ -s "$CA" ] && [ -s "$EV" ] || continue
+  case $CLS in snv_indel) CV="$COHORT_BCF";; sv) CV="$COHORT_SV_VCF";; *) CV="";; esac
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli annotate --class-group "$CLS" --manifest "$MANIFEST" --candidates "$CA" --exclude-families "$CF,$PF" \
+      --out-dir "$W/annot" --work "$W/annot/work" ${CV:+--cohort-vcf "$CV"} --bcftools "$BCFTOOLS" ${SLIVAR:+--slivar-cmd "$SLIVAR"} ${GNOMAD_ZIP:+--gnomad-zip "$GNOMAD_ZIP"}
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$CHILD" --manifest "$SMAN" --annot "$W/annot/$CHILD.$CLS.annot.tsv" \
+      --out "$W/features/$CHILD.$CLS.features.tsv" --rf-out "$W/features/$CHILD.$CLS.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml"
+done
+rm -rf "$W/annot/work"
+printf 'OK\t%s\n' "$(date -Is)" > "$W/m4_annot.status"

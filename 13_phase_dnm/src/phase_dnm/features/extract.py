@@ -214,8 +214,8 @@ def caller_features(rec: CandidateRecord, sex: str) -> Dict[str, object]:
 
 
 def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, sex: str, out_tsv: str,
-                  rf_out_tsv: Optional[str] = None, mask: Optional[BedMask] = None, seqctx: Optional[SeqContext] = None
-                  ) -> Dict[str, object]:
+                  rf_out_tsv: Optional[str] = None, mask: Optional[BedMask] = None, seqctx: Optional[SeqContext] = None,
+                  annot: Optional[Dict[str, dict]] = None) -> Dict[str, object]:
     cands: Dict[str, CandidateRecord] = {}
     for r in read_candidates(candidates_tsv):
         cands[r.variant_id] = r
@@ -245,6 +245,10 @@ def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, se
             for k in feats:
                 if k in r and r[k] not in (None, ""):
                     row[k] = r[k]
+            if annot is not None and r["variant_id"] in annot:
+                for k, v in annot[r["variant_id"]].items():
+                    if k in registry.features and v not in (None, ""):
+                        row[k] = v
             if rec is not None:
                 for k, v in caller_features(rec, sex).items():
                     if k in registry.features:

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_annot
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=32G
+#SBATCH --time=06:00:00
+# P26: cohort / population annotation of the REAL trios' candidates for one class group: gnomAD AF (slivar gnotate),
+# leave-one-family-out founder counts (cohort BCF / SV VCF), sib-shared (quads). Writes $EVIDENCE_DIR/<FAM>/annot/... via
+# a cohort-wide run into $ANNOT_DIR then per-child files; then re-run features for every child with --annot.
+# Usage: sbatch workflow/m4_annotate.sb <snv_indel|sv|tr>
+set -euo pipefail
+CLS="${1:?class group}"
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}" "${COHORT_BCF:?}" "${COHORT_SV_VCF:?}" "${CALLSET_ROOT:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+BCFTOOLS="${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}"
+ANNOT_DIR="${ANNOT_DIR:-$EVIDENCE_DIR/../annot}"; WORK="$ANNOT_DIR/work.$CLS"; mkdir -p "$ANNOT_DIR/real" "$WORK"
+SLIVAR=""; [ -n "${SLIVAR_SIF:-}" ] && [ -s "$SLIVAR_SIF" ] && { source /etc/profile.d/modules.sh 2>/dev/null || true; module load singularitypro 2>/dev/null || module load singularitypro/4.1.2 2>/dev/null || true; SLIVAR="singularity exec -B /expanse:/expanse $SLIVAR_SIF slivar"; }
+case $CLS in snv_indel) CV="$COHORT_BCF";; sv) CV="$COHORT_SV_VCF";; *) CV="";; esac
+t0=$(date +%s)
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli annotate --class-group "$CLS" --manifest "$MANIFEST" --cand-glob "$EVIDENCE_DIR/*/candidates/*.$CLS.candidates.tsv" \
+    --out-dir "$ANNOT_DIR/real" --work "$WORK" ${CV:+--cohort-vcf "$CV"} --bcftools "$BCFTOOLS" \
+    ${SLIVAR:+--slivar-cmd "$SLIVAR"} ${GNOMAD_ZIP:+--gnomad-zip "$GNOMAD_ZIP"} \
+    --joint-vcf-pattern "$CALLSET_ROOT/{FAMILY}/out/joint_small_variants_vcf/*.vcf.gz"
+echo "annotate $CLS done in $(( $(date +%s) - t0 )) s"
+# features refresh for every child of every complete-trio family (annotation columns are registry features)
+MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --mask $m"; done
+REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "$REF_FA" ] && REFARG="--reference $REF_FA"
+n=0
+while IFS=$'\t' read -r child fam; do
+  EV="$EVIDENCE_DIR/$fam/evidence/$child.$CLS.evidence.tsv"; CA="$EVIDENCE_DIR/$fam/candidates/$child.$CLS.candidates.tsv"; AN="$ANNOT_DIR/real/$child.$CLS.annot.tsv"
+  [ -s "$EV" ] && [ -s "$CA" ] && [ -s "$AN" ] || continue
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$child" --manifest "$MANIFEST" --annot "$AN" \
+      --out "$EVIDENCE_DIR/$fam/features/$child.$CLS.features.tsv" --rf-out "$EVIDENCE_DIR/$fam/features/$child.$CLS.features.rf.tsv" $MASKARGS $REFARG \
+      --registry "$HERE/config/features.yaml" 2>&1 | tail -1 | cut -c1-160
+  n=$((n+1))
+done < <(awk -F'\t' 'NR>1 && $7=="offspring" && $3!="0" && $3!="" && $4!="0" && $4!="" {print $1"\t"$2}' "$MANIFEST")
+echo "features refreshed for $n children ($CLS)"
