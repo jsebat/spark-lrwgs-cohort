@@ -195,8 +195,12 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
         chosen_params += res.chosen
         report["arms"].setdefault("RF", []).append(res.__dict__)
         for abl in ("no_phase", "phase_only"):
-            r2, p2, raw2, _ = CV.nested_cv(d, assign, class_group, seed, kind="xgb", ablation=abl, calibrate=False, log=log)
+            r2, p2, raw2, fm2 = CV.nested_cv(d, assign, class_group, seed, kind="xgb", ablation=abl, calibrate=False, log=log)
             add("RF_" + abl, raw2)
+            # the ablation fold models are saved too: the spike-in external truth (P27) has no caller fields on planted
+            # candidates, so the phase-only / read-level model is the fair arm there
+            for k, fm in fm2.items():
+                fm.save(os.path.join(out_dir, "fold_models", "%s.%s.seed%d.fold%d" % (class_group, abl, seed, k)))
             report["arms"].setdefault("RF_" + abl, []).append(dict(auc=r2.auc, pr=r2.pr, n_rows=r2.n_rows))
         if baselines:
             for kind in ("rf", "lr"):

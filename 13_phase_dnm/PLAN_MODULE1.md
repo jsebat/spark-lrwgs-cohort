@@ -205,6 +205,21 @@
   parental mosaics 0.31, child mosaics 0.02, SNV/SV 0. Heuristic arms are **not evaluable on spike-ins** for SNV/indel and
   SV (planted candidates carry no caller genotype/GQ — the "caller" is the spike); the TR family rule works from allele
   lengths: 0.975 vs RF 0.992. Recorded as such; the WES-confirmed exonic set is the external truth for the slivar arms.
+- **External arm rerun on rf_q (2026-09-13, job 54285805):** AUCs unchanged (ranking is scale-free); recall of planted
+  germline DNMs at τ_q = 0.999: SNV/indel **0.0**, SV 0.22, TR **0.89**; mosaic sensitivity at τ_q: TR parental 0.38 / child
+  0.01, SV child 0.50 / parental 0.04, SNV/indel 0. Why SNV/indel recall is 0 despite AUC 0.986: **planted candidates carry
+  no caller features** (GQ, PL, AR, AB are empty — the "caller" is the spike), so the full small-variant model, which leans
+  on the caller block, scores them wherever NaN routing sends them; TR is phase-driven and unaffected. Spike-ins are a
+  fair external truth for the read/phase arms and a handicap for the full SNV/indel model — the WES-confirmed exonic set is
+  that model's external truth (P27). The ablation fold models (phase-only, no-phase) are now saved so the fair spike-in
+  comparison can be run; the heuristic arms are reported as not evaluable on spike-ins (no caller genotype).
+- **τ_q sweep on the real cohort (2026-09-13, seed-0 rf_q, demoted rows excluded; YES/child median, paternal fraction of
+  resolved YES):** SNV/indel 0.999 → 17 / 0.666; 0.998 → 38 / 0.674; 0.997 → 61 / 0.676; 0.995 → 103 / 0.663; 0.99 → 179 /
+  0.629. SV: 0.999 → 0 (0–3; 5 resolved); 0.99 → 1 (41 resolved, 0.51). TR: 0.999 → 31 / 0.682; 0.998 → 60 / 0.634; 0.99 →
+  277 / 0.590. Reading: the classifier's top of the list is ~55–60 % pure by the parent-of-origin read-out over the whole
+  SNV/indel range (the phased-germline six-haplotype subset is purer: 0.71–0.76), so the P15 combination — rescue of phased
+  germline rows below τ, demotion above it — is doing real work; the yield-matched point (~60 YES/child ≈ the expected DNM
+  count) is τ_q ≈ 0.997. **Provisional τ_q until the WES external truth: SNV/indel 0.997, SV 0.999, TR 0.999; τ_rescue,q 0.99.**
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
