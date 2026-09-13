@@ -70,36 +70,44 @@ def _hap_of_base(base: Optional[str], h1: str, h2: str) -> Optional[int]:
     return None
 
 
-def gap_concordance(bam, chrom: str, a: Tuple[int, str, str], b: Tuple[int, str, str], ps: int, min_mapq: int
-                    ) -> Tuple[int, int]:
-    """(concordant, discordant) reads spanning SNV hets a and b, judged by the haplotype their bases support."""
-    (pa, a1, a2), (pb, b1, b2) = a, b
-    conc = disc = 0
-    for read in bam.fetch(chrom, pa - 1, pb):
+def interval_gap_concordance(bam, chrom: str, hets: List[Tuple[int, str, str]], ps: int, min_mapq: int
+                             ) -> List[Tuple[int, int]]:
+    """For consecutive pairs of SNV hets, (concordant, discordant) counts over reads spanning both — ONE pass per read.
+
+    Each read of the block (HP and PS present, PS = block, MAPQ >= min_mapq, primary) is walked once over its
+    aligned pairs, collecting the base at every het position it covers (set lookup); a read then contributes to
+    the gap between two consecutive hets it spans when both bases support a haplotype: concordant if the same
+    haplotype, discordant otherwise. This replaces a per-gap re-fetch that walked each 15 kb read once per gap.
+    """
+    if len(hets) < 2:
+        return []
+    pos_index = {p - 1: i for i, (p, _, _) in enumerate(hets)}          # 0-based reference position -> het index
+    n_gaps = len(hets) - 1
+    conc = [0] * n_gaps
+    disc = [0] * n_gaps
+    first, last = hets[0][0], hets[-1][0]
+    for read in bam.fetch(chrom, first - 1, last):
         if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
             continue
         if read.mapping_quality < min_mapq or not read.has_tag("HP") or not read.has_tag("PS") or read.get_tag("PS") != ps:
             continue
-        if not (read.reference_start <= pa - 1 and read.reference_end is not None and read.reference_end >= pb):
-            continue
         seq = read.query_sequence
         if seq is None:
             continue
-        base_a = base_b = None
+        support: Dict[int, int] = {}
         for qpos, rpos in read.get_aligned_pairs(matches_only=True):
-            if rpos == pa - 1:
-                base_a = seq[qpos]
-            elif rpos == pb - 1:
-                base_b = seq[qpos]
-                break
-        ha, hb = _hap_of_base(base_a, a1, a2), _hap_of_base(base_b, b1, b2)
-        if ha is None or hb is None:
-            continue                                            # sequencing error or deletion at a flank: uninformative
-        if ha == hb:
-            conc += 1
-        else:
-            disc += 1
-    return conc, disc
+            i = pos_index.get(rpos)
+            if i is not None:
+                h = _hap_of_base(seq[qpos], hets[i][1], hets[i][2])
+                if h is not None:
+                    support[i] = h
+        for i in range(n_gaps):
+            if i in support and i + 1 in support:
+                if support[i] == support[i + 1]:
+                    conc[i] += 1
+                else:
+                    disc[i] += 1
+    return list(zip(conc, disc))
 
 
 def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[str, Optional[str]]],
@@ -135,8 +143,8 @@ def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[st
                     all_supported = True
                     status = None
                     weakest = (hets[0][0], hets[-1][0], 10 ** 9, 0)
-                    for a, b in zip(hets[:-1], hets[1:]):
-                        conc, disc = gap_concordance(bams[parent], chrom, a, b, ps, min_mapq)
+                    per_gap = interval_gap_concordance(bams[parent], chrom, hets, ps, min_mapq)
+                    for (a, b), (conc, disc) in zip(zip(hets[:-1], hets[1:]), per_gap):
                         n = conc + disc
                         frac = disc / n if n else 0.0
                         if n < weakest[2]:
