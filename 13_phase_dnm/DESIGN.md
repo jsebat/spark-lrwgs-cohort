@@ -302,3 +302,24 @@ a method paper. What that fixes:
 - **What is deliberately left for later**: mosaic *rates*, TR de novo *spectrum*, paternal-age
   *slope* as findings. They appear as descriptive tables with the overclaim guards, not as results
   the paper rests on.
+
+*What the cohort run has already fixed for this section (2026-09-13):*
+- **The P18 table exists in a first, provisional version** (phase-only decision, no classifier): SNV/indel 666 concordant /
+  669 original-only / 1,631 module-only, per-proband median 38 → 65, paternal fraction of module calls 0.72; SV 46 / 8,083 /
+  69 against the pipeline's unfiltered 7,736-row SV list; TR 19 / 199 / 3,202 (stutter-dominated until a size rule or the
+  classifier applies). These numbers are re-issued once M4's `rf_prob` and τ replace the provisional rule; the table's
+  columns (concordant, original-only by phase class, module-only by tier/mask, per-proband before/after, PoO ratio) do not change.
+- **Mosaic sensitivity is a spike-in statement, not a call set**: cohort-wide spike-ins (34 children, 7,828 planted sites)
+  recover germline and inherited-missed events at ≥ 0.91 class-exact / ≥ 0.98 lenient with parent of origin 1.00, and child
+  mosaics at 15–30 % / transmitted parental mosaics at 10–25 % at 0.05–0.15 — the P10 depth floor at ~10 reads per
+  haplotype. The paper reports the second number as what the module cannot see at this coverage.
+- **Flagged observation, not a claim**: ~117 of the original 1,332 de novo SNV/indel calls are ≥ 30 bp Alu-like insertions
+  that the read-level review does not support as clean heterozygous events (mostly phase-conflict / inconclusive). Whether
+  they are polymorphic mobile-element insertions missed in the parents or true de novo insertions in hard sequence is to be
+  examined against the parental read evidence before any sentence about them is written.
+- **The headline (P22) is the harness table**: per class, ROC/PR-AUC of the phase-aware classifier vs. the pipeline's
+  heuristic sweeps on identical swap-closed family folds, with the operating point of each heuristic marked on its curve;
+  ablations (no-phase / phase-only) and the grouped attribution answer JS's "how much weight does phase get". Caveat
+  travelling with the table: on synthetic labels the phase layer can only demote (a synthetic trio has no transmitted
+  haplotype), so the "+P" arms with rescue are reported on the external truth sets (spike-ins, WES-confirmed exonic calls).
+
