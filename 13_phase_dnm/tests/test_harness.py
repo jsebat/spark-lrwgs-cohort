@@ -93,3 +93,11 @@ def test_fold_quantile_score_is_a_pass_rate():
     q = RS.quantile(ref, np.array([0.95, 0.4, 0.05, 0.25]))
     assert list(q) == [1.0, 0.6, 0.0, 0.4]                      # 0.95 above all 5 -> pass rate 0 -> q 1.0; 0.4 -> 3 of 5 below
     assert np.isnan(RS.quantile(np.array([]), np.array([0.5]))).all()
+
+
+def test_attribution_feature_families():
+    from phase_dnm.eval import attribution as AT
+    assert AT.family_of("c_alt_hap_frac") == "D_phase" and AT.family_of("hap_obs_k5") == "D_phase" and AT.family_of("p_min_hap_dp") == "D_phase"
+    assert AT.family_of("c_alt_mapq_mean") == "C_reads" and AT.family_of("c_alt_rq_mean") == "C_reads"
+    assert AT.family_of("child_GQ") == "A_caller" and AT.family_of("min_PL0") == "A_caller"
+    assert AT.family_of("gc_200bp") == "B_context" and AT.family_of("segdup_overlap") == "B_context" and AT.family_of("delta_units") == "B_context"

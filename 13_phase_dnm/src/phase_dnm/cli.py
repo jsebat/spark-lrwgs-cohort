@@ -529,6 +529,22 @@ def cmd_rescore(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_attribution(a: argparse.Namespace) -> int:
+    """P14: TreeSHAP share by feature family on held-out rows (real, synthetic, classifier-called real rows)."""
+    from .eval import attribution as AT
+    man = read_manifest(a.manifest)
+    fam_of = {sid: r["family_id"] for sid, r in man.items()}
+    log = lambda m: sys.stderr.write(m + "\n")
+    rep = AT.run(a.class_group, a.harness_dir, a.evidence_dir, a.train_dir, a.folds_dir, a.seed, fam_of, log=log)
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    with open(a.out, "w") as fh:
+        json.dump(rep, fh, indent=1, sort_keys=True)
+    for kind, d in rep["share_by_family"].items():
+        log("ATTRIBUTION %-12s %s (n=%d)" % (kind, json.dumps(d), rep["n_rows"].get(kind, 0)))
+    log("ATTRIBUTION top features: %s" % json.dumps(rep["top_features"]))
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
@@ -743,6 +759,11 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--evidence-dir", required=True), rs.add_argument("--harness-dir", required=True), rs.add_argument("--folds-dir", required=True)
     rs.add_argument("--seeds", default="0"), rs.add_argument("--max-real-per-child", type=int, default=20000)
     rs.set_defaults(func=cmd_rescore)
+    at = sub.add_parser("attribution", help="P14: TreeSHAP share by feature family (A caller / B context / C reads / D phase) on held-out rows")
+    at.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), at.add_argument("--manifest", required=True)
+    at.add_argument("--evidence-dir", required=True), at.add_argument("--train-dir", required=True), at.add_argument("--harness-dir", required=True)
+    at.add_argument("--folds-dir", required=True), at.add_argument("--seed", type=int, default=0), at.add_argument("--out", required=True)
+    at.set_defaults(func=cmd_attribution)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")
