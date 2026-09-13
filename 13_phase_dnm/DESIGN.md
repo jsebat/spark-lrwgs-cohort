@@ -254,6 +254,22 @@ and the feature cannot encode which trio type a row came from. `gnomad_af` is a 
 `sib_shared` is defined only in the two quads and is 0 elsewhere (a flag, P5). Annotation is one cohort-wide job over
 the union of candidate sites, written as `annot/<child>.<class>.annot.tsv` and merged by the feature extractor.
 
+### P27 — External-truth evaluation: the same harness on rows with known truth (M4, 2026-09-13)
+Synthetic labels answer "does the model separate inherited-looking events from the raw candidate pool"; they saturate
+for small variants and they cannot score the rescue branch of P15 (P22 caveat). The external-truth arm therefore reuses
+the harness on rows whose truth is known by other means, with the SAME arms and the SAME scoring code:
+(1) **Spike-ins** (`sim/spike.py`): the planted germline (G) and inherited-missed (IM) rows of every child, all classes,
+as positives (G) and as labelled negatives (IM), against the child's real raw candidates as the negative pool. Each
+child's rows are scored by the fold model that held its family out (seed 0), never by a model that saw the family;
+the frozen all-family model is reported separately and marked as such. Mosaic spike-ins (CM/PM) are reported as a
+sensitivity curve, not as positives (P10). (2) **WES-confirmed exonic small variants** (R10): candidates whose child
+genotype is heterozygous and both parents hom-ref in SPARK iWES v3 DeepVariant, as positives, and candidates whose
+child is hom-ref in WES as negatives, exonic rows only; added when the WES extraction step exists. (3) **GIAB** as the
+reproducibility anchor once the trio is run (P16). Reported per class: ROC/PR-AUC of RF, RF+P (demotion **and**
+rescue, allowed here because real trios have transmitted haplotypes), the heuristic arms including H2/H3 (population
+filters are legitimate on these labels), and recall at the τ operating point. The spike-in arm is the only TR
+external truth and is said so.
+
 ## 3. SynthDNM one-pager: what the code does, and what it implies for phase features
 
 **Construction.** `swap_pedigree.py` shuffles complete families, pairs them, and writes a PED in which family A's parents get family B's offspring and vice versa. `extract_dnm_features.py` extracts FORMAT-level trio features at sites that look de novo *under the swapped pedigree* (child het, surrogate parents hom-ref; an `AC=2` condition appears in the extractor) → `truth=1`; and at putative DNM sites under the *real* pedigree → `truth=0`. `preprocess_features.py` derives `child_AR/min_AR/max_AR` (ref/(alt+1)), min/max over parents of `GQ, DP, PL0–2`, `child_AB`, `indel_flag`, sex-aware `haploid_flag` (PSAM + PAR BED), and samples `--sample_n` rows. `train.py` fits XGBoost (1000 trees, depth 6, lr 0.1, early stopping) on a stratified row-level split; `classify.py` emits `synthdnm_prob`. Published: ~96 % recall of denovo-db SSC DNMs.
