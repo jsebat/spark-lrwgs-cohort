@@ -180,6 +180,18 @@ def cmd_candidates(a: argparse.Namespace) -> int:
                                           min_units=thr.get("candidates", {}).get("tr_min_units", 1),
                                           min_bp=thr.get("candidates", {}).get("tr_min_bp", 1))}[a.variant_class]
     recs = list(gen())
+    if a.max_rows:
+        # positives for M4 are thinned BEFORE the BAM pass (P23): reservoir per variant_class, seeded
+        import random
+        rng = random.Random(a.seed)
+        kept = {}
+        for r in recs:
+            b = kept.setdefault(r.variant_class, [])
+            b.append(r)
+        recs = []
+        for vc, b in sorted(kept.items()):
+            recs += b if len(b) <= a.max_rows else rng.sample(b, a.max_rows)
+        recs.sort(key=lambda r: (r.chrom, r.start))
     lists = []
     for spec in a.list or []:
         name, tier, path = spec.split(":", 2)
@@ -337,6 +349,53 @@ def cmd_concordance(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_swap(a: argparse.Namespace) -> int:
+    """M4: swap-closed family folds + within-fold pedigree swaps for each seed; per-synthetic-trio manifests (P12, P23)."""
+    import csv
+    from .train import folds as FO
+    from .train import swap as SW
+    with open(a.manifest, newline="") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    cols = list(rows[0].keys())
+    by_id = {r["sample_id"]: r for r in rows}
+    sources = {r["family_id"]: "blood" for r in rows if a.blood_family_prefix and r["family_id"].startswith(a.blood_family_prefix)}
+    fams = FO.families_from_manifest(rows, sources)
+    parents = {}
+    for f in fams:
+        c0 = by_id[f.children[0]]
+        parents[f.family_id] = (c0["father_id"], c0["mother_id"])
+    os.makedirs(os.path.join(a.out_dir, "manifests"), exist_ok=True)
+    n_syn = 0
+    for seed in [int(x) for x in a.seeds.split(",")]:
+        assign = FO.outer_folds(fams, n_folds=a.n_folds, seed=seed)
+        table = SW.pairings(fams, assign, parents, seed=seed)
+        SW.check_closed(table, assign)
+        with open(os.path.join(a.out_dir, "folds.seed%d.tsv" % seed), "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=["family_id", "outer_fold", "seed"], delimiter="\t", lineterminator="\n")
+            w.writeheader()
+            for r in FO.fold_table(assign, seed):
+                w.writerow(r)
+        with open(os.path.join(a.out_dir, "synthetic_trios.seed%d.tsv" % seed), "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(table[0].keys()), delimiter="\t", lineterminator="\n")
+            w.writeheader()
+            for r in table:
+                w.writerow(r)
+        for r in table:
+            child = dict(by_id[r["child"]]); child.update(family_id=r["synthetic_id"], father_id=r["surrogate_father"], mother_id=r["surrogate_mother"])
+            fa = dict(by_id[r["surrogate_father"]]); fa.update(family_id=r["synthetic_id"])
+            mo = dict(by_id[r["surrogate_mother"]]); mo.update(family_id=r["synthetic_id"])
+            with open(os.path.join(a.out_dir, "manifests", "%s.manifest.tsv" % r["synthetic_id"]), "w", newline="") as fh:
+                w = csv.DictWriter(fh, fieldnames=cols, delimiter="\t", lineterminator="\n", extrasaction="ignore")
+                w.writeheader()
+                for row in (child, fa, mo):
+                    w.writerow(row)
+            n_syn += 1
+        sizes = [sum(1 for v in assign.values() if v == k) for k in range(a.n_folds)]
+        sys.stderr.write("swap seed %d: %d families in %d folds (sizes %s), %d synthetic trios\n" % (seed, len(fams), a.n_folds, sizes, len(table)))
+    sys.stderr.write("swap: %d synthetic-trio manifests -> %s\n" % (n_syn, os.path.join(a.out_dir, "manifests")))
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
@@ -449,6 +508,8 @@ def build_parser() -> argparse.ArgumentParser:
     cd.add_argument("--vcf", required=True, help="family joint VCF of that class (GLnexus / sawfish / TRGT)")
     cd.add_argument("--list", action="append", help="existing list to cross-reference: NAME:TIER:path.tsv (repeatable)")
     cd.add_argument("--out-dir", required=True), cd.add_argument("--thresholds")
+    cd.add_argument("--max-rows", type=int, help="M4 synthetic trios: keep at most this many rows per variant class (seeded reservoir)")
+    cd.add_argument("--seed", type=int, default=0)
     cd.set_defaults(func=cmd_candidates)
 
     rv = sub.add_parser("review", help="M2: six-haplotype evidence + phase class for every candidate of one child (pysam)")
@@ -507,6 +568,11 @@ def build_parser() -> argparse.ArgumentParser:
     cc.add_argument("--sv-bp-tol", type=int, default=500), cc.add_argument("--sv-recip", type=float, default=0.5)
     cc.add_argument("--drop-neither", action="store_true", help="omit rows that are neither called nor in the baseline from the per-row table")
     cc.set_defaults(func=cmd_concordance)
+    sw = sub.add_parser("swap", help="M4: swap-closed family folds and within-fold pedigree swaps (synthetic trios) per seed")
+    sw.add_argument("--manifest", required=True), sw.add_argument("--out-dir", required=True)
+    sw.add_argument("--n-folds", type=int, default=5), sw.add_argument("--seeds", default="0,1,2,3,4")
+    sw.add_argument("--blood-family-prefix", default="REACH", help="family-id prefix of the blood-derived family (kept with company in fold 0)")
+    sw.set_defaults(func=cmd_swap)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")

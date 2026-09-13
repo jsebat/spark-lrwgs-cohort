@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_syn
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --time=04:00:00
+# M4 / P23: one SYNTHETIC trio (a real child with another family's parents, drawn inside an outer fold by `phase-dnm swap`)
+# through the SAME chain as a real trio: trio extraction from the cohort-wide callsets -> candidates (thinned per class) ->
+# six-haplotype review against the child's and the surrogate parents' reads with NO label tables -> features / rf matrix.
+# Usage: sbatch --array=1-N workflow/m4_synthetic_trio.sb  with TABLE=<synthetic_trios.seedK.tsv> (row = task id + 1)
+#        or: sbatch workflow/m4_synthetic_trio.sb <TABLE> <ROW>
+set -euo pipefail
+TABLE="${1:-${TABLE:-}}"; ROW="${2:-${SLURM_ARRAY_TASK_ID:-}}"
+[ -n "$TABLE" ] && [ -n "$ROW" ] || { echo "usage: TABLE=<synthetic_trios.seedK.tsv> sbatch --array=1-N $0" >&2; exit 2; }
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$HERE/src/phase_dnm" ] || { echo "ERROR: cannot locate the 13_phase_dnm directory; got '$HERE'" >&2; exit 2; }
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}" "${COHORT_BCF:?}" "${COHORT_SV_VCF:?}" "${COHORT_TRGT_VCF:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+BCFTOOLS="${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}"
+THR="$HERE/config/thresholds.yaml"
+TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+MAX_ROWS="${MAX_ROWS:-3000}"
+line=$(sed -n "$((ROW + 1))p" "$TABLE"); [ -n "$line" ] || { echo "no row $ROW in $TABLE" >&2; exit 2; }
+hdr=$(head -1 "$TABLE")
+col() { echo "$hdr" | tr '\t' '\n' | grep -n -x "$1" | cut -d: -f1; }
+SID=$(echo "$line" | cut -f"$(col synthetic_id)"); CHILD=$(echo "$line" | cut -f"$(col child)")
+SF=$(echo "$line" | cut -f"$(col surrogate_father)"); SM=$(echo "$line" | cut -f"$(col surrogate_mother)")
+SEED=$(echo "$line" | cut -f"$(col seed)")
+SMAN="$(dirname "$TABLE")/manifests/$SID.manifest.tsv"; [ -s "$SMAN" ] || { echo "ERROR: synthetic manifest missing for $SID" >&2; exit 3; }
+W="$TRAIN_DIR/seed$SEED/$SID"; mkdir -p "$W/candidates" "$W/evidence" "$W/features"
+fam_of() { awk -F'\t' -v s="$1" 'NR>1 && $1==s {print $2; exit}' "$MANIFEST"; }
+bam_of() { local o="$CALLSET_ROOT/$(fam_of "$1")/out"; ls "$o"/merged_haplotagged_bam/*/"$1".*.haplotagged.bam 2>/dev/null | head -1; }
+bai_of() { local b; b=$(bam_of "$1"); echo "${b/merged_haplotagged_bam\//merged_haplotagged_bam_index/}.bai"; }
+trb_of() { local o="$CALLSET_ROOT/$(fam_of "$1")/out"; ls "$o"/trgt_spanning_reads/*/"$1".*.trgt.spanning.sorted.bam 2>/dev/null | head -1; }
+tri_of() { local b; b=$(trb_of "$1"); echo "${b/trgt_spanning_reads\//trgt_spanning_reads_index/}.bai"; }
+for s in "$CHILD" "$SF" "$SM"; do for f in "$(bam_of "$s")" "$(bai_of "$s")" "$(trb_of "$s")" "$(tri_of "$s")"; do [ -s "$f" ] || { echo "ERROR: BAM/index missing for a member of $SID" >&2; exit 3; }; done; done
+SVJ=$(ls "$CALLSET_ROOT/$(fam_of "$CHILD")/out"/sv_supporting_reads/*.json.gz 2>/dev/null | head -1)   # the CHILD's supporting reads (surrogates' are irrelevant)
+
+# 1. trio extraction from the cohort callsets (child + surrogate parents; sites where any of the three carries an alt)
+t0=$(date +%s)
+if [ ! -s "$W/trio.small.vcf.gz" ]; then
+  "$BCFTOOLS" view -s "$CHILD,$SF,$SM" -c1 -Oz -o "$W/trio.small.vcf.gz.tmp" "$COHORT_BCF" && mv "$W/trio.small.vcf.gz.tmp" "$W/trio.small.vcf.gz"
+fi
+[ -s "$W/trio.sv.vcf.gz" ] || { "$BCFTOOLS" view -s "$CHILD,$SF,$SM" -c1 -Oz -o "$W/trio.sv.vcf.gz.tmp" "$COHORT_SV_VCF" && mv "$W/trio.sv.vcf.gz.tmp" "$W/trio.sv.vcf.gz"; }
+[ -s "$W/trio.trgt.vcf.gz" ] || { "$BCFTOOLS" view -s "$CHILD,$SF,$SM" -Oz -o "$W/trio.trgt.vcf.gz.tmp" "$COHORT_TRGT_VCF" && mv "$W/trio.trgt.vcf.gz.tmp" "$W/trio.trgt.vcf.gz"; }
+echo "extraction done in $(( $(date +%s) - t0 )) s"
+
+# 2-4. candidates (thinned) -> review (no labels) -> features, per class group
+MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --mask $m"; done
+REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "$REF_FA" ] && REFARG="--reference $REF_FA"
+BAMS="--child-bam $(bam_of "$CHILD") --child-bai $(bai_of "$CHILD") --father-bam $(bam_of "$SF") --father-bai $(bai_of "$SF") --mother-bam $(bam_of "$SM") --mother-bai $(bai_of "$SM")"
+TRB="--child-tr-bam $(trb_of "$CHILD") --child-tr-bai $(tri_of "$CHILD") --father-tr-bam $(trb_of "$SF") --father-tr-bai $(tri_of "$SF") --mother-tr-bam $(trb_of "$SM") --mother-tr-bai $(tri_of "$SM")"
+for cls in snv_indel sv tr; do
+  case $cls in snv_indel) V=$W/trio.small.vcf.gz;; sv) V=$W/trio.sv.vcf.gz;; tr) V=$W/trio.trgt.vcf.gz;; esac
+  t0=$(date +%s)
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli candidates --child "$CHILD" --manifest "$SMAN" --class "$cls" --vcf "$V" --out-dir "$W/candidates" \
+      --max-rows "$MAX_ROWS" --seed "$SEED" --thresholds "$THR"
+  CA="$W/candidates/$CHILD.$cls.candidates.tsv"
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CA" --out "$W/evidence/$CHILD.$cls.evidence.tsv" $BAMS $TRB \
+      ${SVJ:+--sv-supporting-reads "$SVJ"} --salt "$SID" --thresholds "$THR"
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$W/evidence/$CHILD.$cls.evidence.tsv" --candidates "$CA" --child "$CHILD" --manifest "$SMAN" \
+      --out "$W/features/$CHILD.$cls.features.tsv" --rf-out "$W/features/$CHILD.$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml"
+  echo "synthetic $cls done in $(( $(date +%s) - t0 )) s"
+done
+rm -f "$W"/trio.*.vcf.gz
+printf 'OK\t%s\t%s\tmax_rows=%s\n' "$(date -Is)" "$SID" "$MAX_ROWS" > "$W/.status.tmp" && mv "$W/.status.tmp" "$W/m4_synthetic.status"
