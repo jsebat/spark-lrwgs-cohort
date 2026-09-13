@@ -13,6 +13,19 @@
   31,757 raw (GQ ≥ 20: 3,008; GQ ≥ 30: 609) → P13 contamination 0.22 % / 2.3 % / 11 %; SV 627 (INS 374, DEL 219, BND 46);
   TR 38,921 at ≥ 1 motif unit (990 at ≥ 3 units). Details in DESIGN §0.2. Next: the six-haplotype extractor
   (`hapmatrix.py`) with the three alt-support adapters, on a read-level minitrio built with the cached WDL images.
+- **M2 core built and smoke-tested on the first quad (2026-09-12; `hapmatrix.py`, `readers.py`, `review.py`,
+  `phase-dnm review`, 38 tests).** Smoke #1 (1,500 per class per child) found: base lookup 0.45 s/candidate
+  (aligned-pairs → CIGAR walk), SV junction test accepting any SA tag (448/627 conflicts → event-matched signature),
+  TRGT `AL` tag misread as a length (it is the allele index; per-read length = `query_length − FL0 − FL1`, verified
+  ±2 bp in 98.4 % of 4,385 reads), single-read "germline" calls (→ `min_alt_reads` 3, all four parental
+  haplotypes observed + alt-free for `germline_DNM_phased`), 35 % unoriented from exact-cover label lookup
+  (→ nearest segment within 30 kb). Smoke #2 after the fixes: **0.06 s per small variant, 0.1 s per SV, 3 ms per
+  TR → ~35 min per child, ~70 min per quad**, 397 MB; ≥ 1 child ALT read in 98 % INDEL / 59 % SNV / 93 % SV / 99 %
+  TR rows; 82 % of INDEL candidates with a resolved transmitted haplotype carry alt reads on it (systematic
+  homopolymer errors, correctly rejected as inherited/conflict); raw SNV candidates sit in low-mappability
+  regions (tagged depth median 7, `hap_obs_k5 = 0` in 42 %). Remaining TR defect — 56 % "alt on both child
+  haplotypes" from a read-length tolerance as wide as the allele separation — fixed by capping the tolerance at
+  half the distance to the nearest competing allele. Cohort review array follows.
 - **Week 1 (2026-09-12): scaffold, VCF-level minitrio, `orient.py` — done, 12 tests passing.** Package `src/phase_dnm`
   (pure-Python trio VCF reader, `phase-dnm orient` CLI), `tests/make_minitrio_vcf.py` (simulated trio with known
   haplotypes, one crossover per parent per chromosome, HiPhase-shaped per-sample phased VCFs, switch errors,

@@ -205,15 +205,23 @@ def support_tr(read, rec: CandidateRecord, tol_bp: int, role: str = "C") -> str:
     pl = rec.class_payload
     idx = pl["outlier_allele_idx"]
     target = pl["child_AL"][idx]
-    if role == "C":
-        if abs(L - target) <= tol_bp:
-            return "ALT"
-        others = [a for i, a in enumerate(pl["child_AL"]) if i != idx]
-        return "REF" if any(abs(L - o) <= tol_bp for o in others) else "AMB"
+    others = [a for i, a in enumerate(pl["child_AL"]) if i != idx]
     own = pl.get("father_AL" if role == "F" else "mother_AL") or []
-    if abs(L - target) <= tol_bp and not any(abs(L - o) <= tol_bp for o in own):
+    # The tolerance can never exceed half the distance to the nearest competing allele, otherwise stutter reads of
+    # the child's OTHER allele count as alt (smoke run #2: 56% of TR rows had 'alt on both child haplotypes' for
+    # the 1-2-unit candidates that dominate the raw set). Competing alleles: the child's other allele(s) for the
+    # child, the parent's own alleles for a parent.
+    compet = others if role == "C" else own
+    if compet:
+        gap = min(abs(target - o) for o in compet)
+        tol_bp = min(tol_bp, max(0, (gap - 1) // 2))
+    near_target = abs(L - target) <= tol_bp
+    near_compet = any(abs(L - o) <= tol_bp for o in compet)
+    if near_target and near_compet:
+        return "AMB"
+    if near_target:
         return "ALT"
-    if any(abs(L - o) <= tol_bp for o in own):
+    if near_compet:
         return "REF"
     return "AMB"
 
