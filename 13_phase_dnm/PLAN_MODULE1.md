@@ -33,8 +33,8 @@
   only truth that reaches inside the lab mask; haplotype-resolved), v4.2.1 mapping-based genotypes for all three
   (trio-level inherited/false-positive labels), GIAB stratifications for reporting. Running the lab WDL on the
   three genomes is a separate, larger job to be shown first.
-- **M2 cohort review (2026-09-12, array 54274166, 32/33 done at 21:07, 22–73 min per family, 508 MB): first
-  six-haplotype evidence for every raw candidate of 34 children.** Per child (median): SNV `germline_DNM_phased` 192,
+- **M2 cohort review (2026-09-12, array 54274166, 33/33 COMPLETED, 22–79 min per family, max MaxRSS 765 MB): first
+  six-haplotype evidence for every raw candidate of all 35 children (numbers below unchanged by the last quad).** Per child (median): SNV `germline_DNM_phased` 192,
   `germline_DNM_unphased` 1,568, `inherited_missed_in_parent` 398, `phase_conflict_artifact` 1,853, `inconclusive`
   8,729; INDEL phased 783, inherited-missed 2,316, conflict 5,706; SV phased 7, conflict 273 of ~627; TR phased 938,
   conflict 17,333 (both-child-haplotype fraction 0.13, was 0.56). **Sanity check (R4 — validates the class, not
