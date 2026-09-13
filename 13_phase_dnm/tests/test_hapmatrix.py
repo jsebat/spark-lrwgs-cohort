@@ -163,3 +163,77 @@ def test_change_point_flags():
     c = H.classify(m, f, t, hp, cp, L, CHROM, POS)
     assert "NEAR_CHANGE_POINT_F" in c["flags"] and "NEAR_CHILD_SWITCH" in c["flags"]
     assert c["phase_class"] == "germline_DNM_phased"     # flags inform, they do not reclassify
+
+
+def reads_amb(role, hp, n_amb, mapq=60):
+    return [H.ReadObs(role, hp, PS, "AMB", mapq=mapq) for _ in range(n_amb)]
+
+
+def test_unreadable_reads_do_not_observe_a_haplotype():
+    # the cohort pattern (2026-09-13): father's transmitted haplotype has 7 reads, 1 ALT + 6 unreadable (deleted at the
+    # site). dp 7 >= k but only ONE readable read: T is unobserved, this cannot be 'germline_DNM_phased'
+    rs = reads("C", 1, 10, 0) + reads("C", 2, 0, 10) + reads("F", 1, 1, 0) + reads_amb("F", 1, 6) + reads("F", 2, 0, 10)
+    rs += reads("M", 1, 0, 10) + reads("M", 2, 0, 10)
+    L = labels(); hp, cp = H.HapParams(), H.ClassParams()
+    m = H.build_matrix(rs, L, CHROM, POS, hp); f = H.features(m, hp); t = H.transmission_features(m, hp)
+    c = H.classify(m, f, t, hp, cp, L, CHROM, POS)
+    assert m.row("F", 1).dp == 7 and m.row("F", 1).n == 1 and abs(m.row("F", 1).amb_frac - 6 / 7) < 1e-6
+    assert f["hap_obs_k5"] == 5 and f["p_n_haps_obs_k5"] == 3 and f["p_amb_frac_max"] == 0.857 and f["c_amb_frac_hapA"] == 0.0
+    assert c["phase_class"] != "germline_DNM_phased"
+    assert "AMBIGUOUS_READS" in c["flags"] and "LOW_HAP_DEPTH" in c["flags"]
+    assert t["t_dp"] == 7 and t["t_alt_reads"] == 1
+    # the same haplotype with 7 readable ref reads and one alt: within the allowance, observed, germline
+    rs2 = reads("C", 1, 10, 0) + reads("C", 2, 0, 10) + reads("F", 1, 1, 7) + reads("F", 2, 0, 10) + reads("M", 1, 0, 10) + reads("M", 2, 0, 10)
+    m2 = H.build_matrix(rs2, L, CHROM, POS, hp); f2 = H.features(m2, hp); t2 = H.transmission_features(m2, hp)
+    c2 = H.classify(m2, f2, t2, hp, cp, L, CHROM, POS)
+    assert c2["phase_class"] == "germline_DNM_phased" and "AMBIGUOUS_READS" not in c2["flags"]
+
+
+def test_error_allowance_is_on_readable_reads():
+    # 20 reads on T of which 18 unreadable: 2 alt of 2 readable is NOT within max(1, 0.05*20) = 1 - it is alt on the
+    # transmitted haplotype with no ref read to contradict it; T is unobserved (n=2 < k) and the class cannot be phased
+    rs = reads("C", 1, 10, 0) + reads("C", 2, 0, 10) + reads("F", 1, 2, 0) + reads_amb("F", 1, 18) + reads("F", 2, 0, 10)
+    rs += reads("M", 1, 0, 10) + reads("M", 2, 0, 10)
+    L = labels(); hp, cp = H.HapParams(), H.ClassParams()
+    m = H.build_matrix(rs, L, CHROM, POS, hp); f = H.features(m, hp); t = H.transmission_features(m, hp)
+    c = H.classify(m, f, t, hp, cp, L, CHROM, POS)
+    assert c["phase_class"] not in ("germline_DNM_phased", "germline_DNM_unphased"), c
+    assert f["p_n_haps_with_alt"] == 1
+
+
+def _review_style_row(m, f, t, c):
+    """Mimic review.py's row construction for the columns reclassify_row reads."""
+    row = {}
+    row.update(c); row.update(t); row.update(f)
+    row.update(child_hap1_is=m.child_hap1_is or ".", F_transmitted_hap=m.transmitted.get("F") or ".",
+               M_transmitted_hap=m.transmitted.get("M") or ".", n_reads_used=m.n_reads)
+    for (role, hp), pre in ((("C", 1), "C1"), (("C", 2), "C2"), (("F", 1), "F1"), (("F", 2), "F2"), (("M", 1), "M1"), (("M", 2), "M2")):
+        s = m.row(role, hp).summary()
+        for fld in ("dp", "alt", "ref", "amb", "mapq_mean"):
+            row["%s_%s" % (pre, fld)] = s.get(fld)
+    for role in ("C", "F", "M"):
+        row["%s_untagged_dp" % role] = m.untagged[role].dp
+        row["%s_untagged_alt" % role] = m.untagged[role].alt
+    return {k: ("" if v is None else str(v)) for k, v in row.items()}
+
+
+def test_reclassify_from_evidence_row_reproduces_the_rule_layer():
+    hp, cp = H.HapParams(), H.ClassParams()
+    cases = [dict(), dict(F1=(6, 4)), dict(F1=(3, 17)), dict(child_A=(10, 10), child_O=(0, 20), F1=(0, 12), F2=(0, 12), M1=(0, 12), M2=(0, 12)),
+             dict(child_A=(6, 4), child_O=(5, 5)), dict(F2=(0, 0)), dict(child_A=(1, 9)), dict(M2=(4, 6)), dict(hap1_is="M", f_trans=2)]
+    for kw in cases:
+        m, f, t, c = scenario(**kw)
+        row = _review_style_row(m, f, t, c)
+        row["flags"] = (row["flags"] + ";NEAR_CHILD_SWITCH").strip(";")     # a positional flag must survive
+        out = H.reclassify_row(row, hp, cp, thresholds_version="test")
+        assert out["phase_class"] == c["phase_class"], (kw, out["phase_class"], c["phase_class"])
+        assert out["rule_score"] == c["rule_score"] and out["parent_of_origin"] == t["parent_of_origin"]
+        assert out["t_alt_reads"] == t["t_alt_reads"] and out["hap_obs_k5"] == f["hap_obs_k5"]
+        assert "NEAR_CHILD_SWITCH" in out["flags"] and out["thresholds_version"] == "test"
+        assert out["c_alt_mapq_mean"] == row["c_alt_mapq_mean"]      # read-quality summary carried over, not recomputed
+    # and a row from a table written before the ambiguity columns existed (no *_amb) still reclassifies
+    m, f, t, c = scenario()
+    row = _review_style_row(m, f, t, c)
+    for k in [k for k in row if k.endswith("_amb")]:
+        del row[k]
+    assert H.reclassify_row(row, hp, cp)["phase_class"] == "germline_DNM_phased"

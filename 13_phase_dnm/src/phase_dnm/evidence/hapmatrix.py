@@ -49,6 +49,7 @@ class HapParams:
     error_reads: int = 1
     error_frac: float = 0.05
     min_mapq: int = 20
+    amb_flag_frac: float = 0.3      # flag AMBIGUOUS_READS when a haplotype row has > this fraction of unreadable reads
 
 
 @dataclass
@@ -177,9 +178,21 @@ class Row:
             self.al.append(r.al)
 
     @property
+    def n(self) -> int:
+        """Readable reads: those that report REF or ALT at the site. A read that is deleted / soft-clipped / carries a
+        third base there (AMB) counts towards depth but does not OBSERVE the allele - observability (k), the error
+        allowance and the mosaic depth floors are all defined on readable reads (P7; cohort finding 2026-09-13:
+        low-GQ SNVs next to indels had parental haplotypes with 6 of 7 reads unreadable, counted as 'observed')."""
+        return self.alt + self.ref
+
+    @property
     def alt_frac(self) -> Optional[float]:
         n = self.alt + self.ref
         return self.alt / n if n else None
+
+    @property
+    def amb_frac(self) -> Optional[float]:
+        return self.amb / self.dp if self.dp else None
 
     def summary(self) -> dict:
         return dict(dp=self.dp, alt=self.alt, ref=self.ref, amb=self.amb,
@@ -217,6 +230,27 @@ class Matrix:
         if t is None:
             return {}
         return {"T": self.row(parent, t), "U": self.row(parent, 3 - t)}
+
+    @classmethod
+    def from_evidence_row(cls, row: Dict[str, object]) -> "Matrix":
+        """Rebuild the count part of the matrix from an evidence-table row (review.py columns), so the rule layer can
+        be re-run without touching the BAMs. Read-quality lists (MAPQ, NM, allele lengths) are not recoverable and
+        stay empty; their summaries are carried over from the original row by the caller."""
+        def i(k):
+            try:
+                return int(float(row.get(k)))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return 0
+        rows = {}
+        for (role, hp), pre in ((("C", 1), "C1"), (("C", 2), "C2"), (("F", 1), "F1"), (("F", 2), "F2"), (("M", 1), "M1"), (("M", 2), "M2")):
+            rows[(role, hp)] = Row(dp=i(pre + "_dp"), alt=i(pre + "_alt"), ref=i(pre + "_ref"), amb=i(pre + "_amb"))
+        untagged = {role: Row(dp=i(role + "_untagged_dp"), alt=i(role + "_untagged_alt")) for role in ROLES}
+        h = row.get("child_hap1_is")
+        tr = {}
+        for par in ("F", "M"):
+            v = str(row.get(par + "_transmitted_hap"))
+            tr[par] = int(v) if v in ("1", "2") else None
+        return cls(rows=rows, untagged=untagged, child_hap1_is=h if h in ("P", "M") else None, transmitted=tr, n_reads=i("n_reads_used"))
 
 
 def build_matrix(reads: Iterable[ReadObs], labels: LabelTables, chrom: str, pos: int, p: HapParams) -> Matrix:
@@ -259,22 +293,26 @@ def features(m: Matrix, p: HapParams) -> Dict[str, object]:
     A, O = (c1, c2) if c1.alt >= c2.alt else (c2, c1)           # alt-carrying child haplotype first, never labelled
     f.update(c_alt_hapA=A.alt, c_alt_hapO=O.alt, c_dp_hapA=A.dp, c_dp_hapO=O.dp,
              c_alt_hap_frac=round(A.alt_frac, 4) if A.alt_frac is not None else None,
-             c_alt_confined=int(O.alt <= _e(O.dp, p)),
+             c_alt_confined=int(O.alt <= _e(O.n, p)),
              c_alt_tagged_frac=round((c1.alt + c2.alt) / (c1.alt + c2.alt + m.untagged["C"].alt), 3)
              if (c1.alt + c2.alt + m.untagged["C"].alt) else None,
              c_untagged_dp=m.untagged["C"].dp, c_untagged_alt=m.untagged["C"].alt)
     for k in p.k:
-        f["c_both_haps_obs_k%d" % k] = int(c1.dp >= k and c2.dp >= k)
+        f["c_both_haps_obs_k%d" % k] = int(c1.n >= k and c2.n >= k)
     prow = [m.row(par, hp) for par in ("F", "M") for hp in (1, 2)]
     f.update(p_min_hap_dp=min(r.dp for r in prow), p_max_alt_any_hap=max(r.alt for r in prow),
              p_sum_alt_all_haps=sum(r.alt for r in prow),
-             p_n_haps_with_alt=sum(1 for r in prow if r.alt > _e(r.dp, p)),
+             p_n_haps_with_alt=sum(1 for r in prow if r.alt > _e(r.n, p)),
              p_max_alt_hap_frac=round(max((r.alt_frac or 0.0) for r in prow), 4),
              p_untagged_dp_max=max(m.untagged["F"].dp, m.untagged["M"].dp),
              p_untagged_alt_max=max(m.untagged["F"].alt, m.untagged["M"].alt))
     for k in p.k:
-        f["p_n_haps_obs_k%d" % k] = sum(1 for r in prow if r.dp >= k)
-        f["hap_obs_k%d" % k] = f["p_n_haps_obs_k%d" % k] + int(c1.dp >= k) + int(c2.dp >= k)
+        f["p_n_haps_obs_k%d" % k] = sum(1 for r in prow if r.n >= k)
+        f["hap_obs_k%d" % k] = f["p_n_haps_obs_k%d" % k] + int(c1.n >= k) + int(c2.n >= k)
+    # unreadable reads (deleted / clipped / third base at the site): an indel-context / artefact signal, and the
+    # reason a haplotype with depth can still be unobserved
+    f.update(c_amb_frac_hapA=round(A.amb_frac, 3) if A.amb_frac is not None else None,
+             p_amb_frac_max=round(max((r.amb_frac or 0.0) for r in prow), 3) if any(r.dp for r in prow) else None)
     # read-quality summaries for the child rows (alt vs ref)
     f.update(c_alt_mapq_mean=A.summary()["mapq_mean"], c_alt_nm_rate=A.summary()["nm_alt_mean"], c_ref_nm_rate=A.summary()["nm_ref_mean"],
              c_alt_clip_frac=A.summary()["clip_alt_frac"])
@@ -297,7 +335,7 @@ def transmission_features(m: Matrix, p: HapParams) -> Dict[str, object]:
     if cp.alt == 0 and cm.alt == 0:
         out["poo_reason"] = "NO_TAGGED_ALT_READS"
         return out
-    if cp.alt > _e(cp.dp, p) and cm.alt > _e(cm.dp, p):
+    if cp.alt > _e(cp.n, p) and cm.alt > _e(cm.n, p):
         out["poo_reason"] = "ALT_ON_BOTH_CHILD_HAPLOTYPES"
         return out
     origin, other = ("F", "M") if cp.alt >= cm.alt else ("M", "F")
@@ -325,10 +363,12 @@ def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParam
     c1, c2 = m.row("C", 1), m.row("C", 2)
     A, O = (c1, c2) if c1.alt >= c2.alt else (c2, c1)
     prow = [m.row(par, hp_) for par in ("F", "M") for hp_ in (1, 2)]
-    e = lambda r: _e(r.dp, hp)
+    e = lambda r: _e(r.n, hp)
     parents_het_gt = False  # caller GT knowledge is applied upstream (candidates are child-only alt by construction)
     if f["hap_obs_k%d" % k] < 6:
         flags.append("LOW_HAP_DEPTH")
+    if any(r.dp >= 3 and (r.amb_frac or 0.0) > hp.amb_flag_frac for r in (c1, c2, *prow)):
+        flags.append("AMBIGUOUS_READS")
     if m.child_hap1_is is None:
         flags.append("CHILD_BLOCK_UNORIENTED")
     if labels is not None and chrom:
@@ -346,11 +386,11 @@ def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParam
     if alt_both_child or (n_par_haps_alt >= 2 and not parents_het_gt):
         cls = "phase_conflict_artifact"
     # 2 inherited-and-missed
-    elif T and T["T"].dp >= k and T["T"].alt >= max(3, cp.inherited_min_frac_on_T * T["T"].dp):
+    elif T and T["T"].n >= k and T["T"].alt >= max(3, cp.inherited_min_frac_on_T * T["T"].n):
         cls = "inherited_missed_in_parent"
     # 3 parental mosaic transmitted
-    elif T and T["T"].alt > e(T["T"]) and T["T"].alt < cp.inherited_min_frac_on_T * T["T"].dp:
-        if T["T"].dp >= cp.mosaic_min_dp and T["T"].alt >= cp.mosaic_min_minority_reads:
+    elif T and T["T"].alt > e(T["T"]) and T["T"].alt < cp.inherited_min_frac_on_T * T["T"].n:
+        if T["T"].n >= cp.mosaic_min_dp and T["T"].alt >= cp.mosaic_min_minority_reads:
             cls = "parental_mosaic_transmitted"
         else:
             cls = "inconclusive"; flags.append("PARENTAL_ALT_LOW_DEPTH")
@@ -360,19 +400,19 @@ def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParam
         cls = "inconclusive"; flags.append("TOO_FEW_ALT_READS")
     # 4 child postzygotic mosaic
     elif (A.alt_frac is not None and A.alt_frac <= cp.mosaic_max_hap_frac and O.alt <= e(O)
-          and all(r.dp >= k and r.alt <= e(r) for r in prow)):
-        if A.dp >= cp.mosaic_min_dp and A.alt >= cp.min_alt_reads and A.ref >= cp.mosaic_min_minority_reads:
+          and all(r.n >= k and r.alt <= e(r) for r in prow)):
+        if A.n >= cp.mosaic_min_dp and A.alt >= cp.min_alt_reads and A.ref >= cp.mosaic_min_minority_reads:
             cls = "child_postzygotic_mosaic"
         else:
             cls = "inconclusive"; flags.append("MOSAIC_UNDERPOWERED")
     # 5 germline phased: alt confined to one child haplotype, all FOUR parental haplotypes observed and alt-free,
     #   both child haplotypes observed, transmitted haplotype known and alt-free
     elif (A.alt >= cp.min_alt_reads and A.alt_frac is not None and A.alt_frac >= cp.germline_min_hap_frac and O.alt <= e(O)
-          and A.dp >= k and O.dp >= k and all(r.dp >= k and r.alt <= e(r) for r in prow)
+          and A.n >= k and O.n >= k and all(r.n >= k and r.alt <= e(r) for r in prow)
           and T and T["T"].alt <= e(T["T"])):
         cls = "germline_DNM_phased"
     # 6 germline unphased: consistent, but some haplotype unobserved or transmission unresolved
-    elif (O.alt <= e(O) and all(r.alt <= e(r) for r in prow if r.dp > 0)
+    elif (O.alt <= e(O) and all(r.alt <= e(r) for r in prow if r.n > 0)
           and (A.alt_frac is None or A.alt_frac >= cp.germline_min_hap_frac or A.alt + O.alt == 0)):
         cls = "germline_DNM_unphased"
     else:
@@ -383,9 +423,35 @@ def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParam
     score = sum([
         A.alt_frac is not None and A.alt_frac >= cp.germline_min_hap_frac,
         O.alt <= e(O),
-        bool(T) and T["T"].dp >= k and T["T"].alt <= e(T["T"]),
-        bool(T) and T["U"].dp >= k,
+        bool(T) and T["T"].n >= k and T["T"].alt <= e(T["T"]),
+        bool(T) and T["U"].n >= k,
         f["hap_obs_k%d" % k] == 6,
         all(r.alt <= e(r) for r in prow),
     ])
     return dict(phase_class=cls, rule_score=int(score), flags=";".join(flags) if flags else "")
+
+
+# ----------------------------------------------------------------------------------------------
+# re-running the rule layer from an evidence row (no BAM access)
+# ----------------------------------------------------------------------------------------------
+READ_QUALITY_KEYS = ("c_alt_mapq_mean", "c_alt_nm_rate", "c_ref_nm_rate", "c_alt_clip_frac",
+                     "c_tr_al_hapA_mean", "c_tr_al_hapA_sd", "c_tr_al_hapO_mean")
+POSITIONAL_FLAGS = ("NEAR_CHANGE_POINT_F", "NEAR_CHANGE_POINT_M", "NEAR_CHILD_SWITCH")
+
+
+def reclassify_row(row: Dict[str, object], hp: HapParams, cp: ClassParams, thresholds_version: Optional[str] = None) -> Dict[str, object]:
+    """Recompute the count-derived features, the transmission block and the P8 class from an evidence row.
+    Read-quality summaries and the M1 positional flags (which need the label tables) are carried over."""
+    m = Matrix.from_evidence_row(row)
+    f = features(m, hp)
+    t = transmission_features(m, hp)
+    c = classify(m, f, t, hp, cp)
+    old_flags = [x for x in str(row.get("flags") or "").split(";") if x in POSITIONAL_FLAGS]
+    c["flags"] = ";".join([x for x in c["flags"].split(";") if x] + old_flags)
+    out = dict(row)
+    out.update({k: v for k, v in f.items() if k not in READ_QUALITY_KEYS})
+    out.update(t)
+    out.update(c)
+    if thresholds_version is not None:
+        out["thresholds_version"] = thresholds_version
+    return out

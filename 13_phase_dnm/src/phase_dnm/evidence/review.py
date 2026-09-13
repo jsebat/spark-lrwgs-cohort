@@ -37,7 +37,7 @@ def evidence_columns(k: Iterable[int]) -> List[str]:
              "c_untagged_dp", "c_untagged_alt", "c_alt_mapq_mean", "c_alt_nm_rate", "c_ref_nm_rate", "c_alt_clip_frac",
              "c_tr_al_hapA_mean", "c_tr_al_hapA_sd", "c_tr_al_hapO_mean",
              "p_min_hap_dp", "p_max_alt_any_hap", "p_sum_alt_all_haps", "p_n_haps_with_alt", "p_max_alt_hap_frac",
-             "p_untagged_dp_max", "p_untagged_alt_max"]
+             "p_untagged_dp_max", "p_untagged_alt_max", "c_amb_frac_hapA", "p_amb_frac_max"]
     for kk in k:
         cols += ["c_both_haps_obs_k%d" % kk, "p_n_haps_obs_k%d" % kk, "hap_obs_k%d" % kk]
     cols += ["class_payload"]
@@ -88,4 +88,25 @@ def review_child(candidates_tsv: str, out_tsv: str, bams: TrioBams, labels: H.La
                                                     nm=o.nm_rate, clip=o.clipped, al=o.al) for o in obs]}, separators=(",", ":")) + "\n")
     if rj is not None:
         rj.close()
+    return dict(counts)
+
+
+def reclassify_table(evidence_in: str, out_tsv: str, hp: H.HapParams, cp: H.ClassParams,
+                     thresholds_version: Optional[str] = None) -> Dict[str, int]:
+    """Re-run features/transmission/classify from the count columns of an existing evidence table (no BAMs).
+    Columns added since the table was written (registry D block) are appended; everything else keeps its place."""
+    counts: Counter = Counter()
+    with open(evidence_in, newline="") as fh, open(out_tsv, "w", newline="") as out:
+        rd = csv.DictReader(fh, delimiter="\t")
+        cols = list(rd.fieldnames or [])
+        for c in evidence_columns(hp.k):
+            if c not in cols:
+                cols.insert(cols.index("class_payload") if "class_payload" in cols else len(cols), c)
+        w = csv.DictWriter(out, fieldnames=cols, delimiter="\t", extrasaction="ignore", lineterminator="\n")
+        w.writeheader()
+        for r in rd:
+            row = H.reclassify_row(r, hp, cp, thresholds_version)
+            w.writerow({k: ("" if row.get(k) is None else row.get(k)) for k in cols})
+            counts[row["phase_class"]] += 1
+            counts["rows"] += 1
     return dict(counts)

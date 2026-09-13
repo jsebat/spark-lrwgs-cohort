@@ -1,6 +1,6 @@
 # Every threshold the module uses, versioned. The version string is written into every output row / summary
 # so a result can always be traced to the rule set that produced it. Rationale for each value: DESIGN.md P#.
-version: "0.1.0"
+version: "0.2.0"          # 0.2.0 (2026-09-13): observability, error allowance and mosaic depth floors on READABLE reads (P7)
 
 orient:                      # P2
   min_sites: 20              # informative sites needed to orient a child block
@@ -34,10 +34,14 @@ candidates:                  # P5 — UNFILTERED ingestion; these are definition
   tr_min_bp: 1
 
 hapmatrix:                   # P7
-  k: [3, 5]                  # per-haplotype depth thresholds for "observed"; k=5 is the working one at ~11x/hap
-  error_reads: 1             # e = max(error_reads, error_frac * dp)
+  k: [3, 5]                  # per-haplotype READABLE-read thresholds for "observed" (reads reporting REF or ALT at the site;
+                             #   a read deleted / clipped / with a third base there counts towards depth, not observability);
+                             #   k=5 is the working one at ~11x/hap
+  error_reads: 1             # e = max(error_reads, error_frac * readable)
   error_frac: 0.05
   min_mapq: 20
+  amb_flag_frac: 0.3         # AMBIGUOUS_READS flag when any of the six rows has > 30 % unreadable reads (dp >= 3); cohort 2026-09-13:
+                             #   rule-only "phased germline" SNVs (paternal fraction 0.50 = noise) had a parental haplotype with 6/7 unreadable
 
 phase_class:                 # P8 / P10
   min_alt_reads: 3           # evidence floor for germline/mosaic classes (first smoke run: single-read "germline" calls)

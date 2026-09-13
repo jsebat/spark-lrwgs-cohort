@@ -26,6 +26,39 @@
   regions (tagged depth median 7, `hap_obs_k5 = 0` in 42 %). Remaining TR defect — 56 % "alt on both child
   haplotypes" from a read-length tolerance as wide as the allele separation — fixed by capping the tolerance at
   half the distance to the nearest competing allele. Cohort review array follows.
+- **Features + likelihood cohort arrays (2026-09-13, arrays 54278875 / 54278919, 33/33 + 33/33 COMPLETED, 1 core,
+  14–30 s per child per class for features, 23–42 s for likelihood; 105 feature tables + 105 `rf_safe` matrices +
+  105 `*.evidence.lik.tsv`).** Feature coverage report per class: SNV/indel 56/87 applicable features produced, SV 39/80,
+  TR 42/78. **Never produced** (extractors do not exist yet; must be written before M4 trains): the read-level quality set
+  (`child_alt_mapq_mean`, `child_alt_mapq0_frac`, `child_alt_rq_mean`, `child_alt_nm_rate`, `child_alt_clip_frac`,
+  `child_alt_readlen_median`, `child_alt_readpos_frac_median`), the block-geometry set (`c_block_len_log10`,
+  `c_dist_block_edge_log10`, `c_n_informative_1kb`, `c_local_rephase_agreement`, `c_hp_rephase_conflict`), SV
+  `bp_precision` / `c_sv_hap_depth_change_*` / `c_sv_junction_hap_concentration`, TR `c_tr_expanded_one_hap_only`, and
+  `child_DP`/`child_GQ` for SV and TR (sawfish/TRGT FORMAT differ from DeepVariant's).
+- **Rules vs likelihood on the phased-germline SNV class (2026-09-13, job 54279056, 35 children, rows with a resolved
+  parent of origin; paternal fraction as the purity read-out, P8):** rule `germline_DNM_phased` n = 6,400, paternal
+  0.571 (GQ ≥ 20: 0.668); `phase_score ≥ 0.9` n = 9,521, 0.556 (0.659); **intersection n = 2,124 (median 59 per
+  child), paternal 0.713 (GQ ≥ 20: 1,692 rows, 0.762)**; rule-only 4,276 at 0.501 and likelihood-only 7,397 at 0.511 —
+  i.e. each layer alone admits a disjoint noise set with no parent-of-origin signal, and the intersection is where the
+  DNMs are (a 0.71 paternal fraction against an expected ~0.8 for true SNV DNMs puts the intersection at roughly 70 %
+  real, ~40 real phased SNV DNMs per child). Likelihood-only rows are mostly rule `germline_DNM_unphased` (7,442) and
+  `inconclusive` (4,918): the posterior is a statement about hypotheses given whatever depth exists and does not
+  encode observability (haplotypes below k reads); the rule layer does (P7/P8). Rule-phased rows have median
+  `phase_score` 0.049; best alternative there is `parental_mosaic` in 65 % and `inherited` in 30 %. Diagnostic of
+  what the likelihood rejects: see the next entry. Consequence for P15: the final call uses **both** layers as
+  designed (rule observability + posterior), and ε/δ are to be re-estimated from cohort hom-ref sites rather than
+  the 0.01/0.03 defaults before the layer is used as a feature.
+- **Why the likelihood rejected the rule's phased-germline calls (2026-09-13, jobs 54279111 / 54279173):** among rule
+  `germline_DNM_phased` SNVs with `phase_score` < 0.5 the winning hypothesis was *inherited* (3,143), and the rejected rows
+  differ from the accepted ones in caller GQ (median 8 vs 41), DP (14 vs 23), alt reads on parental haplotypes (73 % vs
+  17 % have any) and ambiguous reads (`C2_amb` 3 vs 0). Row-level view: the transmitted haplotype had `dp` 7–8 but
+  `alt/ref` = 1/0 — six of seven reads UNREADABLE at the site (deleted / clipped: low-GQ SNVs next to indels). The rule
+  counted depth as observation and one alt read as within the allowance → germline; the likelihood saw 1/1 alt on T →
+  inherited (or, with 0 readable reads, the prior alone → inherited). Column semantics were consistent (`T alt mismatch
+  rule vs lik: 0`). **Fix (thresholds 0.2.0, P7 clarified):** observability, allowance and mosaic floors on READABLE
+  reads (`Row.n`); features `c_amb_frac_hapA`, `p_amb_frac_max`; flag `AMBIGUOUS_READS`; `phase-dnm reclassify` re-runs
+  the rule layer from the evidence columns without BAMs (`*.evidence.review.tsv` immutable, `*.evidence.tsv` working);
+  `workflow/m2_reclassify_family.sb` chains reclassify → likelihood → features. 3 new tests (54 passing).
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

@@ -71,7 +71,7 @@ CLI surface — one command per sub-module. Every command takes `--family --prob
 
 ```
 phase-dnm orient        phase-dnm transmission   phase-dnm haplotag    phase-dnm phase-qc
-phase-dnm candidates    phase-dnm review         phase-dnm features
+phase-dnm candidates    phase-dnm review         phase-dnm reclassify  phase-dnm likelihood   phase-dnm features
 phase-dnm spike         phase-dnm integrate      phase-dnm train       phase-dnm classify
 ```
 
@@ -109,6 +109,8 @@ globs in `config/phase_dnm.env.example`, confirmed on the filer 2026-09-12):
 | `<FAMILY>.phase_qc.json` | JSON | §3.1 |
 
 ### 2.2 Module 2 — six-haplotype review
+
+`review` (the only BAM pass) writes the immutable `<child>.<class>.evidence.review.tsv`; `reclassify` re-runs the rule layer from its count columns under the current `thresholds.yaml` version and writes the working `<child>.<class>.evidence.tsv` that `likelihood` (adds `lik_post_*`, `phase_score`) and `features` consume (`workflow/m2_reclassify_family.sb` chains the three). Rule changes therefore never re-touch the BAMs.
 
 **Input: `candidates.tsv`** — the shared candidate record. Produced by
 `phase-dnm candidates --class {snv_indel,sv,tr}` from the joint callsets (GLnexus BCF, sawfish

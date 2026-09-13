@@ -128,6 +128,7 @@ D_phase_child:   # rf_safe: the child is a real sample in both positives and neg
   - {name: c_alt_tagged_frac,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "fraction of alt reads that carry an HP tag"}
   - {name: c_both_haps_obs_k3,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
   - {name: c_both_haps_obs_k5,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_amb_frac_hapA,       classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "fraction of reads on A that are unreadable at the site (deleted / clipped / third base) - indel-context signal"}
   - {name: c_block_len_log10,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
   - {name: c_dist_block_edge_log10, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
   - {name: c_n_informative_1kb,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "informative het sites within one read length; 0 = no local phase possible"}
@@ -149,6 +150,7 @@ D_phase_parents_symmetric:   # rf_safe: functions of a parent's two haplotypes, 
   - {name: p_sum_alt_all_haps,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: sum over 4, status: add}
   - {name: p_n_haps_with_alt,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: count over 4 with alt > e, status: add, why: ">= 2 haplotypes with alt = artefact pattern"}
   - {name: p_max_alt_hap_frac,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over 4, status: add}
+  - {name: p_amb_frac_max,        classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over 4, status: add, why: "a parental haplotype with depth but few readable reads is UNOBSERVED, not clean (P7, 2026-09-13)"}
   - {name: p_untagged_frac_max,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over parents, status: add}
   - {name: p_tr_n_haps_overlapping_child_expanded, classes: [TR], source: hapmatrix, rf_safe: true, symmetric: count over 4, status: add, why: "parental haplotypes whose length distribution overlaps the child's expanded allele; expect 0"}
   # RULE (JS, 2026-09-12): the classifier never sees parent of origin or transmission, not even as a selector.

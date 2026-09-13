@@ -197,15 +197,35 @@ def cmd_candidates(a: argparse.Namespace) -> int:
     return 0
 
 
+def _m2_params(thr: dict):
+    """HapParams / ClassParams from thresholds.yaml (shared by review and reclassify so both layers agree)."""
+    from .evidence import hapmatrix as H
+    hm, pc = thr.get("hapmatrix", {}), thr.get("phase_class", {})
+    hp = H.HapParams(k=tuple(hm.get("k", [3, 5])), error_reads=hm.get("error_reads", 1), error_frac=hm.get("error_frac", 0.05),
+                     min_mapq=hm.get("min_mapq", 20), amb_flag_frac=hm.get("amb_flag_frac", 0.3))
+    cp = H.ClassParams(**{k: v for k, v in pc.items() if k in H.ClassParams.__dataclass_fields__}, working_k=max(hp.k))
+    return hp, cp
+
+
+def cmd_reclassify(a: argparse.Namespace) -> int:
+    """Re-run the rule layer (features + transmission + P8 class) from an existing evidence table, no BAM access.
+    Input is the immutable review output; the output replaces the working evidence table downstream."""
+    from .evidence.review import reclassify_table
+    thr = load_thresholds(a.thresholds)
+    hp, cp = _m2_params(thr)
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    counts = reclassify_table(a.evidence, a.out, hp, cp, thresholds_version=thr.get("version"))
+    sys.stderr.write("reclassify %s -> %s: %s\n" % (os.path.basename(a.evidence), a.out,
+                     " ".join("%s=%d" % kv for kv in sorted(counts.items()))))
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
     from .evidence.review import review_child
     thr = load_thresholds(a.thresholds)
-    hm, pc = thr.get("hapmatrix", {}), thr.get("phase_class", {})
-    hp = H.HapParams(k=tuple(hm.get("k", [3, 5])), error_reads=hm.get("error_reads", 1), error_frac=hm.get("error_frac", 0.05),
-                     min_mapq=hm.get("min_mapq", 20))
-    cp = H.ClassParams(**{k: v for k, v in pc.items() if k in H.ClassParams.__dataclass_fields__}, working_k=max(hp.k))
+    hp, cp = _m2_params(thr)
     labels = H.LabelTables.load(a.orientation, a.transmission, a.changepoints)
     bams = TrioBams({"C": (a.child_bam, a.child_bai), "F": (a.father_bam, a.father_bai), "M": (a.mother_bam, a.mother_bai)},
                     {"C": (a.child_tr_bam, a.child_tr_bai), "F": (a.father_tr_bam, a.father_tr_bai), "M": (a.mother_tr_bam, a.mother_tr_bai)}
@@ -339,6 +359,10 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--registry", help="config/features.yaml (default: the module's)")
     fe.set_defaults(func=cmd_features)
 
+    rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
+    rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
+    rc.add_argument("--thresholds")
+    rc.set_defaults(func=cmd_reclassify)
     lk = sub.add_parser("likelihood", help="P9: posterior over germline/inherited/mosaic/artefact from an evidence table")
     lk.add_argument("--evidence", required=True), lk.add_argument("--out", required=True)
     lk.add_argument("--eps", type=float, help="override the per-read false-alt rate")
