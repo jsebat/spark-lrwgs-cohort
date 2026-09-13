@@ -256,6 +256,12 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   requires a germline-consistent review class (`RF_UNSUPPORTED:<class>` otherwise); TR rescue requires ≥ 3 motif units
   (`RESCUE_TR_SIZE`). The high-YES children (353, 264, …) were exactly the rf-branch `inconclusive`/unobserved rows.
   Integration + concordance rerun as v3.
+- **P18 rf+phase v3 (2026-09-13, integrate 54286630, concordance 54286631; rf branch gated on review class, TR rescue >= 3
+  units):** SNV/indel concordant 748 (v2 749), original-only 587, module-only **2,027** (v2 2,658); per proband 38 → **74**
+  (v2 81); paternal fraction of module YES **0.738** (v2 0.697); rf-branch purity 0.731 (v2 0.676), per-child max 201 (v2 353);
+  632 rows now `RF_UNSUPPORTED:inconclusive`. TR: per proband 6 → 27 (v2 58), paternal 0.69 (v2 0.62), rescue 0.75 (n = 20),
+  962 rows `RESCUE_TR_SIZE`. SV: 4 / 8,125 / 9, unchanged. The gate removed noise without touching agreement with the original
+  set. Remaining impurity: rf-branch calls with ≤ 4 observed haplotypes (0.64) and indels (0.64 vs SNV 0.79) — recorded, not acted on.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
