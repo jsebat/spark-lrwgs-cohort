@@ -87,6 +87,15 @@
   flagged, never YES), `io/vcfinfo.py` (PDNM_* INFO block + sites VCF), `concordance.py` (P18 against the baselines copied
   from Lustre the same morning), CLI `integrate` / `concordance`, `workflow/m3_integrate_family.sb` + `m3_concordance.sb`;
   5 new tests (71 passing).** Cohort run next: integrate array over the 33 families, then the concordance job.
+- **M3 cohort run (2026-09-13, smoke 54280056 + array 54280057, 33/33, ~30 s per family; concordance 54280058):** 105 final
+  tables + sites VCFs in `$LRC/phase_dnm/final/`, provisional phase-only mode. Per child YES: SNV/indel median 65 (16–131),
+  SV 3 (0–8), TR 88 (15–158; stutter-dominated raw set — the TR YES set is not a DNM count until M4/P8 class thresholds).
+  **P18 first read-out, SNV/indel (35 probands):** concordant YES 666; original-only 546 — `germline_DNM_unphased` 484,
+  `inconclusive` 35, demoted 13 (12 phase-conflict, 1 inherited), mosaic 4, low posterior 10; module-only 1,631 (all
+  UNFILTERED tier, 0 in the mask); per-proband median 38 → 65; paternal fraction of module YES 0.72; **120 original calls
+  never entered the unfiltered candidate set** (investigated below). SV against the pipeline's unfiltered 7,736-row list:
+  concordant 46, original-only 8,083 (phase-conflict 3,782, inconclusive 3,119, unphased 719, inherited 205, mosaic 239),
+  module-only 69, per-proband 247 → 3, paternal fraction 0.643. TR concordance OOM at 8 GB → rerun at 32 GB.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
