@@ -281,6 +281,14 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   cannot be both strict and sensitive at this revision. Levers, in order: the cohort re-review that fills the four read-quality
   features (submitted), the five-seed models, hard-negative attention in training, and possibly a two-tier call. **The
   operating point is recorded as the paper's open decision (recall vs purity), not settled here.**
+- **Long insertions in the original de novo set, examined (2026-09-13, plan step 3):** 118 of the 1,332 original SNV/indel de novo
+  calls are insertions of ≥ 25 bp (ALT truncated at 30 characters in the tiered table; Alu-like sequence), in 33 probands. In
+  the module's evidence (122 matched rows): **117 (96 %) have alt-supporting reads in a parent, 109 with ≥ 3**; 74 of 106
+  positions recur as candidates in ≥ 2 children (40 in ≥ 3); review classes phase-conflict 42 / inherited-missed 40 /
+  inconclusive 29 / unphased 11; the module calls 1; none is WES-evaluable (all outside the exome). Reading: inherited
+  polymorphic insertions whose parental genotypes the joint caller missed, removed by the read-level review — ~9 % of the
+  original small-variant de novo set. Caveat: parental support is the review's insertion-signature hook (an insertion of the
+  right length within tolerance at the site), not a genotyper call; the cohort recurrence is independent corroboration.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

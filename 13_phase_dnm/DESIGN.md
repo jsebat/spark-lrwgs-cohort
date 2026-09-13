@@ -332,7 +332,7 @@ a method paper. What that fixes:
 - **Flagged observation, not a claim**: ~117 of the original 1,332 de novo SNV/indel calls are ≥ 30 bp Alu-like insertions
   that the read-level review does not support as clean heterozygous events (mostly phase-conflict / inconclusive). Whether
   they are polymorphic mobile-element insertions missed in the parents or true de novo insertions in hard sequence is to be
-  examined against the parental read evidence before any sentence about them is written.
+  examined against the parental read evidence before any sentence about them is written. *Examined 2026-09-13:* 118 such insertions in 33 probands; 96 % have parental alt-supporting reads (89 % with ≥ 3), 70 % of positions recur in other children's candidates, none is WES-evaluable; the review classes them inherited-missed / phase-conflict and the module calls one. The sentence the paper can carry: about 9 % of the original small-variant de novo set are inherited long insertions with parental read support that the joint genotyper missed, and the phase-aware review removes them.
 - **The headline (P22) is the harness table**: per class, ROC/PR-AUC of the phase-aware classifier vs. the pipeline's
   heuristic sweeps on identical swap-closed family folds, with the operating point of each heuristic marked on its curve;
   ablations (no-phase / phase-only) and the grouped attribution answer JS's "how much weight does phase get". Caveat
