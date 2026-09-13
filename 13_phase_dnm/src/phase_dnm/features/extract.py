@@ -90,6 +90,58 @@ def _mm(vals):
     return (min(v), max(v)) if v else (None, None)
 
 
+class Geometry:
+    """Child phase-segment geometry (orientation.tsv: chrom start end per segment; segments of one child do not overlap)
+    and resolved crossover positions (changepoints.resolved.tsv, class CROSSOVER). Child-only quantities: the segment
+    length and the distance to its edge are rf_safe; the crossover distances are transmission-derived and rf_safe: false
+    (registry) - computed here for the rule/likelihood layer and the final table, never for the classifier matrix."""
+
+    def __init__(self, orientation_tsv: Optional[str] = None, changepoints_tsv: Optional[str] = None):
+        import bisect as _b
+        self._b = _b
+        self.seg: Dict[str, List[Tuple[int, int]]] = {}
+        self.xo: Dict[str, List[int]] = {}
+        if orientation_tsv and os.path.exists(orientation_tsv):
+            with open(orientation_tsv, newline="") as fh:
+                for r in csv.DictReader(fh, delimiter="\t"):
+                    try:
+                        self.seg.setdefault(r["chrom"], []).append((int(r["start"]), int(r["end"])))
+                    except (KeyError, ValueError):
+                        continue
+            for c in self.seg:
+                self.seg[c].sort()
+        if changepoints_tsv and os.path.exists(changepoints_tsv):
+            with open(changepoints_tsv, newline="") as fh:
+                for r in csv.DictReader(fh, delimiter="\t"):
+                    if str(r.get("read_class", r.get("class", ""))).upper().startswith("CROSSOVER"):
+                        try:
+                            self.xo.setdefault(r["chrom"], []).append((int(r["left_pos"]) + int(r["right_pos"])) // 2)
+                        except (KeyError, ValueError):
+                            continue
+            for c in self.xo:
+                self.xo[c].sort()
+
+    def at(self, chrom: str, pos1: int) -> Dict[str, object]:
+        out: Dict[str, object] = {}
+        segs = self.seg.get(chrom)
+        if segs is not None:
+            i = self._b.bisect_right([s for s, _ in segs], pos1) - 1
+            if 0 <= i < len(segs) and segs[i][0] <= pos1 <= segs[i][1]:
+                s, e = segs[i]
+                out["c_block_len_log10"] = round(math.log10(max(1, e - s + 1)), 3)
+                out["c_dist_block_edge_log10"] = round(math.log10(max(1, min(pos1 - s, e - pos1) + 1)), 3)
+            else:
+                out["c_block_len_log10"] = None
+                out["c_dist_block_edge_log10"] = -1.0
+        xs = self.xo.get(chrom)
+        if xs:
+            i = self._b.bisect_left(xs, pos1)
+            d = min(abs(xs[j] - pos1) for j in (i - 1, i) if 0 <= j < len(xs))
+            out["dist_crossover_log10"] = round(math.log10(d + 1), 3)
+            out["near_crossover_flag"] = int(d <= 50000)
+        return out
+
+
 class BedMask:
     """Interval lookup over one or more BED files (0-based half-open) -> overlap flag / fraction."""
 
@@ -215,7 +267,7 @@ def caller_features(rec: CandidateRecord, sex: str) -> Dict[str, object]:
 
 def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, sex: str, out_tsv: str,
                   rf_out_tsv: Optional[str] = None, mask: Optional[BedMask] = None, seqctx: Optional[SeqContext] = None,
-                  annot: Optional[Dict[str, dict]] = None) -> Dict[str, object]:
+                  annot: Optional[Dict[str, dict]] = None, geom: Optional["Geometry"] = None) -> Dict[str, object]:
     cands: Dict[str, CandidateRecord] = {}
     for r in read_candidates(candidates_tsv):
         cands[r.variant_id] = r
@@ -245,6 +297,10 @@ def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, se
             for k in feats:
                 if k in r and r[k] not in (None, ""):
                     row[k] = r[k]
+            if geom is not None:
+                for k, v in geom.at(r["chrom"], int(float(r["start"]))).items():
+                    if k in registry.features and v is not None:
+                        row[k] = v
             if annot is not None and r["variant_id"] in annot:
                 for k, v in annot[r["variant_id"]].items():
                     if k in registry.features and v not in (None, ""):

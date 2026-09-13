@@ -513,7 +513,8 @@ def cmd_features(a: argparse.Namespace) -> int:
         import csv
         with open(a.annot, newline="") as fh:
             annot = {r["variant_id"]: r for r in csv.DictReader(fh, delimiter="\t")}
-    summ = X.extract_child(a.evidence, a.candidates, reg, sex, a.out, a.rf_out, mask=mask, seqctx=seqctx, annot=annot)
+    geom = X.Geometry(a.orientation, a.changepoints) if (a.orientation or a.changepoints) else None
+    summ = X.extract_child(a.evidence, a.candidates, reg, sex, a.out, a.rf_out, mask=mask, seqctx=seqctx, annot=annot, geom=geom)
     summ["registry"] = reg.manifest()
     with open(a.out.replace(".tsv", ".summary.json"), "w") as fh:
         json.dump(summ, fh, indent=1, sort_keys=True)
@@ -620,6 +621,8 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--child", required=True), fe.add_argument("--manifest", required=True)
     fe.add_argument("--out", required=True, help="<child>.<class>.features.tsv")
     fe.add_argument("--annot", help="annot/<child>.<class>.annot.tsv from `annotate` (gnomad_af, cohort_AC_loo, pon_founder_recurrence_loo, sib_shared)")
+    fe.add_argument("--orientation", help="M1 <child>.orientation.tsv: segment geometry features (child-only, rf_safe)")
+    fe.add_argument("--changepoints", help="M1 <child>.changepoints.resolved.tsv: crossover distance (rf_safe: false)")
     fe.add_argument("--rf-out", help="<child>.<class>.features.rf.tsv (rf_safe columns only; refused if unsafe)")
     fe.add_argument("--mask", action="append", help="BED file(s) of the lab region mask (flag, never a filter)")
     fe.add_argument("--reference", help="reference FASTA for sequence-context features (pysam)")

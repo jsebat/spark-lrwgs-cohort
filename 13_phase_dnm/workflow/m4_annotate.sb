@@ -37,7 +37,8 @@ n=0
 while IFS=$'\t' read -r child fam; do
   EV="$EVIDENCE_DIR/$fam/evidence/$child.$CLS.evidence.tsv"; CA="$EVIDENCE_DIR/$fam/candidates/$child.$CLS.candidates.tsv"; AN="$ANNOT_DIR/real/$child.$CLS.annot.tsv"
   [ -s "$EV" ] && [ -s "$CA" ] && [ -s "$AN" ] || continue
-  "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$child" --manifest "$MANIFEST" --annot "$AN" \
+  GEO=""; PD="${PHASE_DIR:-}/$fam"; [ -s "$PD/$child.orientation.tsv" ] && GEO="--orientation $PD/$child.orientation.tsv"; [ -s "$PD/$child.changepoints.resolved.tsv" ] && GEO="$GEO --changepoints $PD/$child.changepoints.resolved.tsv"
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$child" --manifest "$MANIFEST" --annot "$AN" $GEO \
       --out "$EVIDENCE_DIR/$fam/features/$child.$CLS.features.tsv" --rf-out "$EVIDENCE_DIR/$fam/features/$child.$CLS.features.rf.tsv" $MASKARGS $REFARG \
       --registry "$HERE/config/features.yaml" 2>&1 | tail -1 | cut -c1-160
   n=$((n+1))

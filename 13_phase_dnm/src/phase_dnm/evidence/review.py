@@ -35,6 +35,7 @@ def evidence_columns(k: Iterable[int]) -> List[str]:
     # D-block features in a fixed order (registry names)
     cols += ["c_alt_hapA", "c_alt_hapO", "c_dp_hapA", "c_dp_hapO", "c_alt_hap_frac", "c_alt_confined", "c_alt_tagged_frac",
              "c_untagged_dp", "c_untagged_alt", "c_alt_mapq_mean", "c_alt_nm_rate", "c_ref_nm_rate", "c_alt_clip_frac",
+             "c_alt_mapq0_frac", "c_alt_supp_frac", "c_alt_readlen_median", "c_alt_rq_mean",
              "c_tr_al_hapA_mean", "c_tr_al_hapA_sd", "c_tr_al_hapO_mean",
              "p_min_hap_dp", "p_max_alt_any_hap", "p_sum_alt_all_haps", "p_n_haps_with_alt", "p_max_alt_hap_frac",
              "p_untagged_dp_max", "p_untagged_alt_max", "c_amb_frac_hapA", "p_amb_frac_max"]

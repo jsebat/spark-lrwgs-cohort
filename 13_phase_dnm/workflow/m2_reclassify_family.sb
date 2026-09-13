@@ -41,7 +41,8 @@ while IFS=$'\t' read -r child father mother; do
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli reclassify --evidence "$RV" --out "$EV.tmp" --thresholds "$THR" && mv "$EV.tmp" "$EV"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli likelihood --evidence "$EV" --out "$ED/evidence/$child.$cls.evidence.lik.tsv" --thresholds "$THR"
     ANN=""; AD="${ANNOT_DIR:-$EVIDENCE_DIR/../annot}"; [ -s "$AD/real/$child.$cls.annot.tsv" ] && ANN="--annot $AD/real/$child.$cls.annot.tsv"
-    "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$child" --manifest "$MANIFEST" $ANN \
+    GEO=""; PD="${PHASE_DIR:-}/$FAMILY"; [ -s "$PD/$child.orientation.tsv" ] && GEO="--orientation $PD/$child.orientation.tsv"; [ -s "$PD/$child.changepoints.resolved.tsv" ] && GEO="$GEO --changepoints $PD/$child.changepoints.resolved.tsv"
+    "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$child" --manifest "$MANIFEST" $ANN $GEO \
         --out "$ED/features/$child.$cls.features.tsv" --rf-out "$ED/features/$child.$cls.features.rf.tsv" $MASKARGS $REFARG \
         --registry "$HERE/config/features.yaml"
     echo "reclassify+likelihood+features $cls done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"

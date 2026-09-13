@@ -36,7 +36,8 @@ for CLS in snv_indel sv tr; do
   case $CLS in snv_indel) CV="$COHORT_BCF";; sv) CV="$COHORT_SV_VCF";; *) CV="";; esac
   "$PHASE_DNM_PYTHON" -m phase_dnm.cli annotate --class-group "$CLS" --manifest "$MANIFEST" --candidates "$CA" --exclude-families "$CF,$PF" \
       --out-dir "$W/annot" --work "$W/annot/work" ${CV:+--cohort-vcf "$CV"} --bcftools "$BCFTOOLS" ${SLIVAR:+--slivar-cmd "$SLIVAR"} ${GNOMAD_ZIP:+--gnomad-zip "$GNOMAD_ZIP"}
-  "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$CHILD" --manifest "$SMAN" --annot "$W/annot/$CHILD.$CLS.annot.tsv" \
+  GEO=""; PD="${PHASE_DIR:-}/$CF"; [ -s "$PD/$CHILD.orientation.tsv" ] && GEO="--orientation $PD/$CHILD.orientation.tsv"   # child-only geometry; no crossovers for a synthetic trio
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$CHILD" --manifest "$SMAN" --annot "$W/annot/$CHILD.$CLS.annot.tsv" $GEO \
       --out "$W/features/$CHILD.$CLS.features.tsv" --rf-out "$W/features/$CHILD.$CLS.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml"
 done
 rm -rf "$W/annot/work"

@@ -303,6 +303,7 @@ def _obs(read, role: str, support: str, salt: str, al: Optional[int] = None) -> 
     hp = read.get_tag("HP") if read.has_tag("HP") else None
     ps = read.get_tag("PS") if read.has_tag("PS") else None
     clipped = bool(read.cigartuples) and (read.cigartuples[0][0] in (4, 5) or read.cigartuples[-1][0] in (4, 5))
+    rq = read.get_tag("rq") if read.has_tag("rq") else None
     return ReadObs(role=role, hp=hp if hp in (1, 2) else None, ps=ps, support=support, mapq=read.mapping_quality,
                    nm_rate=_nm_rate(read), clipped=clipped, supplementary=read.is_supplementary,
-                   read_len=read.query_length or 0, al=al, rid=rid_hash(read.query_name, salt))
+                   read_len=read.query_length or 0, al=al, rid=rid_hash(read.query_name, salt), rq=float(rq) if rq is not None else None)

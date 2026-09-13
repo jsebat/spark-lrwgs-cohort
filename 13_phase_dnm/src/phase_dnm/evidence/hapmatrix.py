@@ -41,6 +41,7 @@ class ReadObs:
     read_len: int = 0
     al: Optional[int] = None     # TR: per-read allele length
     rid: str = ""
+    rq: Optional[float] = None   # HiFi read quality tag
 
 
 @dataclass
@@ -160,6 +161,8 @@ class Row:
     clip_alt: int = 0
     supp_alt: int = 0
     al: List[int] = field(default_factory=list)
+    len_alt: List[int] = field(default_factory=list)
+    rq_alt: List[float] = field(default_factory=list)
 
     def add(self, r: ReadObs):
         self.dp += 1
@@ -169,6 +172,8 @@ class Row:
             if r.nm_rate is not None: self.nm_alt.append(r.nm_rate)
             self.clip_alt += r.clipped
             self.supp_alt += r.supplementary
+            if r.read_len: self.len_alt.append(r.read_len)
+            if r.rq is not None: self.rq_alt.append(r.rq)
         elif r.support == "REF":
             self.ref += 1
             if r.nm_rate is not None: self.nm_ref.append(r.nm_rate)
@@ -314,8 +319,11 @@ def features(m: Matrix, p: HapParams) -> Dict[str, object]:
     f.update(c_amb_frac_hapA=round(A.amb_frac, 3) if A.amb_frac is not None else None,
              p_amb_frac_max=round(max((r.amb_frac or 0.0) for r in prow), 3) if any(r.dp for r in prow) else None)
     # read-quality summaries for the child rows (alt vs ref)
-    f.update(c_alt_mapq_mean=A.summary()["mapq_mean"], c_alt_nm_rate=A.summary()["nm_alt_mean"], c_ref_nm_rate=A.summary()["nm_ref_mean"],
-             c_alt_clip_frac=A.summary()["clip_alt_frac"])
+    sA = A.summary()
+    f.update(c_alt_mapq_mean=sA["mapq_mean"], c_alt_nm_rate=sA["nm_alt_mean"], c_ref_nm_rate=sA["nm_ref_mean"], c_alt_clip_frac=sA["clip_alt_frac"],
+             c_alt_mapq0_frac=sA["mapq0_frac"], c_alt_supp_frac=round(A.supp_alt / A.alt, 3) if A.alt else None,
+             c_alt_readlen_median=int(st.median(A.len_alt)) if A.len_alt else None,
+             c_alt_rq_mean=round(st.mean(A.rq_alt), 4) if A.rq_alt else None)
     # TR: per-haplotype allele lengths
     if A.al or O.al:
         f.update(c_tr_al_hapA_mean=A.summary()["al_mean"], c_tr_al_hapA_sd=A.summary()["al_sd"], c_tr_al_hapO_mean=O.summary()["al_mean"])
@@ -434,8 +442,8 @@ def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParam
 # ----------------------------------------------------------------------------------------------
 # re-running the rule layer from an evidence row (no BAM access)
 # ----------------------------------------------------------------------------------------------
-READ_QUALITY_KEYS = ("c_alt_mapq_mean", "c_alt_nm_rate", "c_ref_nm_rate", "c_alt_clip_frac",
-                     "c_tr_al_hapA_mean", "c_tr_al_hapA_sd", "c_tr_al_hapO_mean")
+READ_QUALITY_KEYS = ("c_alt_mapq_mean", "c_alt_nm_rate", "c_ref_nm_rate", "c_alt_clip_frac", "c_alt_mapq0_frac", "c_alt_supp_frac",
+                     "c_alt_readlen_median", "c_alt_rq_mean", "c_tr_al_hapA_mean", "c_tr_al_hapA_sd", "c_tr_al_hapO_mean")
 POSITIONAL_FLAGS = ("NEAR_CHANGE_POINT_F", "NEAR_CHANGE_POINT_M", "NEAR_CHILD_SWITCH")
 
 

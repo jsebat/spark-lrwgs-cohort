@@ -102,16 +102,16 @@ B_context:
 # C. Read-level long-read features (child; parents symmetric)
 # ---------------------------------------------------------------------------------------------
 C_reads:
-  - {name: child_alt_mapq_mean,    classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
-  - {name: child_ref_mapq_mean,    classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
-  - {name: child_alt_mapq0_frac,   classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
-  - {name: child_alt_nm_rate,      classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add, why: "mismatch+indel density in alt reads (misalignment)"}
-  - {name: child_ref_nm_rate,      classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add}
-  - {name: child_alt_clip_frac,    classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add}
-  - {name: child_alt_supp_frac,    classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: add, why: "fraction of alt reads with supplementary alignments"}
-  - {name: child_alt_readlen_median, classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: add}
-  - {name: child_alt_readpos_frac_median, classes: [SNV, INDEL], source: bam, rf_safe: true, status: add, why: "position of the variant along the read; end-biased = artefact"}
-  - {name: child_alt_rq_mean,      classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: verify, why: "HiFi rq tag present in pbmm2 BAMs?" }
+  - {name: child_alt_mapq_mean,    classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_mapq_mean (D block, per haplotype row)"}
+  - {name: child_ref_mapq_mean,    classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: drop, why: "superseded by the D block row summaries"}
+  - {name: child_alt_mapq0_frac,   classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_mapq0_frac"}
+  - {name: child_alt_nm_rate,      classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_nm_rate"}
+  - {name: child_ref_nm_rate,      classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: drop, why: "superseded by c_ref_nm_rate"}
+  - {name: child_alt_clip_frac,    classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_clip_frac"}
+  - {name: child_alt_supp_frac,    classes: [SNV, INDEL, SV],     source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_supp_frac"}
+  - {name: child_alt_readlen_median, classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_readlen_median"}
+  - {name: child_alt_readpos_frac_median, classes: [SNV, INDEL], source: bam, rf_safe: true, status: drop, why: "not computed (would need the query offset per read); dropped 2026-09-13"}
+  - {name: child_alt_rq_mean,      classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_rq_mean"}
   - {name: parent_max_alt_reads_any, classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, symmetric: max over parents, status: add, why: "pooled (untagged) alt reads in a parent; the classic 'parent has 1-2 alt reads' DNM filter"}
   - {name: parent_min_dp,          classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, symmetric: min over parents, status: add}
 
@@ -126,11 +126,15 @@ D_phase_child:   # rf_safe: the child is a real sample in both positives and neg
   - {name: c_alt_hap_frac,        classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "alt/(alt+ref) on A; 1.0 clonal germline, < 0.8 mosaic candidate (P8/P10)"}
   - {name: c_alt_confined,        classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "c_alt_hapO <= e"}
   - {name: c_alt_tagged_frac,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "fraction of alt reads that carry an HP tag"}
+  - {name: c_alt_mapq0_frac,      classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "MAPQ 0 fraction among reads on A (was child_alt_mapq0_frac)"}
+  - {name: c_alt_supp_frac,       classes: [SNV, INDEL, SV],     source: hapmatrix, rf_safe: true, status: add, why: "fraction of alt reads on A with supplementary alignments (was child_alt_supp_frac)"}
+  - {name: c_alt_readlen_median,  classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "median read length of alt reads on A (was child_alt_readlen_median)"}
+  - {name: c_alt_rq_mean,         classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "mean HiFi rq of alt reads on A (was child_alt_rq_mean; rq verified present)"}
   - {name: c_both_haps_obs_k3,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
   - {name: c_both_haps_obs_k5,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
   - {name: c_amb_frac_hapA,       classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "fraction of reads on A that are unreadable at the site (deleted / clipped / third base) - indel-context signal"}
-  - {name: c_block_len_log10,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
-  - {name: c_dist_block_edge_log10, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add}
+  - {name: c_block_len_log10,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "log10 bp of the child's phase segment containing the site (orientation.tsv; child-only geometry)"}
+  - {name: c_dist_block_edge_log10, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "log10 bp to the nearest segment edge; -1 outside any segment"}
   - {name: c_n_informative_1kb,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "informative het sites within one read length; 0 = no local phase possible"}
   - {name: c_local_rephase_agreement, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "pofo_local.py logic - do alt reads agree with each other on flanking hets, independent of HP tags"}
   - {name: c_hp_rephase_conflict, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "HP tag vs local rephasing disagreement count"}
