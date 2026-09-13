@@ -131,13 +131,16 @@ def final_columns(vclass_group: str, feature_names: List[str]) -> List[str]:
     return cols
 
 
-def load_rf_probs(path: Optional[str]) -> Dict[str, float]:
+def load_rf_probs(path: Optional[str], column: str = "rf_prob") -> Dict[str, float]:
+    """variant_id -> score. `column` is rf_prob (calibrated probability) or rf_q (fold-quantile score, train/rescore.py)."""
     out: Dict[str, float] = {}
     if not path or not os.path.exists(path):
         return out
     with open(path, newline="") as fh:
-        for r in csv.DictReader(fh, delimiter="\t"):
-            v = _f(r.get("rf_prob"))
+        rd = csv.DictReader(fh, delimiter="\t")
+        col = column if column in (rd.fieldnames or []) else "rf_prob"
+        for r in rd:
+            v = _f(r.get(col))
             if v is not None:
                 out[r["variant_id"]] = v
     return out

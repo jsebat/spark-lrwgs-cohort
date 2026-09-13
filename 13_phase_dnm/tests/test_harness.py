@@ -84,3 +84,12 @@ def test_presence_leak_guard_drops_label_encoding_columns(tmp_path):
     d = CV.load_matrices(str(tmp_path / "real" / "*.rf.tsv"), str(tmp_path / "syn" / "*.rf.tsv"), "snv_indel", {"kidA": "famA", "kidB": "famB"})
     assert d.features == ["x"] and "q" in CV.load_matrices.last_dropped
     assert CV.load_matrices.last_dropped["q"] == (0.0, 1.0)
+
+
+def test_fold_quantile_score_is_a_pass_rate():
+    from phase_dnm.train import rescore as RS
+    ref = RS.ecdf_ref(np.array([0.1, 0.2, 0.3, 0.4, np.nan, 0.9]))
+    assert len(ref) == 5
+    q = RS.quantile(ref, np.array([0.95, 0.4, 0.05, 0.25]))
+    assert list(q) == [1.0, 0.6, 0.0, 0.4]                      # 0.95 above all 5 -> pass rate 0 -> q 1.0; 0.4 -> 3 of 5 below
+    assert np.isnan(RS.quantile(np.array([]), np.array([0.5]))).all()

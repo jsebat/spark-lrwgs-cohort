@@ -156,3 +156,12 @@ def test_small_variant_matching_is_representation_independent():
     small2 = {("kid", "chr2", 501, "", ins[:29]): {"tier": ""}}
     assert C.small_match(small2, "kid", "chr2", 500, "C", "C" + ins) == ("kid", "chr2", 501, "", ins[:29])
     assert C.small_match(small2, "kid", "chr2", 500, "C", "C" + "ACGT" * 12) is None                 # different insertion, same length class
+
+
+def test_load_rf_probs_column_choice(tmp_path):
+    p = tmp_path / "x.rf_probs.tsv"
+    p.write_text("variant_id\trf_prob\trf_q\tn_seeds\nv1\t0.20\t0.9995\t5\nv2\t0.99\t0.50\t5\n")
+    assert I.load_rf_probs(str(p)) == {"v1": 0.2, "v2": 0.99}
+    assert I.load_rf_probs(str(p), column="rf_q") == {"v1": 0.9995, "v2": 0.5}
+    q = tmp_path / "old.tsv"; q.write_text("variant_id\trf_prob\nv1\t0.3\n")
+    assert I.load_rf_probs(str(q), column="rf_q") == {"v1": 0.3}        # falls back when the column is absent

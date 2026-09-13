@@ -295,18 +295,27 @@ def cmd_integrate(a: argparse.Namespace) -> int:
     from .io import vcfinfo as V
     thr = load_thresholds(a.thresholds)
     p = _final_params(thr)
+    score_col = a.score_column
     if a.tau_json and os.path.exists(a.tau_json):
         with open(a.tau_json) as fh:
             tj = json.load(fh)
+        if score_col == "auto":
+            score_col = tj.get("score_column", "rf_prob")
         for vc in ({"snv_indel": ("SNV", "INDEL"), "sv": ("SV",), "tr": ("TR",)}[a.class_group]):
-            if tj.get("tau") is not None:
-                p.tau[vc] = float(tj["tau"])
-            if tj.get("tau_rescue") is not None:
-                p.tau_rescue[vc] = float(tj["tau_rescue"])
-    rf = I.load_rf_probs(a.rf_probs)
+            if score_col == "rf_q":
+                p.tau[vc] = float(tj.get("tau_q", 0.999)); p.tau_rescue[vc] = float(tj.get("tau_q_rescue", 0.99))
+            else:
+                if tj.get("tau") is not None:
+                    p.tau[vc] = float(tj["tau"])
+                if tj.get("tau_rescue") is not None:
+                    p.tau_rescue[vc] = float(tj["tau_rescue"])
+    if score_col == "auto":
+        score_col = "rf_prob"
+    rf = I.load_rf_probs(a.rf_probs, column=score_col)
     summ = I.integrate_table(a.evidence, a.features, a.out, p, a.class_group, rf_probs=rf)
     summ["thresholds_version"] = thr.get("version")
     summ["call_mode"] = "rf+phase" if rf else "phase_only"
+    summ["score_column"] = score_col if rf else None
     pq = I.write_parquet(a.out)
     summ["parquet"] = pq
     if a.vcf_out:
@@ -508,6 +517,18 @@ def cmd_external(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rescore(a: argparse.Namespace) -> int:
+    """M4 post-step: fold-quantile score rf_q for every real candidate from the saved fold models (train/rescore.py)."""
+    from .train import rescore as RS
+    man = read_manifest(a.manifest)
+    fam_of = {sid: r["family_id"] for sid, r in man.items()}
+    log = lambda m: sys.stderr.write(m + "\n")
+    rep = RS.rescore_class(a.class_group, a.harness_dir, a.evidence_dir, a.folds_dir, [int(x) for x in a.seeds.split(",")], fam_of,
+                           max_ref_per_child=a.max_real_per_child, log=log)
+    log("rescore %s: %s" % (a.class_group, json.dumps(rep)))
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
@@ -682,6 +703,7 @@ def build_parser() -> argparse.ArgumentParser:
     ig.add_argument("--out", required=True, help="final/<FAMILY>.<child>.<class>.dnm.tsv"), ig.add_argument("--vcf-out")
     ig.add_argument("--rf-probs", help="M4 output: TSV with variant_id, rf_prob (absent -> provisional phase_only mode)")
     ig.add_argument("--tau-json", help="M4 output tau.<class>.json: tau / tau_rescue for this class group (overrides thresholds.yaml final:)")
+    ig.add_argument("--score-column", default="auto", choices=["auto", "rf_prob", "rf_q"], help="which rf_probs column drives the decision (auto: the tau json's score_column)")
     ig.add_argument("--thresholds")
     ig.set_defaults(func=cmd_integrate)
     cc = sub.add_parser("concordance", help="M3/P18: final calls vs the original pipeline's de novo set, one class group")
@@ -716,6 +738,11 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--evidence-dir", required=True), ex.add_argument("--harness-dir", required=True), ex.add_argument("--folds-dir", required=True)
     ex.add_argument("--seed", type=int, default=0), ex.add_argument("--max-real-per-child", type=int, default=20000), ex.add_argument("--out", required=True)
     ex.set_defaults(func=cmd_external)
+    rs = sub.add_parser("rescore", help="M4 post-step: fold-quantile score rf_q from saved fold models; writes rf_probs/ (rf_prob + rf_q) and tau_q")
+    rs.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), rs.add_argument("--manifest", required=True)
+    rs.add_argument("--evidence-dir", required=True), rs.add_argument("--harness-dir", required=True), rs.add_argument("--folds-dir", required=True)
+    rs.add_argument("--seeds", default="0"), rs.add_argument("--max-real-per-child", type=int, default=20000)
+    rs.set_defaults(func=cmd_rescore)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")
