@@ -15,7 +15,7 @@ from .phasing import transmission as T
 
 PLANNED = {
     "haplotag": "M1c export to BAM (optional, IGV); labels are the orientation/transmission tables",
-    "review": "M2, weeks 4-5", "features": "weeks 6-8",
+    "features": "weeks 6-8",
     "spike": "weeks 6-8", "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
 }
 
@@ -198,6 +198,29 @@ def cmd_candidates(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_review(a: argparse.Namespace) -> int:
+    from .evidence import hapmatrix as H
+    from .evidence.readers import TrioBams
+    from .evidence.review import review_child
+    thr = load_thresholds(a.thresholds)
+    hm, pc = thr.get("hapmatrix", {}), thr.get("phase_class", {})
+    hp = H.HapParams(k=tuple(hm.get("k", [3, 5])), error_reads=hm.get("error_reads", 1), error_frac=hm.get("error_frac", 0.05),
+                     min_mapq=hm.get("min_mapq", 20))
+    cp = H.ClassParams(**{k: v for k, v in pc.items() if k in H.ClassParams.__dataclass_fields__}, working_k=max(hp.k))
+    labels = H.LabelTables.load(a.orientation, a.transmission, a.changepoints)
+    bams = TrioBams({"C": (a.child_bam, a.child_bai), "F": (a.father_bam, a.father_bai), "M": (a.mother_bam, a.mother_bai)},
+                    {"C": (a.child_tr_bam, a.child_tr_bai), "F": (a.father_tr_bam, a.father_tr_bai), "M": (a.mother_tr_bam, a.mother_tr_bai)}
+                    if a.child_tr_bam else None)
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    counts = review_child(a.candidates, a.out, bams, labels, hp, cp, salt=a.salt or a.out, supporting_json=a.sv_supporting_reads,
+                          reads_jsonl_gz=a.reads_out, max_per_class=a.max_per_class, thresholds_version=thr.get("version"),
+                          class_filter=a.only_class)
+    bams.close()
+    sys.stderr.write("review %s -> %s: %s\n" % (os.path.basename(a.candidates), a.out,
+                     " ".join("%s=%d" % kv for kv in sorted(counts.items()))))
+    return 0
+
+
 def _trio_args(sp: argparse.ArgumentParser):
     sp.add_argument("--child", required=True, help="child sample id")
     sp.add_argument("--father"), sp.add_argument("--mother"), sp.add_argument("--sex", help="child sex 1/2/M/F")
@@ -247,6 +270,21 @@ def build_parser() -> argparse.ArgumentParser:
     cd.add_argument("--list", action="append", help="existing list to cross-reference: NAME:TIER:path.tsv (repeatable)")
     cd.add_argument("--out-dir", required=True), cd.add_argument("--thresholds")
     cd.set_defaults(func=cmd_candidates)
+
+    rv = sub.add_parser("review", help="M2: six-haplotype evidence + phase class for every candidate of one child (pysam)")
+    rv.add_argument("--candidates", required=True, help="<child>.<class>.candidates.tsv")
+    rv.add_argument("--out", required=True, help="<child>.<class>.evidence.tsv")
+    rv.add_argument("--reads-out", help="<child>.<class>.reads.jsonl.gz (per-read observations, hashed ids)")
+    rv.add_argument("--orientation"), rv.add_argument("--transmission"), rv.add_argument("--changepoints")
+    for role in ("child", "father", "mother"):
+        rv.add_argument("--%s-bam" % role, required=True), rv.add_argument("--%s-bai" % role)
+        rv.add_argument("--%s-tr-bam" % role), rv.add_argument("--%s-tr-bai" % role)
+    rv.add_argument("--sv-supporting-reads", help="sawfish supporting_reads.json.gz of the family")
+    rv.add_argument("--max-per-class", type=int, help="cap rows per class (smoke tests)")
+    rv.add_argument("--only-class", action="append", choices=["SNV", "INDEL", "SV", "TR"])
+    rv.add_argument("--salt", help="salt for read-id hashing (default: the output path)")
+    rv.add_argument("--thresholds")
+    rv.set_defaults(func=cmd_review)
 
     qc = sub.add_parser("phase-qc", help="M1d: per-child phase_qc.json and the cohort QC table with gates")
     qc.add_argument("--manifest", required=True)
