@@ -521,7 +521,7 @@ def cmd_external(a: argparse.Namespace) -> int:
     for arm, r in sorted(rep.get("arms", {}).items()):
         log("EXTERNAL %-22s roc_auc %s pr_auc %s%s" % (arm, None if r["roc_auc"] is None else round(r["roc_auc"], 4), None if r["pr_auc"] is None else round(r["pr_auc"], 4),
             "" if "tpr" not in r else "  op tpr %.3f fpr %.4f" % (r["tpr"], r["fpr"])))
-    for k in ("recall_at_tau_by_class", "mosaic_sensitivity_at_tau_CM", "mosaic_sensitivity_at_tau_PM"):
+    for k in ("recall_at_tau_by_class", "mosaic_sensitivity_at_tau_CM", "mosaic_sensitivity_at_tau_PM", "tau_q_for_recall", "recall_at_tau", "neg_pass_at_tau", "n_pos", "n_rows"):
         if k in rep:
             log("EXTERNAL %s: %s" % (k, json.dumps(rep[k])))
     return 0

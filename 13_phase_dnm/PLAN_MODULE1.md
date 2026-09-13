@@ -262,6 +262,14 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   632 rows now `RF_UNSUPPORTED:inconclusive`. TR: per proband 6 → 27 (v2 58), paternal 0.69 (v2 0.62), rescue 0.75 (n = 20),
   962 rows `RESCUE_TR_SIZE`. SV: 4 / 8,125 / 9, unchanged. The gate removed noise without touching agreement with the original
   set. Remaining impurity: rf-branch calls with ≤ 4 observed haplotypes (0.64) and indels (0.64 vs SNV 0.79) — recorded, not acted on.
+- **WES-confirmed external truth built (2026-09-13, P27 arm 2; arrays 54285917/8/9, evaluation 54285920):** iWES v3
+  DeepVariant pVCF (24 per-chromosome files, 142,357 samples; chr22 alone 106 GB), random access at the cohort's exonic
+  candidate sites for the 101 cohort samples: 2–68 min per chromosome. Labels over 33 children: **58 WES-confirmed de novo**
+  (child het GQ ≥ 20 / DP ≥ 10, both parents hom-ref with no alt read), **2,926 refuted** (1,062 child hom-ref at DP ≥ 20,
+  1,864 inherited — a parent carries), 3,500 inconclusive, 1.06 M outside the exome. First evaluation: RF ROC-AUC 0.930 (PR
+  0.45), +demotion 0.934; the slivar arms and the RF operating point were mis-read by two bugs of mine (parental caller
+  fields taken from the evidence table, which lacks them; rf_q recomputed on the labelled subset) — fixed, rerun pending.
+  τ from external truth = the rf_q reached by 80 / 90 / 95 % of the WES positives (implied real pass rate 1 − τ_q).
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

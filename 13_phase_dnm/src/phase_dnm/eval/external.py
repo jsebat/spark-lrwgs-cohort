@@ -173,20 +173,24 @@ def evaluate_labelled(evidence_dir: str, harness_dir: str, class_group: str, see
         X = X[X["variant_id"].isin(set(lab["variant_id"]))].reset_index(drop=True)
         if X.empty:
             continue
-        ev = HZ._read_cols(os.path.join(evidence_dir, fam, "evidence", "%s.%s.evidence.lik.tsv" % (child, class_group)), HZ.EV_COLS + HZ.CAND_COLS).drop_duplicates("variant_id")
-        side = X[["variant_id"]].merge(lab[["variant_id", "label"]], on="variant_id", how="left").merge(ev, on="variant_id", how="left").fillna("")
+        # phase columns from the evidence table, CALLER fields (incl. the parents' GT/GQ/AD) from the candidates table, and the
+        # decision score rf_q from rf_probs/ (computed against ALL real candidates of the fold - the same number M3 used)
+        ev = HZ._read_cols(os.path.join(evidence_dir, fam, "evidence", "%s.%s.evidence.lik.tsv" % (child, class_group)), HZ.EV_COLS).drop_duplicates("variant_id")
+        cpath = os.path.join(evidence_dir, fam, "candidates", "%s.%s.candidates.tsv" % (child, class_group))
+        cand = HZ._read_cols(cpath, HZ.CAND_COLS).drop_duplicates("variant_id") if os.path.exists(cpath) else pd.DataFrame(columns=HZ.CAND_COLS)
+        rp = os.path.join(harness_dir, "rf_probs", "%s.%s.rf_probs.tsv" % (child, class_group))
+        rq = pd.read_csv(rp, sep="\t", dtype=str, keep_default_na=False)[["variant_id", "rf_q"]] if os.path.exists(rp) else pd.DataFrame(columns=["variant_id", "rf_q"])
+        side = (X[["variant_id"]].merge(lab[["variant_id", "label"]], on="variant_id", how="left").merge(ev, on="variant_id", how="left")
+                .merge(cand, on="variant_id", how="left").merge(rq, on="variant_id", how="left").fillna(""))
         fm = fms[fold_of_family[fam]]
         p, raw = fm.predict(X)
         for i, r in side.iterrows():
             rows.append(dict(child=child, fold=fold_of_family[fam], label=int(r["label"]), variant_id=r["variant_id"], prob=float(p[i]), raw=float(raw[i]),
+                             rf_q=float(r["rf_q"]) if r["rf_q"] not in ("", None) else np.nan,
                              phase_class=r["phase_class"], hap_obs_k5=r["hap_obs_k5"], phase_score=r["phase_score"], cand={k: r.get(k, "") for k in HZ.CAND_COLS}))
     df = pd.DataFrame(rows)
     if df.empty:
         return {"class_group": class_group, "n_rows": 0, "note": "no labelled rows"}
-    df["rf_q"] = np.nan
-    for k, g in df.groupby("fold"):
-        ref = RS.ecdf_ref(g["prob"].to_numpy())
-        df.loc[g.index, "rf_q"] = RS.quantile(ref, g["prob"].to_numpy())
     y = df["label"].to_numpy()
     out: Dict[str, object] = {"class_group": class_group, "seed": seed, "truth": labels_dir, "n_rows": int(len(df)), "n_pos": int(y.sum()),
                               "n_children": int(df["child"].nunique()), "arms": {}}
@@ -217,4 +221,16 @@ def evaluate_labelled(evidence_dir: str, harness_dir: str, class_group: str, see
     for a in sorted({c[:-6] for c in hs.columns if c.endswith("_score")}):
         arm(a, hs[a + "_score"].to_numpy(dtype=float), hs[a + "_pass"].to_numpy().astype(bool))
         arm(a + "+P(demote+rescue)", HZ.phase_rerank(hs[a + "_score"].to_numpy(dtype=float), pc, ho, ps, allow_rescue=True))
+    # tau from external truth (P15): the rf_q reached by a given fraction of the positives; the implied pass rate among
+    # real candidates is 1 - tau_q by construction of rf_q
+    pos_q = np.sort(rfq[(y == 1) & ~np.isnan(rfq)])
+    if len(pos_q):
+        out["tau_q_for_recall"] = {}
+        for rec in (0.8, 0.9, 0.95):
+            k = int(np.floor((1 - rec) * len(pos_q)))
+            tq = float(pos_q[min(k, len(pos_q) - 1)])
+            out["tau_q_for_recall"][str(rec)] = dict(tau_q=round(tq, 5), implied_real_pass_rate=round(1 - tq, 5), n_pos=int(len(pos_q)))
+        if tau is not None:
+            out["recall_at_tau"] = float((pos_q >= tau).mean())
+            out["neg_pass_at_tau"] = float((rfq[(y == 0) & ~np.isnan(rfq)] >= tau).mean())
     return out
