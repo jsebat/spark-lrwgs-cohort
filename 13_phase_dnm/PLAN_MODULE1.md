@@ -115,6 +115,22 @@
   `pass` + `sweep_score` scorers.** Build order inside M4: heuristics (pure, testable) → synthetic-trio candidates from the
   cohort callsets → review/features for synthetic trios (array) → folds + nested CV → rf_probs → integrate (rf+phase) →
   concordance → harness table.
+- **M4 build (2026-09-13, commits 7c56885 → b285375): swap-closed folds + within-fold pedigree swaps (`train/folds.py`,
+  `train/swap.py`, `phase-dnm swap`: 33 families → 5 folds of 6–7, 35 synthetic trios per seed, 5 seeds, blood family kept
+  with company); synthetic trios through the same chain (`m4_synthetic_trio.sb`: bcftools trio extraction from the cohort
+  callsets 226 s, candidates thinned to 3,000 per variant class, review without label tables, features); nested CV +
+  harness (`train/nested_cv.py`, `eval/harness.py`, `phase-dnm train`: XGBoost with inner-fold grid + isotonic calibration,
+  no-phase / phase-only ablations, RF + LR baselines, the heuristic sweeps H1–H3 with operating points, +P demotion
+  re-ranking on synthetic labels, rf_probs for every real candidate from the model that held its family out, τ at
+  held-out precision 0.95/0.80, frozen per-class models with manifests; `integrate --tau-json`); P26 annotation
+  (`annotate.py`: gnomAD v4.1 via the WDL's slivar gnotate zip, leave-one-FAMILY-out founder counts from the cohort
+  BCF/SV VCF excluding both the child's and the parents' families, sib-shared for the quads; `m4_annotate.sb`,
+  `m4_annotate_synthetic.sb`); registry clean-up (B-block read-quality names superseded by per-haplotype D-block
+  summaries incl. new `c_alt_mapq0_frac`/`c_alt_supp_frac`/`c_alt_readlen_median`/`c_alt_rq_mean` — need a re-review to
+  fill; phase-segment geometry `c_block_len_log10`/`c_dist_block_edge_log10` and crossover distance from the M1 tables).
+  Smoke synthetic trio (54280890): SNV/indel stage 606 s for 6,000 rows. Seed-0 array (34 trios, %10) queued behind it;
+  annotation jobs 54281886/7 running. 90 tests + 1 skipped locally (the ML backend's DLLs are blocked on this Windows
+  host; the CV test runs on Expanse).
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

@@ -443,7 +443,7 @@ def cmd_annotate(a: argparse.Namespace) -> int:
     gnomad = {}
     if a.class_group == "snv_indel" and a.gnomad_zip and a.slivar_cmd:
         sv_path = os.path.join(a.work, "sites.%s.vcf" % a.class_group)
-        n = AN.write_sites_vcf(sites, sv_path)
+        n = AN.write_sites_vcf(sites, sv_path, header_lines=AN.contig_lines(a.cohort_vcf, a.bcftools) if a.cohort_vcf else ())
         gnomad = AN.gnotate(sv_path, os.path.join(a.work, "sites.%s.gnotate.vcf" % a.class_group), shlex.split(a.slivar_cmd), a.gnomad_zip)
         log("gnotate: %d sites written, %d with gnomad_af" % (n, len(gnomad)))
     fgt, order = {}, []

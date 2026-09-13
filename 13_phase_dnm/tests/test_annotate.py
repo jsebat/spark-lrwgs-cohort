@@ -55,3 +55,13 @@ def test_write_annot_joins_by_normalised_key(tmp_path):
     assert rows["v2"]["gnomad_af"] == "0.2" and rows["v2"]["cohort_AC_loo"] == "0"             # family A excluded -> only f2 (0/0)
     assert rows["v3"]["gnomad_af"] == "" and rows["v3"]["cohort_AC_loo"] == "" and rows["v3"]["sib_shared"] == "1"
     assert rows["v1"]["sib_shared"] == "0"
+
+
+def test_gnotate_uses_slivar_expr_and_contig_headers(tmp_path):
+    cmd = AN.gnotate_command("s.vcf", "o.vcf", ["singularity", "exec", "-B", "/x:/x", "slivar.sif", "slivar"], "gnomad.zip")
+    assert cmd[:6] == ["singularity", "exec", "-B", "/x:/x", "slivar.sif", "slivar"] and cmd[6] == "expr"
+    assert "--gnotate" in cmd and "--out-vcf" in cmd and cmd[cmd.index("--vcf") + 1] == "s.vcf"
+    vcf = str(tmp_path / "s.vcf")
+    AN.write_sites_vcf([("chr1", 5, "A", "G")], vcf, header_lines=["##contig=<ID=chr1,length=248956422>"])
+    lines = open(vcf).read().splitlines()
+    assert lines[0] == "##fileformat=VCFv4.2" and lines[1].startswith("##contig=<ID=chr1") and lines[2].startswith("#CHROM")

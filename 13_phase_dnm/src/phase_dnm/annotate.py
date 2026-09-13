@@ -50,11 +50,13 @@ def union_sites(cand_paths: Iterable[str], class_group: str) -> Tuple[List[Tuple
     return sorted(sites), {}
 
 
-def write_sites_vcf(sites: Iterable[Tuple[str, int, str, str]], path: str, contigs: Iterable[str] = ()) -> int:
+def write_sites_vcf(sites: Iterable[Tuple[str, int, str, str]], path: str, contigs: Iterable[str] = (), header_lines: Iterable[str] = ()) -> int:
     n = 0
     op = gzip.open if path.endswith(".gz") else open
     with op(path, "wt") as fh:
         fh.write("##fileformat=VCFv4.2\n")
+        for l in header_lines:
+            fh.write(l.rstrip("\n") + "\n")
         for c in contigs:
             fh.write("##contig=<ID=%s>\n" % c)
         fh.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
@@ -78,10 +80,24 @@ def write_sites_bed(sites: Iterable[Tuple[str, int, str, str]], path: str, pad: 
 # ----------------------------------------------------------------------------------------------
 # gnomAD via slivar gnotate
 # ----------------------------------------------------------------------------------------------
+def gnotate_command(sites_vcf: str, out_vcf: str, slivar_cmd: List[str], gnomad_zip: str) -> List[str]:
+    """slivar >= 0.3 removed the `gnotate` sub-command; `slivar expr --gnotate` with no expression annotates every record
+    (the WDL's own tertiary step uses the same zip through slivar expr)."""
+    return slivar_cmd + ["expr", "--vcf", sites_vcf, "--gnotate", gnomad_zip, "--out-vcf", out_vcf]
+
+
+def contig_lines(vcf_or_bcf: str, bcftools: str) -> List[str]:
+    """##contig header lines of a callset (so a sites-only VCF we write is a valid input for slivar / htslib)."""
+    try:
+        h = subprocess.run([bcftools, "view", "-h", vcf_or_bcf], check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return [l for l in h.splitlines() if l.startswith("##contig=")]
+
+
 def gnotate(sites_vcf: str, out_vcf: str, slivar_cmd: List[str], gnomad_zip: str) -> Dict[Tuple[str, int, str, str], float]:
-    """Run `slivar gnotate` (command prefix from the env, e.g. a singularity exec) and return {normalised site: gnomad_af}."""
-    cmd = slivar_cmd + ["gnotate", "--gnotate", gnomad_zip, "--out-vcf", out_vcf, sites_vcf]
-    subprocess.run(cmd, check=True)
+    """Annotate the sites VCF with gnomAD via slivar and return {normalised site: gnomad_af}."""
+    subprocess.run(gnotate_command(sites_vcf, out_vcf, slivar_cmd, gnomad_zip), check=True)
     out: Dict[Tuple[str, int, str, str], float] = {}
     op = gzip.open if out_vcf.endswith(".gz") else open
     with op(out_vcf, "rt") as fh:
