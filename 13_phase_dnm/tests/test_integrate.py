@@ -151,3 +151,8 @@ def test_small_variant_matching_is_representation_independent():
     assert C.small_match(small, "kid", "chr1", 105, "CA", "C") == ("kid", "chr1", 101, "A", "")        # same 1-bp deletion, shifted (repeat)
     assert C.small_match(small, "kid", "chr1", 105, "CAA", "C") is None                                # different length change
     assert C.small_match(small, "kid", "chr1", 101, "A", "T") is None                                   # SNVs: exact only
+    # a baseline insertion truncated at 30 characters matches the full-length module allele at the same position
+    ins = "GGCCGAGGCGGGTGGATCATGAGGTCAGGAGATCGAGACCAACCTGG"
+    small2 = {("kid", "chr2", 501, "", ins[:29]): {"tier": ""}}
+    assert C.small_match(small2, "kid", "chr2", 500, "C", "C" + ins) == ("kid", "chr2", 501, "", ins[:29])
+    assert C.small_match(small2, "kid", "chr2", 500, "C", "C" + "ACGT" * 12) is None                 # different insertion, same length class

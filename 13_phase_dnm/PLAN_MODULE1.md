@@ -96,6 +96,25 @@
   never entered the unfiltered candidate set** (investigated below). SV against the pipeline's unfiltered 7,736-row list:
   concordant 46, original-only 8,083 (phase-conflict 3,782, inconclusive 3,119, unphased 719, inherited 205, mosaic 239),
   module-only 69, per-proband 247 → 3, paternal fraction 0.643. TR concordance OOM at 8 GB → rerun at 32 GB.
+- **The 117 "unseen" originals resolved (2026-09-13):** all are insertions >= 30 bp (Alu-like sequence) whose ALT the tiered
+  table truncates at 30 characters; the module has the same events at the same positions — classed mostly
+  `phase_conflict_artifact` / `inconclusive`, i.e. not clean heterozygous insertions on one child haplotype. Concordance
+  now matches a same-position indel whose baseline core is a >= 20 bp prefix of the module's. Paper-relevant: ~9 % of the
+  original de novo SNV/indel set are long insertions that the read-level review does not support as germline DNMs
+  (candidates for polymorphic mobile-element insertions missed in the parents' genotypes); to be examined against the
+  parental read evidence (`t_alt_reads`, `p_max_alt_any_hap`) before any claim.
+- **Spike-in cohort array (2026-09-13, 54279525, 32/32 COMPLETED + smoke; 34 children, 7,828 planted sites, N_PER = 12):**
+  recovery among observable sites — **G: class-exact SNV 0.959 / INDEL 0.940 / SV 0.927 / TR 0.913 (lenient, i.e. incl.
+  `germline_DNM_unphased`, 0.995 / 0.999 / 1.000 / 0.979), parent of origin 1.00 (TR 0.995); IM: 1.000 / 1.000 / 0.997 /
+  0.984; CM (15–30 %): 0.138 / 0.137 / 0.145 / 0.099; PM (10–25 %): 0.105 / 0.128 / 0.067 / 0.054.** The mosaic numbers
+  are the P10 depth floor measured cohort-wide and go in the paper as the module's mosaic sensitivity at ~10 reads per
+  haplotype; the germline/inherited numbers are the review's recovery on real reads with known truth. Tables per child in
+  `$LRC/phase_dnm/evidence/<FAM>/spike/<child>/`.
+- **M4 design fixed before code (2026-09-13): P23 synthetic trios through the same chain (no labels, positives subsampled),
+  P24 rf_safe-only training matrix with synthetic/real labels and XGBoost + RF + LR baselines, P25 heuristic arms as
+  `pass` + `sweep_score` scorers.** Build order inside M4: heuristics (pure, testable) → synthetic-trio candidates from the
+  cohort callsets → review/features for synthetic trios (array) → folds + nested CV → rf_probs → integrate (rf+phase) →
+  concordance → harness table.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

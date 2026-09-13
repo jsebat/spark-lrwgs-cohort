@@ -213,6 +213,37 @@ The two mother–child duos have no paternal reads; `F1/F2` rows are unobservabl
 
 ---
 
+### P23 — Synthetic trios run through the SAME chain as real trios (M4, 2026-09-13)
+A synthetic trio (P12: the child of family A with the parents of family B, pairs drawn inside an outer fold) is not a
+relabelling of existing rows: its candidate set is regenerated from the cohort-wide joint callsets (`freeze1.cohort.bcf`,
+`.sv.vcf.gz`, `.trgt.vcf.gz` carry all 105 samples, so any trio can be extracted), then reviewed against the child's
+haplotagged reads and the surrogate parents' reads with **no label tables** (parent of origin and transmission are
+undefined — exactly the columns the classifier never sees, P11), then passed through the same feature extractor. Positives
+are therefore scored by the same code path as negatives, with the same six-haplotype counts; only the D-block's
+rf_safe part (child rows sorted alt-first, parental rows symmetrised) is defined for both, which is the P11 symmetry
+argument made operational. Positives are subsampled per synthetic child and class (default 3,000 SNV/indel, all SV, 3,000
+TR) because a child against unrelated parents shows ~1.5 M "de novo" small variants — SynthDNM does the same. The
+review on synthetic trios is the only BAM pass in M4 (~30–60 min per synthetic trio; one per real child per seed).
+
+### P24 — What the classifier sees, and the labels (M4)
+Training rows are the `rf_safe` matrix columns only (registry gate, P11), identical for synthetic and real rows; the
+label is 1 for a synthetic-trio candidate and 0 for a real-trio raw candidate (P13). No parent-of-origin, transmitted
+haplotype or orientation column is available to any model — JS 2026-09-12: "inferring parent of origin is something we
+only do in REAL trios". The phase layer's rf_safe features (`c_alt_hap_frac`, `c_alt_confined`, `hap_obs_k*`,
+`p_max_alt_any_hap`, `p_n_haps_with_alt`, `c_amb_frac_hapA`, …) are what "phase information" means in the attribution
+(P14). Models: XGBoost (SynthDNM's current backend) per class, RF and logistic regression as baselines on identical
+folds; isotonic calibration on inner out-of-sample predictions. Backend versions recorded in `training_manifest.json`
+(xgboost 3.2.0, scikit-learn 1.9.1 installed in the module env 2026-09-13).
+
+### P25 — The heuristic arms as scorers (M4, implements P22)
+`eval/heuristics.py` implements each arm as a function of the rows the module already has — candidate fields (GT, GQ,
+DP, AD, AB) for H1 and the annotation columns (mask, gnomAD AF, PON leave-one-out, sib-shared) for H2/H3 — returning
+`pass` (the pipeline's decision, verbatim thresholds) and `sweep_score` (the rule's natural knob with everything else
+fixed: GQ for the slivar rule and the SV genotype rule, gain in bp/units for TR). The knob's *direction* is chosen so a
+higher score means "more de novo-like"; rows failing any fixed criterion get a score below every passing row, so the
+sweep curve's operating point is the pipeline's actual decision. This makes the heuristic an ROC curve on the same folds
+and the same rows as the classifier without ever pretending the pipeline produced probabilities.
+
 ## 3. SynthDNM one-pager: what the code does, and what it implies for phase features
 
 **Construction.** `swap_pedigree.py` shuffles complete families, pairs them, and writes a PED in which family A's parents get family B's offspring and vice versa. `extract_dnm_features.py` extracts FORMAT-level trio features at sites that look de novo *under the swapped pedigree* (child het, surrogate parents hom-ref; an `AC=2` condition appears in the extractor) → `truth=1`; and at putative DNM sites under the *real* pedigree → `truth=0`. `preprocess_features.py` derives `child_AR/min_AR/max_AR` (ref/(alt+1)), min/max over parents of `GQ, DP, PL0–2`, `child_AB`, `indel_flag`, sex-aware `haploid_flag` (PSAM + PAR BED), and samples `--sample_n` rows. `train.py` fits XGBoost (1000 trees, depth 6, lr 0.1, early stopping) on a stratified row-level split; `classify.py` emits `synthdnm_prob`. Published: ~96 % recall of denovo-db SSC DNMs.

@@ -60,7 +60,13 @@ def small_match(small: Dict, sid: str, chrom: str, pos: int, ref: str, alt: str,
         return None
     delta = len(b) - len(a)
     for k in small:
-        if k[0] == sid and k[1] == chrom and abs(k[2] - p) <= window and (len(k[4]) - len(k[3])) == delta:
+        if k[0] != sid or k[1] != chrom:
+            continue
+        # the tiered table truncates alleles at 30 characters: a same-position indel whose baseline core is a long
+        # prefix of ours is the same event (117 of the 1,332 originals are >= 30 bp insertions, 2026-09-13)
+        if k[2] == p and ((len(k[4]) >= 20 and b.startswith(k[4]) and k[3] == a) or (len(k[3]) >= 20 and a.startswith(k[3]) and k[4] == b)):
+            return k
+        if abs(k[2] - p) <= window and (len(k[4]) - len(k[3])) == delta:
             return k
     return None
 
