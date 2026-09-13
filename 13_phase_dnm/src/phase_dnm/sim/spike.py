@@ -501,6 +501,10 @@ def evaluate(plan: List[PlanRow], evidence_rows: Iterable[dict], k: int = 5) -> 
     'observable' = all six haplotypes observed at k (hap_obs_k<k>); recovery is reported both overall and among
     observable sites, because a spike-in on an unobservable haplotype tests the phasing coverage, not the review."""
     ev = {r["variant_id"]: r for r in evidence_rows}
+    present = {r.get("variant_class") for r in ev.values()}
+    if present:
+        plan = [p for p in plan if p.variant_class in present]       # one evidence table per class group
+    post_key = {"G": "lik_post_germline", "CM": "lik_post_child_mosaic", "PM": "lik_post_parental_mosaic", "IM": "lik_post_inherited"}
     per_site = []
     for p in plan:
         r = ev.get(p.variant_id)
@@ -517,7 +521,8 @@ def evaluate(plan: List[PlanRow], evidence_rows: Iterable[dict], k: int = 5) -> 
                  class_ok=int(cls == p.expected_class),
                  class_ok_lenient=int(cls == p.expected_class or (p.scenario == "G" and cls == "germline_DNM_unphased")),
                  poo_ok=int(r.get("parent_of_origin") == p.expected_poo),
-                 c_alt_hapA=r.get("c_alt_hapA", ""), t_alt_reads=r.get("t_alt_reads", ""), t_dp=r.get("t_dp", ""))
+                 post_expected=r.get(post_key[p.scenario], ""),
+                 c_alt_hapA=r.get("c_alt_hapA", ""), c_dp_hapA=r.get("c_dp_hapA", ""), t_alt_reads=r.get("t_alt_reads", ""), t_dp=r.get("t_dp", ""))
         per_site.append(d)
     summary = []
     groups: Dict[Tuple[str, str], List[dict]] = defaultdict(list)
@@ -531,11 +536,15 @@ def evaluate(plan: List[PlanRow], evidence_rows: Iterable[dict], k: int = 5) -> 
         def mean(xs, key):
             v = [float(d[key]) for d in xs if d.get(key) not in ("", None)]
             return round(st.mean(v), 3) if v else None
+        called: Dict[str, int] = defaultdict(int)
+        for d in rev:
+            called[d.get("phase_class") or "."] += 1
         summary.append(dict(variant_class=cls, scenario=sc, expected_class=EXPECTED_CLASS[sc], n_planted=len(rows), n_reviewed=len(rev),
                             n_observable=len(obs), class_ok_all=frac(rev, "class_ok"), class_ok_lenient_all=frac(rev, "class_ok_lenient"),
                             class_ok_observable=frac(obs, "class_ok"), poo_ok_all=frac(rev, "poo_ok"), poo_ok_observable=frac(obs, "poo_ok"),
                             mean_phase_score=mean(rev, "phase_score"), mean_phase_score_observable=mean(obs, "phase_score"),
-                            mean_rule_score=mean(rev, "rule_score")))
+                            mean_post_expected=mean(rev, "post_expected"), mean_rule_score=mean(rev, "rule_score"),
+                            called_classes=";".join("%s:%d" % kv for kv in sorted(called.items(), key=lambda kv: -kv[1]))))
     return per_site, summary
 
 

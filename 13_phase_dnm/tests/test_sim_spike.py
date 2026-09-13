@@ -76,9 +76,9 @@ def test_evaluate_scores_class_and_parent_of_origin():
             SP.PlanRow("s2", "chr1", 200, "SNV", "SNV", 1, "A", "C", "G", 2, 1.0, ".", 0, 0.0, "maternal", "germline_DNM_phased", 1, 1),
             SP.PlanRow("s3", "chr1", 300, "SV", "DEL", 500, ".", ".", "PM", 1, 1.0, "F", 2, 0.2, "paternal", "parental_mosaic_transmitted", 1, 1),
             SP.PlanRow("s4", "chr1", 400, "SV", "DEL", 500, ".", ".", "PM", 1, 1.0, "F", 2, 0.2, "paternal", "parental_mosaic_transmitted", 1, 1)]
-    ev = [dict(variant_id="s1", phase_class="germline_DNM_phased", parent_of_origin="paternal", hap_obs_k5="6", phase_score="0.98", rule_score="6", flags=""),
-          dict(variant_id="s2", phase_class="germline_DNM_unphased", parent_of_origin="maternal", hap_obs_k5="5", phase_score="0.7", rule_score="4", flags="LOW_HAP_DEPTH"),
-          dict(variant_id="s3", phase_class="parental_mosaic_transmitted", parent_of_origin="paternal", hap_obs_k5="6", phase_score="0.01", rule_score="3", flags="")]
+    ev = [dict(variant_id="s1", variant_class="SNV", phase_class="germline_DNM_phased", parent_of_origin="paternal", hap_obs_k5="6", phase_score="0.98", rule_score="6", flags="", lik_post_germline="0.98"),
+          dict(variant_id="s2", variant_class="SNV", phase_class="germline_DNM_unphased", parent_of_origin="maternal", hap_obs_k5="5", phase_score="0.7", rule_score="4", flags="LOW_HAP_DEPTH", lik_post_germline="0.7"),
+          dict(variant_id="s3", variant_class="SV", phase_class="parental_mosaic_transmitted", parent_of_origin="paternal", hap_obs_k5="6", phase_score="0.01", rule_score="3", flags="", lik_post_parental_mosaic="0.9")]
     per_site, summary = SP.evaluate(plan, ev)
     by = {d["variant_id"]: d for d in per_site}
     assert by["s1"]["class_ok"] == 1 and by["s1"]["observable"] == 1 and by["s1"]["poo_ok"] == 1
@@ -88,6 +88,11 @@ def test_evaluate_scores_class_and_parent_of_origin():
     assert s[("SNV", "G")]["n_planted"] == 2 and s[("SNV", "G")]["n_observable"] == 1 and s[("SNV", "G")]["class_ok_observable"] == 1.0
     assert s[("SNV", "G")]["class_ok_all"] == 0.5 and s[("SNV", "G")]["class_ok_lenient_all"] == 1.0
     assert s[("SV", "PM")]["n_reviewed"] == 1 and s[("SV", "PM")]["poo_ok_all"] == 1.0 and s[("SV", "PM")]["mean_phase_score"] == 0.01
+    assert s[("SV", "PM")]["mean_post_expected"] == 0.9 and s[("SNV", "G")]["mean_post_expected"] == 0.84
+    assert s[("SNV", "G")]["called_classes"] == "germline_DNM_phased:1;germline_DNM_unphased:1"
+    # a table restricted to one class group evaluates only that group's planted sites
+    _, summary_sv = SP.evaluate(plan, [ev[2]])
+    assert {r["variant_class"] for r in summary_sv} == {"SV"}
 
 
 def test_parse_regions():

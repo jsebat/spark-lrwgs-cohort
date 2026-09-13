@@ -233,9 +233,9 @@ def cmd_spike(a: argparse.Namespace) -> int:
         SP.write_rows(per_site, a.out.replace(".tsv", ".per_site.tsv"))
         SP.write_rows(summary, a.out)
         for s_ in summary:
-            log("spike %-5s %-3s planted=%3d reviewed=%3d observable=%3d class_ok(obs)=%s poo_ok(obs)=%s phase_score(obs)=%s" % (
+            log("spike %-5s %-3s planted=%3d reviewed=%3d observable=%3d class_ok(obs)=%s poo_ok(obs)=%s post_expected=%s called=%s" % (
                 s_["variant_class"], s_["scenario"], s_["n_planted"], s_["n_reviewed"], s_["n_observable"],
-                s_["class_ok_observable"], s_["poo_ok_observable"], s_["mean_phase_score_observable"]))
+                s_["class_ok_observable"], s_["poo_ok_observable"], s_["mean_post_expected"], s_["called_classes"]))
         return 0
     import pysam
     from .evidence import hapmatrix as H
