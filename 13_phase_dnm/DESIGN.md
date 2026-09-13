@@ -321,5 +321,5 @@ a method paper. What that fixes:
   heuristic sweeps on identical swap-closed family folds, with the operating point of each heuristic marked on its curve;
   ablations (no-phase / phase-only) and the grouped attribution answer JS's "how much weight does phase get". Caveat
   travelling with the table: on synthetic labels the phase layer can only demote (a synthetic trio has no transmitted
-  haplotype), so the "+P" arms with rescue are reported on the external truth sets (spike-ins, WES-confirmed exonic calls).
+  haplotype), so the "+P" arms with rescue are reported on the external truth sets (spike-ins, WES-confirmed exonic calls). *Measured on the first SV table (seed 0, 2026-09-13):* a population-frequency column in the classifier matrix is a label leak under the synthetic construction (positives are inherited, common), so `gnomad_af`, `cohort_AC_loo`, `pon_founder_recurrence_loo` and the SV/TR catalogue frequencies are `rf_safe: false`; the fair heuristic arm on synthetic labels is H1 (no population filter) - H2/H3 vs RF+population are external-truth comparisons only.
 

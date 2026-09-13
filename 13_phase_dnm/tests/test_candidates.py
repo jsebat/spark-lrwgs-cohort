@@ -75,13 +75,13 @@ def test_tr_candidates(tmp_path):
     ]
     _write(p, rows)
     recs = list(C.tr_candidates(str(p), "fam", "kid", "dad", "mom", min_units=1))
-    assert [r.variant_id for r in recs] == ["locus_A", "locus_C"], [r.variant_id for r in recs]
+    assert [r.variant_id for r in recs] == ["locus_A:a1", "locus_C:a0"], [r.variant_id for r in recs]   # TRID:a<allele index>: unique per allele
     a, c = recs
     assert a.class_payload["direction"] == "expansion" and a.class_payload["outlier_allele_idx"] == 1
     assert a.class_payload["delta_bp"] == 84 and a.class_payload["motif_unit_bp"] == 3 and a.alt == "<AL=120>"
     assert c.class_payload["direction"] == "contraction" and c.class_payload["delta_bp"] == 30
     # a stricter margin removes the contraction (30 bp < 8 units*4=32)
-    assert [r.variant_id for r in C.tr_candidates(str(p), "fam", "kid", "dad", "mom", min_units=8)] == ["locus_A"]
+    assert [r.variant_id for r in C.tr_candidates(str(p), "fam", "kid", "dad", "mom", min_units=8)] == ["locus_A:a1"]
 
 
 # ---------------------------------------------------------------------------- shared record round-trip and list merge

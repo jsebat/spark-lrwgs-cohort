@@ -104,3 +104,11 @@ def test_extract_child_end_to_end(tmp_path):
     assert rf_row["c_alt_hap_frac"] == "1.0" and rf_row["child_GQ"] == "45"
     # everything never produced is reported, not silently absent
     assert "gnomad_af" in summ["never_produced"] and "mappability_k100" in summ["never_produced"]
+
+
+def test_population_frequency_features_are_not_classifier_columns():
+    from phase_dnm.features.registry import Registry
+    reg = Registry()
+    for name in ("gnomad_af", "cohort_AC_loo", "pon_founder_recurrence_loo"):
+        assert name in reg.features and not reg.features[name].rf_safe
+        assert name not in reg.rf_matrix_columns("SNV")

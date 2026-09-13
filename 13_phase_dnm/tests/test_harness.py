@@ -60,3 +60,10 @@ def test_nested_cv_end_to_end_small():
     assert res2.auc < res.auc                                                     # the signal lives in the phase columns here
     p_cal, p_raw = fm[0].predict(X)
     assert len(p_cal) == n and (p_cal >= 0).all() and (p_cal <= 1).all()
+
+
+def test_choose_tau_fpr_on_real_rows():
+    y = np.array([1] * 6 + [0] * 10); p = np.concatenate([np.full(6, 0.99), np.linspace(0.0, 0.9, 10)])
+    assert HZ.choose_tau_fpr(y, p, 0.0) == 0.9           # no real row above threshold
+    assert HZ.choose_tau_fpr(y, p, 0.1) == 0.8           # one of ten real rows may pass
+    assert HZ.choose_tau_fpr(np.ones(3), p[:3], 0.1) is None

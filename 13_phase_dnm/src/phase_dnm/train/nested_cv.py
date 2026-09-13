@@ -53,7 +53,7 @@ def _read_matrix(path: str) -> pd.DataFrame:
 
 
 def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_child: Dict[str, str],
-                  max_real_per_child: Optional[int] = None, seed: int = 0) -> Data:
+                  max_real_per_child: Optional[int] = None, seed: int = 0, allowed: Optional[Iterable[str]] = None) -> Data:
     """Concatenate real (label 0) and synthetic (label 1) rf matrices for one class group. Real rows may be thinned per
     child (seeded) for speed; the fold assignment uses the CHILD's family for both kinds of rows."""
     rng = np.random.default_rng(seed)
@@ -76,7 +76,12 @@ def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_c
     if not frames:
         raise ValueError("no matrices for %s" % class_group)
     all_ = pd.concat(frames, ignore_index=True)
+    # TR candidate ids were the TRID until 2026-09-13 (two outlier alleles of one locus share an id): keep one row per key
+    all_ = all_.drop_duplicates(subset=["sample_id", "variant_id", "origin"], keep="first").reset_index(drop=True)
     feats = [c for c in all_.columns if c not in ID_COLS + ["label", "origin"]]
+    if allowed is not None:
+        allowed = set(allowed)
+        feats = [c for c in feats if c in allowed]        # the registry's CURRENT rf_safe set (a matrix may predate a registry change)
     bad = [c for c in feats if c.startswith(UNSAFE_PREFIXES)]
     if bad:
         raise ValueError("rf_safe violation in matrices: %s" % bad)
@@ -210,7 +215,8 @@ class FoldModel:
         self.model, self.iso, self.cols = model, iso, cols
 
     def predict(self, X: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        raw = self.model.predict_proba(X[self.cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float))[:, 1]
+        Xn = X.reindex(columns=self.cols)          # a per-child matrix may lack (or add) registry columns: missing -> NaN
+        raw = self.model.predict_proba(Xn.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float))[:, 1]
         return (self.iso.predict(raw) if self.iso is not None else raw), raw
 
 

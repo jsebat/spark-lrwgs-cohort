@@ -413,8 +413,10 @@ def cmd_train(a: argparse.Namespace) -> int:
     reg = Registry(a.registry)
     log = lambda m: sys.stderr.write(m + "\n")
     seeds = [int(x) for x in a.seeds.split(",")]
+    classes = {"snv_indel": ("SNV", "INDEL"), "sv": ("SV",), "tr": ("TR",)}[a.class_group]
+    allowed = {c for vc in classes for c in reg.rf_matrix_columns(vc)}
     rep = HZ.run_class(a.class_group, a.evidence_dir, a.train_dir, a.folds_dir, seeds, a.out_dir, fam_of, a.max_real_per_child,
-                       reg.manifest(), log=log, baselines=not a.no_baselines, freeze=not a.no_freeze)
+                       reg.manifest(), log=log, baselines=not a.no_baselines, freeze=not a.no_freeze, allowed_cols=allowed)
     for arm, sm in sorted(rep["summary"].items()):
         log("SUMMARY %-22s roc_auc %s [%s-%s] pr_auc %s%s" % (arm, None if sm["roc_auc_mean"] is None else round(sm["roc_auc_mean"], 4),
             None if sm["roc_auc_min"] is None else round(sm["roc_auc_min"], 4), None if sm["roc_auc_max"] is None else round(sm["roc_auc_max"], 4),

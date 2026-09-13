@@ -283,8 +283,11 @@ def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, se
     rf_cols = None
     rf_fh = None
     if rf_out_tsv:
-        vc0 = ev_rows[0]["variant_class"]
-        rf_cols = registry.rf_matrix_columns(vc0)
+        seen = set(); rf_cols = []
+        for vc in sorted(vclass_set):
+            for c in registry.rf_matrix_columns(vc):
+                if c not in seen:
+                    seen.add(c); rf_cols.append(c)
         registry.assert_rf_safe(rf_cols)
         rf_fh = open(rf_out_tsv, "w", newline="")
         rf_fh.write("\t".join(["family_id", "sample_id", "variant_id", "variant_class"] + rf_cols) + "\n")

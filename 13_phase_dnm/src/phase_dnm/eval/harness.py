@@ -63,6 +63,19 @@ def operating_point(y: np.ndarray, pass_: np.ndarray) -> Dict[str, float]:
     return dict(tpr=tp / max(1, tp + fn), fpr=fp / max(1, fp + tn), precision=tp / max(1, tp + fp), n_pass=int(p.sum()))
 
 
+def choose_tau_fpr(y: np.ndarray, p: np.ndarray, fpr: float) -> Optional[float]:
+    """Smallest probability threshold at which the fraction of REAL (label 0) rows called positive is <= fpr. The real raw
+    candidate set is ~99.7 % non-DNM (P13), so its pass rate is the operational false-positive rate; precision on the
+    synthetic-heavy training mix is not meaningful (positives can be the majority)."""
+    y = np.asarray(y); p = np.asarray(p, dtype=float)
+    ok = ~np.isnan(p); y, p = y[ok], p[ok]
+    neg = np.sort(p[y == 0])
+    if len(neg) == 0:
+        return None
+    k = int(np.floor(fpr * len(neg)))
+    return float(neg[len(neg) - 1 - k]) if k < len(neg) else float(neg[0])
+
+
 def choose_tau(y: np.ndarray, p: np.ndarray, precision: float) -> Optional[float]:
     """Smallest probability threshold whose held-out precision on these labels is >= `precision`."""
     y = np.asarray(y); p = np.asarray(p, dtype=float)
@@ -108,6 +121,7 @@ def side_tables(ids: pd.DataFrame, evidence_dir: str, train_dir: str, class_grou
         c = _read_cols(base_c, CAND_COLS) if os.path.exists(base_c) else pd.DataFrame(columns=CAND_COLS)
         e = _read_cols(base_e, EV_COLS) if os.path.exists(base_e) else pd.DataFrame(columns=EV_COLS)
         f = _read_cols(base_f, ANNOT_COLS) if os.path.exists(base_f) else pd.DataFrame(columns=ANNOT_COLS)
+        c, e, f = (t.drop_duplicates(subset=["variant_id"], keep="first") for t in (c, e, f))
         m = sub[["sample_id", "variant_id", "origin"]].merge(c, on="variant_id", how="left").merge(e, on="variant_id", how="left").merge(f, on="variant_id", how="left")
         parts.append(m)
     out = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
@@ -131,7 +145,7 @@ def heuristic_scores(side: pd.DataFrame, class_group: str) -> pd.DataFrame:
 # ----------------------------------------------------------------------------------------------
 def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: str, seeds: Sequence[int], out_dir: str,
               family_of_child: Dict[str, str], max_real_per_child: Optional[int], registry_manifest: dict, log=None,
-              baselines: bool = True, freeze: bool = True) -> Dict[str, object]:
+              baselines: bool = True, freeze: bool = True, allowed_cols: Optional[Iterable[str]] = None) -> Dict[str, object]:
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(os.path.join(out_dir, "rf_probs"), exist_ok=True)
     log = log or (lambda m: None)
@@ -150,7 +164,7 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
         assign = {r["family_id"]: int(r["outer_fold"]) for r in csv.DictReader(open(os.path.join(folds_dir, "folds.seed%d.tsv" % seed)), delimiter="\t")}
         real_glob = os.path.join(evidence_dir, "*", "features", "*.%s.features.rf.tsv" % class_group)
         synth_glob = os.path.join(train_dir, "seed%d" % seed, "*", "features", "*.%s.features.rf.tsv" % class_group)
-        d = CV.load_matrices(real_glob, synth_glob, class_group, family_of_child, max_real_per_child=max_real_per_child, seed=seed)
+        d = CV.load_matrices(real_glob, synth_glob, class_group, family_of_child, max_real_per_child=max_real_per_child, seed=seed, allowed=allowed_cols)
         log("harness %s seed %d: %d real + %d synthetic rows, %d features" % (class_group, seed, d.n_real, d.n_synth, len(d.features)))
         side = side_tables(d.ids, evidence_dir, train_dir, class_group, seed, family_of_child, synth_dir_of)
         side = d.ids[["sample_id", "variant_id", "origin"]].merge(side, on=["sample_id", "variant_id", "origin"], how="left").fillna("")
@@ -199,9 +213,11 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
             p_cal, _ = fm.predict(df)
             for vid, sid, pv in zip(df["variant_id"], df["sample_id"], p_cal):
                 prob_acc[(sid, vid)].append(float(pv))
-        # tau on held-out synthetic-vs-real labels (provisional, P15)
+        # tau (provisional, P15): fixed pass rate on the REAL held-out candidates (0.1 % / 1 %); the precision-based value is reported alongside
         okp = ~np.isnan(prob)
-        report.setdefault("tau_by_seed", []).append(dict(seed=seed, tau_p95=choose_tau(d.y[okp], prob[okp], 0.95), tau_p80=choose_tau(d.y[okp], prob[okp], 0.80)))
+        report.setdefault("tau_by_seed", []).append(dict(seed=seed, tau_fpr001=choose_tau_fpr(d.y[okp], prob[okp], 0.001), tau_fpr01=choose_tau_fpr(d.y[okp], prob[okp], 0.01),
+                                                         tau_p95=choose_tau(d.y[okp], prob[okp], 0.95), tau_p80=choose_tau(d.y[okp], prob[okp], 0.80),
+                                                         real_rows=int((d.y[okp] == 0).sum()), synthetic_rows=int((d.y[okp] == 1).sum())))
     # write outputs
     with open(os.path.join(out_dir, "harness.%s.tsv" % class_group), "w", newline="") as fh:
         cols = sorted({k for r in table for k in r}, key=lambda c: (c not in ("class_group", "arm", "seed"), c))
@@ -217,10 +233,11 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
             fh.write("variant_id\trf_prob\tn_seeds\n")
             for vid, pv, n in rows:
                 fh.write("%s\t%.6f\t%d\n" % (vid, pv, n))
-    taus = [t for t in report.get("tau_by_seed", []) if t["tau_p95"] is not None]
-    tau = dict(class_group=class_group, tau=float(np.median([t["tau_p95"] for t in taus])) if taus else None,
-               tau_rescue=float(np.median([t["tau_p80"] for t in taus if t["tau_p80"] is not None])) if taus else None,
-               basis="held-out synthetic-vs-real precision 0.95 / 0.80, median over seeds; PROVISIONAL until the external-truth FDR (P15)")
+    taus = [t for t in report.get("tau_by_seed", []) if t["tau_fpr001"] is not None]
+    tau = dict(class_group=class_group, tau=float(np.median([t["tau_fpr001"] for t in taus])) if taus else None,
+               tau_rescue=float(np.median([t["tau_fpr01"] for t in taus if t["tau_fpr01"] is not None])) if taus else None,
+               basis="pass rate on held-out REAL candidates 0.1 % (tau) / 1 % (tau_rescue), median over seeds; PROVISIONAL until the external-truth FDR (P15)",
+               precision_based=dict(tau_p95=[t["tau_p95"] for t in taus], tau_p80=[t["tau_p80"] for t in taus]))
     with open(os.path.join(out_dir, "tau.%s.json" % class_group), "w") as fh:
         json.dump(tau, fh, indent=1)
     report["tau"] = tau
@@ -231,7 +248,7 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
         best = max({keyf(c) for c in chosen_params}, key=lambda k: sum(1 for c in chosen_params if keyf(c) == k))
         d_all = CV.load_matrices(os.path.join(evidence_dir, "*", "features", "*.%s.features.rf.tsv" % class_group),
                                  os.path.join(train_dir, "seed*", "*", "features", "*.%s.features.rf.tsv" % class_group),
-                                 class_group, family_of_child, max_real_per_child=max_real_per_child, seed=0)
+                                 class_group, family_of_child, max_real_per_child=max_real_per_child, seed=0, allowed=allowed_cols)
         path = CV.fit_final(d_all, class_group, json.loads(best), 0, os.path.join(out_dir, "models"), registry_manifest,
                             notes=dict(seeds=list(seeds), max_real_per_child=max_real_per_child, tau=tau))
         report["frozen_model"] = path

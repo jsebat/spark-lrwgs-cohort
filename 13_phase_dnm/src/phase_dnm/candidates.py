@@ -150,7 +150,7 @@ def tr_candidates(vcf_path: str, family: str, child: str, father: str, mother: s
                 continue
             end = _ival(rec.info, "END") or rec.pos
             yield CandidateRecord(
-                family_id=family, sample_id=child, variant_id=rec.info.get("TRID", "%s:%d" % (rec.chrom, rec.pos)),
+                family_id=family, sample_id=child, variant_id="%s:a%d" % (rec.info.get("TRID", "%s:%d" % (rec.chrom, rec.pos)), idx),
                 chrom=rec.chrom, start=rec.pos, end=end, ref="<TR>", alt="<AL=%d>" % al, variant_class="TR", caller=caller,
                 caller_gt=cs.get("GT", "."), caller_gq=None, caller_dp=None, caller_qual=rec.qual, caller_filter=rec.filter,
                 child_ad=cs.get("SD", "."), father_gt=fs.get("GT", "."), mother_gt=ms.get("GT", "."), father_ad=fs.get("SD", "."),

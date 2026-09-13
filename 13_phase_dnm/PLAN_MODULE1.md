@@ -131,6 +131,19 @@
   Smoke synthetic trio (54280890): SNV/indel stage 606 s for 6,000 rows. Seed-0 array (34 trios, %10) queued behind it;
   annotation jobs 54281886/7 running. 90 tests + 1 skipped locally (the ML backend's DLLs are blocked on this Windows
   host; the CV test runs on Expanse).
+- **First harness table, SV, seed 0 (2026-09-13, job 54282295; 22,434 real + 105,000 synthetic rows, 64 features):** RF
+  0.998 ROC-AUC (no-phase 0.994, phase-only 0.977; sklearn RF 0.999, LR 0.992); heuristic H1 (child carries, parents 0/0,
+  GQ sweep) 0.61 with an operating point that passes every candidate (the original SV de novo rule IS the candidate
+  definition); H2 (mask + founder-panel recurrence) 0.20. **Two things this table taught before it can be quoted:** (i)
+  I had registered `gnomad_af` / `cohort_AC_loo` / `pon_founder_recurrence_loo` as classifier features that morning —
+  under the SynthDNM construction a positive is an inherited, common variant, so population frequency separates the labels
+  by construction (SynthDNM's universal set has none; JS's design was right, mine reintroduced the leak) → `rf_safe: false`,
+  heuristic arms and final table only, training rerun; (ii) the same effect makes the population-filter heuristic arms
+  (H2/H3) unfair on synthetic labels — the fair heuristic comparison on synthetic labels is H1, and H2/H3 vs RF+population
+  belong on the external truth (P22's 2×2, now measured rather than anticipated). Also fixed: per-child matrices with
+  different column sets (rf columns came from the first row's class), TR candidate ids shared by two alleles of one locus
+  (now `TRID:a<idx>`; old tables deduplicated at load), and τ chosen at a fixed pass rate on REAL held-out candidates
+  (0.1 % / 1 %) instead of precision on the positive-heavy mix (which gave τ = 0). SNV/indel and TR runs rerun after the fixes.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
