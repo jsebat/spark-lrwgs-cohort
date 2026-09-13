@@ -127,7 +127,8 @@ def cmd_xo_reads(a: argparse.Namespace) -> int:
         sys.exit("give at least one parent's --*-bam and --*-vcf")
     counts = classify(a.changepoints, a.out, parent_bam, parent_vcf,
                       min_spanning=xo.get("min_spanning_reads", 3), min_mapq=xo.get("min_mapq", 20),
-                      crossover_max_disc=xo.get("crossover_max_disc", 0.2), switch_min_disc=xo.get("switch_min_disc", 0.8))
+                      crossover_max_disc=xo.get("crossover_max_disc", 0.2), switch_min_disc=xo.get("switch_min_disc", 0.8),
+                      child_orientation_tsv=a.child_orientation)
     sys.stderr.write("xo-reads: %s -> %s\n" % (a.changepoints, " ".join("%s=%d" % kv for kv in sorted(counts.items()))))
     return 0
 
@@ -170,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--father"), x.add_argument("--mother")
     x.add_argument("--father-bam"), x.add_argument("--father-bai"), x.add_argument("--father-vcf"), x.add_argument("--father-vcf-index")
     x.add_argument("--mother-bam"), x.add_argument("--mother-bai"), x.add_argument("--mother-vcf"), x.add_argument("--mother-vcf-index")
+    x.add_argument("--child-orientation", help="<child>.orientation.tsv: marks intervals containing a located child switch")
     x.add_argument("--thresholds")
     x.set_defaults(func=cmd_xo_reads)
 

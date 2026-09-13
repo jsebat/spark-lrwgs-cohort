@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 COLUMNS = ["chrom", "parent", "parent_phase_block_id", "left_pos", "right_pos", "resolution_bp", "n_left", "n_right",
            "left_hap", "right_hap", "status", "n_parent_hets_in_interval", "n_gaps", "weakest_gap_start",
            "weakest_gap_end", "weakest_gap_informative_reads", "weakest_gap_discordant", "max_gap_disc_frac",
-           "min_spanning_reads_required"]
+           "min_spanning_reads_required", "child_switch_in_interval"]
 
 
 @dataclass
@@ -113,9 +113,21 @@ def interval_gap_concordance(bam, chrom: str, hets: List[Tuple[int, str, str]], 
 def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[str, Optional[str]]],
              parent_vcf: Dict[str, Tuple[str, Optional[str], str]], min_spanning: int = 3, min_mapq: int = 20,
              crossover_max_disc: float = 0.2, switch_min_disc: float = 0.8, max_hets_per_interval: int = 400,
-             flank_pad: int = 20000) -> Dict[str, int]:
-    """parent_bam: {'F': (bam, bai), 'M': (bam, bai)}; parent_vcf: {'F': (vcf, index, sample_name), ...}."""
+             flank_pad: int = 20000, child_orientation_tsv: Optional[str] = None) -> Dict[str, int]:
+    """parent_bam: {'F': (bam, bai), 'M': (bam, bai)}; parent_vcf: {'F': (vcf, index, sample_name), ...}.
+
+    child_orientation_tsv: the child's <child>.orientation.tsv; when given, each row records whether the interval
+    contains a located CHILD switch position (`child_switch_in_interval`) - a child-side switch flips the child's
+    parental allele and fakes a change in the parent's block that the parent's reads cannot reveal (2026-09-12:
+    10.9% of CROSSOVER calls vs 4.4% of AMBIGUOUS ones overlapped a child switch).
+    """
     import pysam
+    child_switches: Dict[str, List[int]] = {}
+    if child_orientation_tsv:
+        with open(child_orientation_tsv, newline="") as fh:
+            for r in csv.DictReader(fh, delimiter="\t"):
+                if int(r.get("switch_pos", 0) or 0) > 0:
+                    child_switches.setdefault(r["chrom"], []).append(int(r["switch_pos"]))
     bams = {k: (pysam.AlignmentFile(p, "rb", index_filename=i) if i else pysam.AlignmentFile(p, "rb")) for k, (p, i) in parent_bam.items()}
     vcfs = {k: (pysam.VariantFile(p, index_filename=i) if i else pysam.VariantFile(p), s) for k, (p, i, s) in parent_vcf.items()}
     counts: Dict[str, int] = {"CROSSOVER": 0, "SWITCH_ERROR": 0, "AMBIGUOUS": 0, "UNTESTABLE": 0}
@@ -128,19 +140,22 @@ def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[st
             n_hets = n_gaps = 0
             weakest = (left, right, -1, -1)                    # (gap_start, gap_end, informative reads, discordant)
             max_disc = -1.0
+            child_hit = "Y" if child_switches and any(left <= p <= right for p in child_switches.get(chrom, ())) else ("N" if child_switches else ".")
             if parent not in bams or parent not in vcfs:
                 status = "UNTESTABLE"
             else:
                 vcf, sample = vcfs[parent]
-                hets = parent_phased_snv_hets(vcf, sample, chrom, left, right, ps)
-                if len(hets) < 2:
-                    # endpoints are indel hets or the interval is tiny: widen to the nearest phased SNV het of the
-                    # same block on each side (a switch inside the interval is still inside the wider gap)
-                    wider = parent_phased_snv_hets(vcf, sample, chrom, max(1, left - flank_pad), right + flank_pad, ps)
-                    lefts = [h for h in wider if h[0] < left]
-                    rights = [h for h in wider if h[0] > right]
-                    inside = [h for h in wider if left <= h[0] <= right]
-                    hets = ([lefts[-1]] if lefts else []) + inside + ([rights[0]] if rights else [])
+                # The change lies somewhere in [left, right]. The tested span must COVER that whole interval, so it
+                # always runs from the nearest phased SNV het of the block at or before `left` to the nearest at or
+                # after `right`; an endpoint that is an indel het (not testable by base lookup) is thereby bridged
+                # rather than leaving an untested stretch that a parental switch could hide in (first cohort run
+                # over-called paternal crossovers by ~10 per meiosis with the span starting at the first SNV inside).
+                wider = parent_phased_snv_hets(vcf, sample, chrom, max(1, left - flank_pad), right + flank_pad, ps)
+                lefts = [h for h in wider if h[0] <= left]
+                rights = [h for h in wider if h[0] >= right]
+                inside = [h for h in wider if left < h[0] < right]
+                hets = ([lefts[-1]] if lefts else []) + inside + ([rights[0]] if rights else [])
+                child_hit = "Y" if child_switches and any(left <= p <= right for p in child_switches.get(chrom, ())) else "N"
                 if len(hets) > max_hets_per_interval:           # a huge interval: thin to evenly spaced sites + last
                     step = len(hets) // max_hets_per_interval + 1
                     hets = hets[::step] + [hets[-1]]
@@ -171,7 +186,7 @@ def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[st
             counts[status] += 1
             out.write("\t".join(str(x) for x in (chrom, parent, ps, left, right, right - left, r["n_left"], r["n_right"],
                                                  r["left_hap"], r["right_hap"], status, n_hets, n_gaps, weakest[0], weakest[1],
-                                                 weakest[2], weakest[3], round(max_disc, 3), min_spanning)) + "\n")
+                                                 weakest[2], weakest[3], round(max_disc, 3), min_spanning, child_hit)) + "\n")
     for b in bams.values():
         b.close()
     return counts

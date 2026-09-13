@@ -62,6 +62,17 @@
   design). Flag: chr9 holds 19 of 161 crossovers across four meioses (~3× its genetic-map share) — pericentromeric
   mismapping; per-chromosome crossover counts vs. genetic-map length become a cohort QC table. Child-side switch
   errors account for 5.7 % of candidates (27× chance) and are flagged, not resolved, by any parent-read test.
+- **M1b2 cohort run #1 (2026-09-12, array 54271727, 33/33 COMPLETED, 62–410 s per family, 182 MB).** Per meiosis:
+  CROSSOVER median **41 paternal (26–68) / 54 maternal (40–85)**, ratio 1.32; SWITCH_ERROR 9 / 7; ~78 % of candidates
+  AMBIGUOUS (`low_reads` 9,385 — a gap longer than a read; `mixed_disc` 4,794; `no_snv_gap` 72). Against ~26 / ~43
+  (deCODE; unverified here) and a ratio ~1.6, **paternal is over-called by ~15 and maternal by ~11 — and detection is a
+  lower bound, so the excess is false positives.** Separating test: CROSSOVER calls contain a located child switch
+  10.9 % of the time vs 4.4 % for AMBIGUOUS (2.5×) — child-side switches explain ~5 per meiosis (41 → 36, 54 → 50),
+  not all. Remaining suspect: untested sub-intervals — the concordance span began at the first SNV het *inside*
+  the interval, leaving the stretch from an indel-het endpoint untested; the span now always runs from the nearest
+  phased SNV het at/before `left` to the nearest at/after `right`, and every row records
+  `child_switch_in_interval`. chr19 is 2–3× its physical-length share (its genetic length per Mb is ~1.8× the
+  genome mean, so likely genuine); chr9 is no longer flagged. Table: `cohort_crossover_qc.tsv`. Rerun follows.
 - **Read-level steps written (2026-09-12):** `hapdepth` (per-haplotype depth in 1 kb bins over each primary read's
   reference span; pysam, lazily imported) and `xo-reads` (M1b2: weakest-link count of the parent's haplotagged
   reads spanning consecutive phased hets across each change interval → CROSSOVER / SWITCH_ERROR / AMBIGUOUS).

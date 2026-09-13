@@ -44,6 +44,7 @@ while IFS=$'\t' read -r child father mother; do
       --father-vcf "$(vcf_of "$father")" --father-vcf-index "$(tbi_of "$father")" \
       --mother "$mother" --mother-bam "$(bam_of "$mother")" --mother-bai "$(bai_of "$mother")" \
       --mother-vcf "$(vcf_of "$mother")" --mother-vcf-index "$(tbi_of "$mother")" \
+      --child-orientation "$OUT/$child.orientation.tsv" \
       --thresholds "$HERE/config/thresholds.yaml"
   echo "xo-reads done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
   n_done=$((n_done+1))
