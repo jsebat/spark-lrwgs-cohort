@@ -8,6 +8,11 @@
   `orientation.tsv` (read → parent of origin by block + position), `transmission.tsv` (parent haplotype →
   transmitted/untransmitted by block + position), `changepoints.resolved.tsv` (with `child_switch_in_interval`),
   and per sample `hapdepth.tsv.gz`. `haplotag --export-bam` (IGV) is deferred; the tables are the labels (P4).
+- **Module 2 started (2026-09-12): shared `CandidateRecord` + unfiltered generators for SNV/indel, SV, TR
+  (`phase-dnm candidates`), run cohort-wide (array 54273350, 33/33, ~100 s per family).** Per child: small variants
+  31,757 raw (GQ ≥ 20: 3,008; GQ ≥ 30: 609) → P13 contamination 0.22 % / 2.3 % / 11 %; SV 627 (INS 374, DEL 219, BND 46);
+  TR 38,921 at ≥ 1 motif unit (990 at ≥ 3 units). Details in DESIGN §0.2. Next: the six-haplotype extractor
+  (`hapmatrix.py`) with the three alt-support adapters, on a read-level minitrio built with the cached WDL images.
 - **Week 1 (2026-09-12): scaffold, VCF-level minitrio, `orient.py` — done, 12 tests passing.** Package `src/phase_dnm`
   (pure-Python trio VCF reader, `phase-dnm orient` CLI), `tests/make_minitrio_vcf.py` (simulated trio with known
   haplotypes, one crossover per parent per chromosome, HiPhase-shaped per-sample phased VCFs, switch errors,

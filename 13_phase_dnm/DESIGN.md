@@ -53,19 +53,19 @@ Citation check: SynthDNM = Lian A, Guevara J, Xia K, Sebat J. *Bioinformatics* 2
 | existing de novo set (baseline for the concordance table, P18) | `L/tiering/denovo_tiered.tsv` (1,332 SNV/indel across 35 probands, median 38), `L/tiering/denovo_sv/denovo_sv_PRIORITIZED_v2.tsv` (coding, disease-gene SVs), `L/tr/tr_denovo_expansions.tsv` (191 loci) | `L` = the Lustre analysis directory; **was unreachable 2026-09-11** — copy to the filer before use |
 | lab operating rules | `docs/EXPANSE.md`; wrappers `longread-autism/cohort/lab_commands.sh` (`lab_submit`, `lab_status`, `lab_usage`, …) | every job: show resources first, inspect after submitting, state an ETA |
 
-### 0.2 The P13 number, measured (chr22, first callset family, two children)
+### 0.2 The P13 numbers, measured genome-wide (`phase-dnm candidates`, 35 complete-trio children, 2026-09-12)
 
-Child het + both parents hom-ref in the family joint VCF, no other filter:
+Unfiltered candidates per child (median, range), from the family joint VCFs on the filer:
 
-| filter | chr22, child 1 | chr22, child 2 | ×75 ≈ genome |
-|---|---|---|---|
-| none (raw) | 378 | 324 | **~24–28 k** |
-| min trio GQ ≥ 20 | 37 | 23 | ~1.7–2.8 k |
-| min trio GQ ≥ 30 | 4 | 6 | ~300–450 |
-| GQ ≥ 20 and DP ≥ 10 in all three | 30 | 22 | ~1.6–2.3 k |
-| indel fraction of raw | 0.18 | 0.18 | |
+| class / stratum | per child | note |
+|---|---|---|
+| small variants, raw (child carries an allele neither called parent has) | **31,757** (18,885–49,140) | SNV 12,894 + INDEL 19,171 — indel-heavy, as expected for HiFi homopolymer errors |
+| … min trio GQ ≥ 20 | 3,008 (2,279–4,769) | |
+| … min trio GQ ≥ 30 | 609 (432–994) | |
+| SV (sawfish; child carries, both parents 0/0) | 627 (448–885) | DEL 219, INS 374, DUP 2, INV 0, BND 46 |
+| TR (TRGT; child allele beyond both parents by ≥ 1 motif unit) | 38,921 (20,792–84,488) | expansion 13,321, contraction 23,803; **≥ 3 units: 990** (576–1,540) |
 
-Against ~70 true germline DNMs per genome (**unverified** exact figure; order of magnitude): raw negatives carry ~0.3 % true DNMs — SynthDNM's negative-set assumption **holds** on HiFi if negatives are the raw set, as Jon confirmed is SynthDNM's practice. At GQ ≥ 30 the contamination would be 15–25 % and the scheme would fail. Decision P13 follows. The current pipeline's filtered set (median 38/proband) is ~half the expected rate, so rescue is plausible in principle; how much of the gap is the 11 % mask vs. caller filtering is one of the first things M2 measures.
+Against ~70 true germline SNV/indel DNMs per genome (**unverified** exact figure): the raw set carries **0.22 %** true DNMs, the GQ ≥ 20 set 2.3 %, the GQ ≥ 30 set 11 %. SynthDNM's negative-set assumption **holds on HiFi with the raw set** (P13) and would fail at GQ ≥ 30. The chr22 probe that preceded this (24–28 k / 1.7–2.8 k / 300–450 extrapolated) was the right order of magnitude. The current pipeline's filtered set (median 38/proband) is ~half the expected rate, so rescue is plausible in principle. The TR universe at ≥ 1 unit is dominated by 1–2-unit length wobble (stutter, genotyping noise): kept whole as the unfiltered negative class, but every TR table carries `delta_units` and the ≥ 3-unit stratum (~1,000 per child) is reported separately (P5). Cohort table: `evidence/cohort_candidate_counts.tsv`. Generation cost: ~100 s per family, 131 MB.
 
 ---
 
