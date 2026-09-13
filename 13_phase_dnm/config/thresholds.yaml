@@ -29,6 +29,10 @@ hapdepth:                    # P7 input
   bin_size: 1000
   min_mapq: 20
 
+candidates:                  # P5 — UNFILTERED ingestion; these are definitions of "candidate", not quality filters
+  tr_min_units: 1            # child allele beyond both parents by >= this many motif units (unit = shortest motif)
+  tr_min_bp: 1
+
 hapmatrix:                   # P7
   k: [3, 5]                  # per-haplotype depth thresholds for "observed"; k=5 is the working one at ~11x/hap
   error_reads: 1             # e = max(error_reads, error_frac * dp)

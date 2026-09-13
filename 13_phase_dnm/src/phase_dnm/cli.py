@@ -15,7 +15,7 @@ from .phasing import transmission as T
 
 PLANNED = {
     "haplotag": "M1c export to BAM (optional, IGV); labels are the orientation/transmission tables",
-    "candidates": "M2, week 4", "review": "M2, weeks 4-5", "features": "weeks 6-8",
+    "review": "M2, weeks 4-5", "features": "weeks 6-8",
     "spike": "weeks 6-8", "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
 }
 
@@ -168,6 +168,36 @@ def cmd_phase_qc(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_candidates(a: argparse.Namespace) -> int:
+    from . import candidates as C
+    from .records import write_candidates
+    man = read_manifest(a.manifest)
+    father, mother = trio_of(man, a.child)
+    family = man[a.child]["family_id"]
+    thr = load_thresholds(a.thresholds)
+    gen = {"snv_indel": lambda: C.snv_indel_candidates(a.vcf, family, a.child, father, mother),
+           "sv": lambda: C.sv_candidates(a.vcf, family, a.child, father, mother),
+           "tr": lambda: C.tr_candidates(a.vcf, family, a.child, father, mother,
+                                          min_units=thr.get("candidates", {}).get("tr_min_units", 1),
+                                          min_bp=thr.get("candidates", {}).get("tr_min_bp", 1))}[a.variant_class]
+    recs = list(gen())
+    lists = []
+    for spec in a.list or []:
+        name, tier, path = spec.split(":", 2)
+        lists.append((name, tier.upper(), path))
+    if lists:
+        recs = C.merge_lists(recs, lists)
+    os.makedirs(a.out_dir, exist_ok=True)
+    out = os.path.join(a.out_dir, "%s.%s.candidates.tsv" % (a.child, a.variant_class))
+    n = write_candidates(recs, out)
+    by_tier = {}
+    for r in recs:
+        by_tier[r.source_tier] = by_tier.get(r.source_tier, 0) + 1
+    sys.stderr.write("candidates %s %s: %d rows (%s) -> %s\n" % (a.child, a.variant_class, n,
+                     ", ".join("%s=%d" % kv for kv in sorted(by_tier.items())), out))
+    return 0
+
+
 def _trio_args(sp: argparse.ArgumentParser):
     sp.add_argument("--child", required=True, help="child sample id")
     sp.add_argument("--father"), sp.add_argument("--mother"), sp.add_argument("--sex", help="child sex 1/2/M/F")
@@ -209,6 +239,14 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--child-orientation", help="<child>.orientation.tsv: marks intervals containing a located child switch")
     x.add_argument("--thresholds")
     x.set_defaults(func=cmd_xo_reads)
+
+    cd = sub.add_parser("candidates", help="M2: unfiltered candidate records for one child and one class (P5)")
+    cd.add_argument("--child", required=True), cd.add_argument("--manifest", required=True)
+    cd.add_argument("--class", dest="variant_class", required=True, choices=["snv_indel", "sv", "tr"])
+    cd.add_argument("--vcf", required=True, help="family joint VCF of that class (GLnexus / sawfish / TRGT)")
+    cd.add_argument("--list", action="append", help="existing list to cross-reference: NAME:TIER:path.tsv (repeatable)")
+    cd.add_argument("--out-dir", required=True), cd.add_argument("--thresholds")
+    cd.set_defaults(func=cmd_candidates)
 
     qc = sub.add_parser("phase-qc", help="M1d: per-child phase_qc.json and the cohort QC table with gates")
     qc.add_argument("--manifest", required=True)

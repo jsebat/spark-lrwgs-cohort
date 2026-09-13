@@ -137,6 +137,63 @@ class VcfReader:
                        dp=_int_or_none(fields.get("DP", ".")), ad=ad)
 
 
+@dataclass(slots=True)
+class Record:
+    """One VCF line with INFO and every FORMAT field for every sample (M2 candidate generation needs INFO and
+    caller-specific FORMAT keys such as TRGT AL/SD/ALLR/MC and sawfish AD/CN that Site does not carry)."""
+    chrom: str
+    pos: int
+    id: str
+    ref: str
+    alts: Tuple[str, ...]
+    qual: Optional[float]
+    filter: str
+    info: Dict[str, str]                 # flags map to "1"
+    samples: Dict[str, Dict[str, str]]   # sample -> FORMAT key -> raw string
+
+    @property
+    def alleles(self) -> Tuple[str, ...]:
+        return (self.ref,) + self.alts
+
+    def gt(self, sample: str) -> Tuple[Optional[Tuple[int, ...]], bool]:
+        return _parse_gt(self.samples[sample].get("GT", "."))
+
+    def carried(self, sample: str) -> Optional[set]:
+        a, _ = self.gt(sample)
+        return set(a) if a else None
+
+
+def iter_records(reader: VcfReader, samples: Optional[Iterable[str]] = None) -> Iterator[Record]:
+    """Stream Records for the requested samples (default: all samples of the file)."""
+    want = list(samples) if samples else list(reader.samples)
+    cols = {s: 9 + reader.samples.index(s) for s in want}
+    for line in reader._fh:
+        if line.startswith("#"):
+            continue
+        f = line.rstrip("\n").split("\t")
+        if len(f) < 9:
+            continue
+        info: Dict[str, str] = {}
+        if f[7] not in (".", ""):
+            for kv in f[7].split(";"):
+                if "=" in kv:
+                    k, v = kv.split("=", 1)
+                    info[k] = v
+                elif kv:
+                    info[kv] = "1"
+        fmt = f[8].split(":")
+        smp = {}
+        for s, c in cols.items():
+            vals = f[c].split(":") if c < len(f) else []
+            smp[s] = dict(zip(fmt, vals))
+        try:
+            qual = None if f[5] in (".", "") else float(f[5])
+        except ValueError:
+            qual = None
+        yield Record(chrom=f[0], pos=int(f[1]), id=f[2], ref=f[3], alts=tuple(f[4].split(",")), qual=qual,
+                     filter=f[6], info=info, samples=smp)
+
+
 def _grouped(reader: VcfReader, sample: Optional[str]):
     """Yield ((contig_rank, pos), {(ref, alt): Site}) groups in file order."""
     key = None

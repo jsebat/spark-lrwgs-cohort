@@ -1,6 +1,13 @@
 # Module 1 build plan — phasing orientation, transmission map, QC
 
 ## Status
+- **MODULE 1 GATE PASSED (2026-09-12).** `phase-dnm phase-qc` over all 33 complete-trio families / 35 children:
+  **31 PASS**; the four flags are all `LOW_DEPTH` (children 9.4× and 11.5×, fathers 8.3× and 11.9×; R11) — every
+  orientation, transmission, crossover and sex-consistency gate passes. Cohort table `cohort_phase_qc.tsv` +
+  `cohort_phase_qc.summary.json` on the filer; per child `<child>.phase_qc.json`. Deliverables for M2 per child:
+  `orientation.tsv` (read → parent of origin by block + position), `transmission.tsv` (parent haplotype →
+  transmitted/untransmitted by block + position), `changepoints.resolved.tsv` (with `child_switch_in_interval`),
+  and per sample `hapdepth.tsv.gz`. `haplotag --export-bam` (IGV) is deferred; the tables are the labels (P4).
 - **Week 1 (2026-09-12): scaffold, VCF-level minitrio, `orient.py` — done, 12 tests passing.** Package `src/phase_dnm`
   (pure-Python trio VCF reader, `phase-dnm orient` CLI), `tests/make_minitrio_vcf.py` (simulated trio with known
   haplotypes, one crossover per parent per chromosome, HiPhase-shaped per-sample phased VCFs, switch errors,
