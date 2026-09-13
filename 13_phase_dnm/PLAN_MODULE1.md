@@ -169,6 +169,15 @@
   non-missing fraction differs by > 0.5 between classes or is < 1 % present in real rows; dropped features logged in
   `cv_report`). Process rule: synthetic reviews and real reviews must come from the same code revision — the final cohort
   run re-reviews the real trios so the four columns are filled on both sides and the guard keeps them.
+- **Corrected seed-0 harness table (2026-09-13, jobs 54283814/5/6, presence-leak guard active; ROC-AUC, identical
+  swap-closed family folds):** SNV/indel (51 features after the guard): RF 0.997, no-phase 0.997, phase-only 0.951,
+  sklearn RF 0.995, LR 0.984; H1 slivar 0.887 (TPR 0.48 @ FPR 0.0078), H2/H3 0.874. SV (34): RF 0.994, no-phase 0.990,
+  phase-only 0.864, RF/LR 0.994/0.988; H1 0.61. **TR (38): RF 0.890, no-phase 0.835, phase-only 0.877, RF/LR 0.882/0.840;
+  H1 0.59, H2 0.59** (the earlier 0.977 was the leak). Read-out: on synthetic labels the phase block is neutral for
+  SNV/indel (caller features saturate), additive for SV, and the main signal for TR; the classifier-vs-heuristic gap is
+  large in every class. The guard dropped 17/27/23 columns, all with 0 % presence on both sides (the never-produced
+  annotation/context features) — none of them a real leak this time. τ (0.1 % real pass rate): 0.974 / 0.998 / 0.809;
+  τ_rescue (1 %): 0.432 / 0.983 / 0.420. Seeds 1–4 synthetic trios: 140/140 COMPLETED; annotation 135/140.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
