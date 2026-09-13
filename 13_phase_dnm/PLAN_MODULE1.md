@@ -228,6 +228,12 @@
   `c_tr_al_hapA_sd`, `child_SD_expanded`, `c_alt_hap_frac`. The read-quality family (C) is absent because those columns are
   empty on real rows until the cohort re-review. Caveats as recorded in P14: the classifier share undercounts phase (the
   transmitted-haplotype test is rf_safe:false, rule layer), and synthetic-label shares can carry leakage — the WES arm checks.
+- **P18 rf+phase v2 — rf_q with the provisional per-class τ_q (2026-09-13, integrate 54285849, concordance 54285850,
+  seed-0 fold models):** per-fold pass rates are now uniform (SNV/indel 0.26–0.30 % at τ_q 0.997; TR 0.08–0.10 % and SV
+  0.02–0.09 % at 0.999) — the fold-0 inflation is gone. SNV/indel: concordant 749, original-only 586 (486 below τ, 96
+  demoted, 4 mosaic), module-only 2,658; per proband 38 → **81**; paternal fraction of module YES 0.697; YES = 2,585 via
+  rf_q ≥ τ_q + 822 via rescue. SV: 4 / 8,125 / 10, per proband 0 (14 calls cohort-wide). TR: 26 / 192 / 2,044, 6 → 58.
+  Per-child SNV/indel YES still has a high tail (19–353) to profile once the 5-seed rf_q exists.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
