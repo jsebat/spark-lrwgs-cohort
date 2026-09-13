@@ -188,6 +188,14 @@
   outlier child under investigation. **Bug found in the same pass:** the "5-seed" training jobs were five copies of seed 0
   — `--export=ALL,SEEDS=0,1,2,3,4` is split by sbatch at the commas; `m4_train.sb` now takes the seed list as a positional
   argument and the run is resubmitted into `harness_5seed/`.
+- **Per-child YES outlier → per-fold scale (2026-09-13):** the two children with 480 / 220 YES (the SPARK quad) were 449 / 163
+  rf ≥ τ calls with rule class `inconclusive`/`unphased`, low child GQ (median 12), not sib-shared (2/480), not recurrent
+  (62/480 in any other child). Per fold: fold 0's held-out model put 989 real rows ≥ τ (0.46 %) across all seven fold-0
+  families vs 4–81 (≤ 0.04 %) in the other folds, with identical hyperparameters and per-fold AUC 0.9965 — the calibrated
+  probability scale, not the ranking, differs between fold models, and one pooled τ then passes 10× more rows in one fold.
+  Fix: `rf_q` fold-quantile score (`train/rescore.py`, `phase-dnm rescore`, `integrate --score-column rf_q`), τ as a pass
+  rate (0.999 / 0.99) by construction; fold models are now saved per seed/fold (`fold_models/`), which the P27 external arm
+  also needs. Rescored integration + concordance queued behind the fold-model training (harness_seed0fm).
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
