@@ -187,6 +187,9 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
 
         # classifier arms
         res, prob, raw, fold_models = CV.nested_cv(d, assign, class_group, seed, kind="xgb", ablation="full", log=log)
+        os.makedirs(os.path.join(out_dir, "fold_models"), exist_ok=True)
+        for k, fm in fold_models.items():
+            fm.save(os.path.join(out_dir, "fold_models", "%s.seed%d.fold%d" % (class_group, seed, k)))
         add("RF", raw, prob)
         add("RF+P(demote)", phase_rerank(raw, pc, ho, ps, allow_rescue=False), note="synthetic labels: demotion only")
         chosen_params += res.chosen

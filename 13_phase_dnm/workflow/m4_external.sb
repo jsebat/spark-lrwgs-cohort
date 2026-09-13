@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_ext
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=02:00:00
+# P27 external-truth arm (spike-ins) for the three class groups, one seed's held-out fold models.
+# Usage: sbatch workflow/m4_external.sb [SEED=0]
+set -euo pipefail
+SEED="${SEED:-0}"
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2
+TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+for c in snv_indel sv tr; do
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli external --class-group "$c" --manifest "$MANIFEST" --evidence-dir "$EVIDENCE_DIR" \
+      --harness-dir "$TRAIN_DIR/harness" --folds-dir "$TRAIN_DIR/folds" --seed "$SEED" --out "$TRAIN_DIR/harness/external.$c.seed$SEED.json"
+done

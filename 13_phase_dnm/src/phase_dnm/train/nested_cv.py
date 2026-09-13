@@ -234,6 +234,28 @@ class FoldModel:
         raw = self.model.predict_proba(Xn.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float))[:, 1]
         return (self.iso.predict(raw) if self.iso is not None else raw), raw
 
+    def save(self, prefix: str) -> None:
+        """<prefix>.xgb.json + <prefix>.meta.json (columns, isotonic knots). XGBoost models only."""
+        self.model.save_model(prefix + ".xgb.json")
+        meta = {"cols": self.cols, "iso": None}
+        if self.iso is not None:
+            meta["iso"] = {"x": [float(v) for v in self.iso.X_thresholds_], "y": [float(v) for v in self.iso.y_thresholds_]}
+        with open(prefix + ".meta.json", "w") as fh:
+            json.dump(meta, fh)
+
+    @classmethod
+    def load(cls, prefix: str) -> "FoldModel":
+        import xgboost as xgb
+        m = xgb.XGBClassifier()
+        m.load_model(prefix + ".xgb.json")
+        meta = json.load(open(prefix + ".meta.json"))
+        iso = None
+        if meta.get("iso"):
+            from sklearn.isotonic import IsotonicRegression
+            iso = IsotonicRegression(out_of_bounds="clip")
+            iso.fit(np.array(meta["iso"]["x"]), np.array(meta["iso"]["y"]))
+        return cls(m, iso, meta["cols"])
+
 
 def nested_cv(d: Data, assign: Dict[str, int], class_group: str, seed: int, kind: str = "xgb", ablation: str = "full",
               inner_folds: int = 3, calibrate: bool = True, log=None) -> Tuple[CVResult, np.ndarray, np.ndarray, Dict[int, FoldModel]]:

@@ -481,6 +481,33 @@ def cmd_annotate(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_external(a: argparse.Namespace) -> int:
+    """P27: external-truth arm (spike-ins) scored by the held-out fold models of one seed."""
+    import csv
+    from .eval import external as EX
+    man = read_manifest(a.manifest)
+    fam_of = {sid: r["family_id"] for sid, r in man.items()}
+    fold_of = {r["family_id"]: int(r["outer_fold"]) for r in csv.DictReader(open(os.path.join(a.folds_dir, "folds.seed%d.tsv" % a.seed)), delimiter="\t")}
+    taus = {}
+    tj = os.path.join(a.harness_dir, "tau.%s.json" % a.class_group)
+    if os.path.exists(tj):
+        t = json.load(open(tj))
+        if t.get("tau") is not None:
+            taus[a.class_group] = float(t["tau"])
+    log = lambda m: sys.stderr.write(m + "\n")
+    rep = EX.evaluate_spikes(a.evidence_dir, a.harness_dir, a.class_group, a.seed, fam_of, fold_of, taus, max_real_per_child=a.max_real_per_child, log=log)
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    with open(a.out, "w") as fh:
+        json.dump(rep, fh, indent=1, sort_keys=True, default=str)
+    for arm, r in sorted(rep.get("arms", {}).items()):
+        log("EXTERNAL %-22s roc_auc %s pr_auc %s%s" % (arm, None if r["roc_auc"] is None else round(r["roc_auc"], 4), None if r["pr_auc"] is None else round(r["pr_auc"], 4),
+            "" if "tpr" not in r else "  op tpr %.3f fpr %.4f" % (r["tpr"], r["fpr"])))
+    for k in ("recall_at_tau_by_class", "mosaic_sensitivity_at_tau_CM", "mosaic_sensitivity_at_tau_PM"):
+        if k in rep:
+            log("EXTERNAL %s: %s" % (k, json.dumps(rep[k])))
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
@@ -684,6 +711,11 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--slivar-cmd", help="command prefix, e.g. 'singularity exec -B /expanse:/expanse slivar.sif slivar'"), an.add_argument("--gnomad-zip")
     an.add_argument("--joint-vcf-pattern", help="family joint small-variant VCF glob with {FAMILY} (sib-shared in quads)")
     an.set_defaults(func=cmd_annotate)
+    ex = sub.add_parser("external", help="P27: external-truth arm - spike-ins scored by held-out fold models, same arms as the harness")
+    ex.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), ex.add_argument("--manifest", required=True)
+    ex.add_argument("--evidence-dir", required=True), ex.add_argument("--harness-dir", required=True), ex.add_argument("--folds-dir", required=True)
+    ex.add_argument("--seed", type=int, default=0), ex.add_argument("--max-real-per-child", type=int, default=20000), ex.add_argument("--out", required=True)
+    ex.set_defaults(func=cmd_external)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")
