@@ -1,0 +1,17 @@
+# Snakemake profile for SDSC Expanse (slurm executor plugin). Resources per rule are declared in the Snakefile in the units the
+# hand-run sbatch headers used; account / partition / QOS follow docs/EXPANSE.md (ind-shared, ind-shared-normal).
+executor: slurm
+jobs: 40
+default-resources:
+  slurm_account: ddp195
+  slurm_partition: ind-shared
+  slurm_extra: "'--qos=ind-shared-normal'"
+  mem_mb: 4000
+  runtime: 60
+  cpus: 1
+set-resources: {}
+latency-wait: 120
+retries: 1
+rerun-incomplete: true
+printshellcmds: true
+keep-going: true

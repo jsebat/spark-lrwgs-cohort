@@ -1,0 +1,4 @@
+# Snakemake configuration for 13_phase_dnm. Paths come from the (gitignored) environment file; nothing identifying lives here.
+env: config/phase_dnm.env
+seeds: "0,1,2,3,4"     # M4 swap seeds (DESIGN P12/P14: >= 5 outer-fold seeds, mean +- range)
+n_folds: 5
