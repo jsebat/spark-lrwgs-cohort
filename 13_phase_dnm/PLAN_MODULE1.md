@@ -59,6 +59,15 @@
   reads (`Row.n`); features `c_amb_frac_hapA`, `p_amb_frac_max`; flag `AMBIGUOUS_READS`; `phase-dnm reclassify` re-runs
   the rule layer from the evidence columns without BAMs (`*.evidence.review.tsv` immutable, `*.evidence.tsv` working);
   `workflow/m2_reclassify_family.sb` chains reclassify → likelihood → features. 3 new tests (54 passing).
+- **Reclassify cohort-wide under thresholds 0.2.0 (2026-09-13, smoke 54279292 + array 54279293, 33/33 COMPLETED, ~20 s per
+  child per step; `*.evidence.review.tsv` kept for all 105 tables) and the comparison re-run (job 54279309):** rule
+  `germline_DNM_phased` SNVs with a resolved parent of origin **6,400 → 2,747 (median 72 per child), paternal fraction
+  0.571 → 0.664 (GQ ≥ 20: 1,858 rows, 0.746)**; their median `phase_score` 0.049 → **0.976** (p10 0.74); 2,057 of them
+  (75 %) are inside the likelihood ≥ 0.9 set (intersection paternal 0.722; 0.762 at GQ ≥ 20). The rule-only remainder is
+  690 rows at 0.488 (was 4,276 at 0.501) — what is left of the disagreement is the depth-limited parental-mosaic
+  alternative (best alternative for 2,596 of 2,747 rule-phased rows), not a definitional mismatch. Likelihood-only stays
+  7,463 at 0.511 (unobservable haplotypes; the posterior does not encode observability). Feature coverage after the fix:
+  58/89 applicable SNV/indel features.
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the

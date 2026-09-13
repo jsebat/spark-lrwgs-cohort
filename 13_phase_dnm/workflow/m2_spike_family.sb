@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_spike
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=6G
+#SBATCH --time=03:00:00
+# Spike-in harness for one family (each complete-trio child): plan -> apply (slice BAMs) -> review on the slices ->
+# likelihood -> features -> evaluate. Outputs in $EVIDENCE_DIR/<FAMILY>/spike/<child>/.
+# Env knobs: REGIONS (default chr20/chr21/chr22 arms), N_PER (sites per class x subtype x scenario, default 12), SEED.
+# Usage: sbatch workflow/m2_spike_family.sb <FAMILY_ID>   (or LIST + array)
+set -euo pipefail
+FAMILY="${1:-}"
+if [ -z "$FAMILY" ] && [ -n "${LIST:-}" ] && [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then FAMILY=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST"); fi
+[ -n "$FAMILY" ] || { echo "usage: $0 <FAMILY_ID>  (or LIST + array)" >&2; exit 2; }
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$HERE/src/phase_dnm" ] || { echo "ERROR: cannot locate the 13_phase_dnm directory; got '$HERE'" >&2; exit 2; }
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+THR="$HERE/config/thresholds.yaml"
+O="$CALLSET_ROOT/$FAMILY/out"; PD="$PHASE_DIR/$FAMILY"
+REGIONS="${REGIONS:-chr20:1000000-25000000,chr20:32000000-63000000,chr21:15000000-45000000,chr22:20000000-50000000}"
+N_PER="${N_PER:-12}"; SEED="${SEED:-13}"
+bam_of() { ls "$O"/merged_haplotagged_bam/*/"$1".*.haplotagged.bam 2>/dev/null | head -1; }
+bai_of() { local b; b=$(bam_of "$1"); echo "${b/merged_haplotagged_bam\//merged_haplotagged_bam_index/}.bai"; }
+trb_of() { ls "$O"/trgt_spanning_reads/*/"$1".*.trgt.spanning.sorted.bam 2>/dev/null | head -1; }
+tri_of() { local b; b=$(trb_of "$1"); echo "${b/trgt_spanning_reads\//trgt_spanning_reads_index/}.bai"; }
+MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --mask $m"; done
+REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "$REF_FA" ] && REFARG="--reference $REF_FA"
+
+n_done=0
+while IFS=$'\t' read -r child father mother; do
+  [ -n "$father" ] && [ "$father" != "0" ] && [ -n "$mother" ] && [ "$mother" != "0" ] || { echo "skip duo (P19)"; continue; }
+  SD="$EVIDENCE_DIR/$FAMILY/spike/$child"; mkdir -p "$SD"
+  for f in "$PD/$child.orientation.tsv" "$PD/$child.transmission.tsv" "$PD/$child.changepoints.resolved.tsv"; do [ -s "$f" ] || { echo "ERROR: M1 table missing: $(basename "$f")" >&2; exit 3; }; done
+  BAMARGS="--child-bam $(bam_of "$child") --child-bai $(bai_of "$child") --father-bam $(bam_of "$father") --father-bai $(bai_of "$father") --mother-bam $(bam_of "$mother") --mother-bai $(bai_of "$mother")"
+  TRARGS="--child-tr-bam $(trb_of "$child") --child-tr-bai $(tri_of "$child") --father-tr-bam $(trb_of "$father") --father-tr-bai $(tri_of "$father") --mother-tr-bam $(trb_of "$mother") --mother-tr-bai $(tri_of "$mother")"
+  LBL="--orientation $PD/$child.orientation.tsv --transmission $PD/$child.transmission.tsv --changepoints $PD/$child.changepoints.resolved.tsv"
+  TRGT_VCF=$(ls "$O"/phased_trgt_vcf/*/"$child".*.vcf.gz 2>/dev/null | head -1); TRGT_TBI=""
+  [ -n "$TRGT_VCF" ] && TRGT_TBI="${TRGT_VCF/phased_trgt_vcf\//phased_trgt_vcf_index/}.tbi"
+  t0=$(date +%s)
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike plan --out-dir "$SD" --family "$FAMILY" --child "$child" --regions "$REGIONS" \
+      --n-per-scenario "$N_PER" --seed "$SEED" $BAMARGS $TRARGS $LBL ${TRGT_VCF:+--trgt-vcf "$TRGT_VCF"} ${TRGT_TBI:+--trgt-vcf-index "$TRGT_TBI"} $MASKARGS --thresholds "$THR"
+  echo "spike plan done in $(( $(date +%s) - t0 )) s"; t0=$(date +%s)
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike apply --out-dir "$SD" --plan "$SD/plan.tsv" --seed "$SEED" $BAMARGS $TRARGS --thresholds "$THR"
+  echo "spike apply done in $(( $(date +%s) - t0 )) s"
+  # review on the spiked slices (the same code path as the cohort review; sawfish supporting reads deliberately absent)
+  SL="--child-bam $SD/C.spiked.bam --child-bai $SD/C.spiked.bam.bai --father-bam $SD/F.spiked.bam --father-bai $SD/F.spiked.bam.bai --mother-bam $SD/M.spiked.bam --mother-bai $SD/M.spiked.bam.bai"
+  SLT=""; [ -s "$SD/C.spiked.tr.bam" ] && SLT="--child-tr-bam $SD/C.spiked.tr.bam --child-tr-bai $SD/C.spiked.tr.bam.bai --father-tr-bam $SD/F.spiked.tr.bam --father-tr-bai $SD/F.spiked.tr.bam.bai --mother-tr-bam $SD/M.spiked.tr.bam --mother-tr-bai $SD/M.spiked.tr.bam.bai"
+  for cls in snv_indel sv tr; do
+    CA="$SD/$cls.candidates.tsv"; [ -s "$CA" ] || { echo "no $cls spike candidates"; continue; }
+    [ "$(wc -l < "$CA")" -gt 1 ] || { echo "no $cls spike candidates"; continue; }
+    t0=$(date +%s)
+    "$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CA" --out "$SD/$cls.evidence.tsv" $LBL $SL $SLT --salt "spike-$FAMILY" --thresholds "$THR"
+    "$PHASE_DNM_PYTHON" -m phase_dnm.cli likelihood --evidence "$SD/$cls.evidence.tsv" --out "$SD/$cls.evidence.lik.tsv" --thresholds "$THR"
+    "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$SD/$cls.evidence.tsv" --candidates "$CA" --child "$child" --manifest "$MANIFEST" \
+        --out "$SD/$cls.features.tsv" --rf-out "$SD/$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml"
+    "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike evaluate --plan "$SD/plan.tsv" --evidence "$SD/$cls.evidence.lik.tsv" --out "$SD/$cls.spike_summary.tsv"
+    echo "spike review+evaluate $cls done in $(( $(date +%s) - t0 )) s"
+  done
+  n_done=$((n_done+1))
+done < <(awk -F'\t' -v f="$FAMILY" 'NR>1 && $2==f && $7=="offspring" {print $1"\t"$3"\t"$4}' "$MANIFEST")
+[ "$n_done" -gt 0 ] || { echo "ERROR: no child processed for $FAMILY" >&2; exit 3; }
+printf 'OK\t%s\t%d children\tn_per=%s seed=%s\n' "$(date -Is)" "$n_done" "$N_PER" "$SEED" > "$EVIDENCE_DIR/$FAMILY/.spike.status.tmp" && mv "$EVIDENCE_DIR/$FAMILY/.spike.status.tmp" "$EVIDENCE_DIR/$FAMILY/m2_spike.status"

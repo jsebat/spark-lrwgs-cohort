@@ -15,7 +15,7 @@ from .phasing import transmission as T
 
 PLANNED = {
     "haplotag": "M1c export to BAM (optional, IGV); labels are the orientation/transmission tables",
-    "spike": "weeks 6-8", "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
+    "integrate": "M3, weeks 9-10", "train": "M4, weeks 11-13", "classify": "M4",
 }
 
 
@@ -220,6 +220,56 @@ def cmd_reclassify(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_spike(a: argparse.Namespace) -> int:
+    """Spike-in harness: plan | apply | evaluate (sim/spike.py)."""
+    from .sim import spike as SP
+    log = lambda m: sys.stderr.write(m + "\n")
+    if a.step == "evaluate":
+        import csv
+        plan = SP.read_plan(a.plan)
+        with open(a.evidence, newline="") as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t"))
+        per_site, summary = SP.evaluate(plan, rows, k=a.k)
+        SP.write_rows(per_site, a.out.replace(".tsv", ".per_site.tsv"))
+        SP.write_rows(summary, a.out)
+        for s_ in summary:
+            log("spike %-5s %-3s planted=%3d reviewed=%3d observable=%3d class_ok(obs)=%s poo_ok(obs)=%s phase_score(obs)=%s" % (
+                s_["variant_class"], s_["scenario"], s_["n_planted"], s_["n_reviewed"], s_["n_observable"],
+                s_["class_ok_observable"], s_["poo_ok_observable"], s_["mean_phase_score_observable"]))
+        return 0
+    import pysam
+    from .evidence import hapmatrix as H
+    thr = load_thresholds(a.thresholds)
+    hm = thr.get("hapmatrix", {})
+    qc = SP.SiteQC(k=max(hm.get("k", [3, 5])), min_mapq=hm.get("min_mapq", 20), pad=a.pad, spacing=a.spacing)
+    op = lambda p_, i: pysam.AlignmentFile(p_, "rb", index_filename=i) if i else pysam.AlignmentFile(p_, "rb")
+    bams = {"C": op(a.child_bam, a.child_bai), "F": op(a.father_bam, a.father_bai), "M": op(a.mother_bam, a.mother_bai)}
+    tr_bams = {"C": op(a.child_tr_bam, a.child_tr_bai), "F": op(a.father_tr_bam, a.father_tr_bai), "M": op(a.mother_tr_bam, a.mother_tr_bai)} if a.child_tr_bam else {}
+    os.makedirs(a.out_dir, exist_ok=True)
+    if a.step == "plan":
+        from .features.extract import BedMask
+        labels = H.LabelTables.load(a.orientation, a.transmission, a.changepoints)
+        mask = BedMask(a.mask) if a.mask else None
+        plan, cands, stats = SP.plan_sites(bams, tr_bams, labels, SP.parse_regions(a.regions), a.n_per_scenario, a.seed,
+                                           a.family, a.child, qc, trgt_vcf=a.trgt_vcf, mask=mask, log=log, trgt_vcf_index=a.trgt_vcf_index)
+        SP.write_plan(plan, os.path.join(a.out_dir, "plan.tsv"))
+        from .records import write_candidates
+        for cls_group, classes in (("snv_indel", ("SNV", "INDEL")), ("sv", ("SV",)), ("tr", ("TR",))):
+            write_candidates([c for c in cands if c.variant_class in classes], os.path.join(a.out_dir, "%s.candidates.tsv" % cls_group))
+        with open(os.path.join(a.out_dir, "plan.stats.json"), "w") as fh:
+            json.dump(stats, fh, indent=1, sort_keys=True)
+        log("spike plan: %d sites planted of %d planned; %s" % (len(plan), stats.get("planned", 0), " ".join("%s=%d" % kv for kv in sorted(stats.items()))))
+    elif a.step == "apply":
+        plan = SP.read_plan(a.plan)
+        st1 = SP.apply_plan(plan, bams, a.out_dir, "spiked", qc, a.seed, tr=False, log=log)
+        st2 = SP.apply_plan(plan, tr_bams, a.out_dir, "spiked.tr", qc, a.seed, tr=True, log=log) if tr_bams else {}
+        with open(os.path.join(a.out_dir, "apply.stats.json"), "w") as fh:
+            json.dump({"genome": st1, "tr": st2}, fh, indent=1, sort_keys=True)
+    for b in list(bams.values()) + list(tr_bams.values()):
+        b.close()
+    return 0
+
+
 def cmd_review(a: argparse.Namespace) -> int:
     from .evidence import hapmatrix as H
     from .evidence.readers import TrioBams
@@ -359,6 +409,24 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--registry", help="config/features.yaml (default: the module's)")
     fe.set_defaults(func=cmd_features)
 
+    sk = sub.add_parser("spike", help="spike-in harness: plan sites, edit haplotagged reads into slice BAMs, evaluate recovery")
+    sk.add_argument("step", choices=["plan", "apply", "evaluate"])
+    sk.add_argument("--out-dir", help="plan/apply: directory for plan.tsv, candidates, slice BAMs")
+    sk.add_argument("--family"), sk.add_argument("--child")
+    sk.add_argument("--regions", help="plan: chrom:start-end[,...] to sample sites from")
+    sk.add_argument("--n-per-scenario", type=int, default=12, help="plan: sites per class x subtype x scenario")
+    sk.add_argument("--seed", type=int, default=13)
+    sk.add_argument("--pad", type=int, default=2500), sk.add_argument("--spacing", type=int, default=60000)
+    sk.add_argument("--mask", action="append", help="plan: BED(s) to avoid (spike-ins are planted OUTSIDE the mask)")
+    sk.add_argument("--trgt-vcf", help="plan: TRGT VCF (tabix-indexed) for TR loci and motifs"), sk.add_argument("--trgt-vcf-index")
+    sk.add_argument("--orientation"), sk.add_argument("--transmission"), sk.add_argument("--changepoints")
+    for r in ("child", "father", "mother"):
+        sk.add_argument("--%s-bam" % r), sk.add_argument("--%s-bai" % r), sk.add_argument("--%s-tr-bam" % r), sk.add_argument("--%s-tr-bai" % r)
+    sk.add_argument("--plan", help="apply/evaluate: plan.tsv")
+    sk.add_argument("--evidence", help="evaluate: the reviewed (+likelihood) evidence table of the spiked candidates")
+    sk.add_argument("--out", help="evaluate: summary TSV (per-site table written next to it)")
+    sk.add_argument("--k", type=int, default=5), sk.add_argument("--thresholds")
+    sk.set_defaults(func=cmd_spike)
     rc = sub.add_parser("reclassify", help="re-run the P8 rule layer from an existing evidence table (no BAMs)")
     rc.add_argument("--evidence", required=True, help="the review output (immutable)"), rc.add_argument("--out", required=True)
     rc.add_argument("--thresholds")
