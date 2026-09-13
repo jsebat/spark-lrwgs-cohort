@@ -81,6 +81,16 @@
   offspring, ~4 reads per haplotype): the six-haplotype test at k=5 is mostly unreachable there (P7, R11)** — per-sample
   depth becomes a column in every M2 table. The first submission failed 105/105 on the manifest's stale BAM paths
   (see Risks). Table: `hapdepth/cohort_hapdepth_qc.tsv`.
+- **M1b2 cohort run #2 (2026-09-12, array 54272721, 33/33, median 84 s per family, 180 MB) — M1b closed at cohort
+  level.** With the tested span covering the whole change interval: CROSSOVER median **34 paternal (19–62) / 47
+  maternal (36–73)**; excluding intervals that contain a located child switch: **30 / 43**, ratio **1.43**;
+  SWITCH_ERROR 9 / 7; ~80 % of candidates AMBIGUOUS (gaps longer than a read 9,798; reads disagreeing 4,696; < 2 SNV
+  hets 217). Against ~26 / ~43 (deCODE, unverified here; ratio ~1.6): maternal on target, paternal ~15 % high for a
+  method that also *misses* crossovers between parent blocks — the residual is unlocated child switches and
+  mismapping. chr17 (2.1×) and chr19 (3.3×) exceed their physical-length share; both have well above-average
+  recombination per Mb, so the physical proxy under-predicts them and this is not read as artefact. Reported in the
+  paper as: crossover candidates per meiosis with the child-switch flag, the ambiguous fraction, and the
+  per-chromosome table (`cohort_crossover_qc.tsv`), never as a recombination map.
 - **Read-level steps written (2026-09-12):** `hapdepth` (per-haplotype depth in 1 kb bins over each primary read's
   reference span; pysam, lazily imported) and `xo-reads` (M1b2: weakest-link count of the parent's haplotagged
   reads spanning consecutive phased hets across each change interval → CROSSOVER / SWITCH_ERROR / AMBIGUOUS).
