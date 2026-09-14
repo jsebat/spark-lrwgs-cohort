@@ -399,6 +399,27 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **SV and TR operating points from their own sweeps (2026-09-14, jobs 54295621 / 54295702; `harness_v2/svtr_sweep.*.tsv`,
+  spike-arm τ grid `external.{sv,tr}.seed0.json` → `sweep_rf_q`):** no orthogonal truth exists for these classes, so the
+  yardsticks are planted-germline recall and planted-inherited (IM) pass rate on the spike-ins, and on the real tables the
+  paternal fraction of phased calls (DNMs 0.75-0.80, noise 0.5), calls per proband against the expected rate, and overlap
+  with the original sets.
+  *TR (rules + mask; planted recall 0.99-1.00 down to τ_q 0.998):* τ_q 0.9995 → 7 / proband, paternal 0.804; **0.999 → 15,
+  0.776**; 0.998 → 28, 0.733; **0.997 → 37, 0.686**; 0.995 → 58, 0.639; 0.99 → 106, 0.594; rules only → 3,175, 0.51. Purity
+  tracks the threshold smoothly; IM pass 0.11 at 0.999 / 0.36 at 0.997 / 0.64 at 0.99. **Tier 1 τ_q 0.999, tier 2 0.997.**
+  Original TR expansion set: 205 rows (5.9 / proband); 14 of them fail the mask.
+  *SV:* **the mask alone removes 91 % of gated SV candidates (1,919 of 2,109)** - 92 % of all SV candidates lie in segdups /
+  simple repeats because that is where SVs form - so with the mask as a filter nothing passes at any strict τ (0 calls at
+  0.999, 1 at 0.99). The original SV set (232 / proband!) never used the mask (founder-panel recurrence RO 0.5 + read review).
+  With the mask as a **flag** (catalogue AF < 0.001, LOFO recurrence 0, LOFO cohort AC 0 kept): τ_q 0.999 → 1 call; **0.99 →
+  10 cohort-wide = 0.3 / proband, paternal 0.75 (n = 4), 2 in the original set** - the literature rate for ≥ 50 bp de novo SVs is
+  ~0.2-0.3 per genome (unverified figure, to cite); **0.97 → 59 = 1.7 / proband, paternal 0.72 (n = 18), 16 in the original
+  set**; 0.95 → 120, 0.625; 0.90 → 280, 0.633. **Tier 1 τ_q 0.99, tier 2 0.97, mask per class `{default: true, SV: false}` -
+  JS to confirm the SV mask-as-flag decision.** Spike-in caveat recorded: planted-germline SV recall plateaus at 0.63 from τ_q
+  0.9995 to 0.995 (37 % of planted SVs are never ranked high; type/size profile of the unrecovered set to be examined) and
+  planted-inherited SVs pass the score alone at 0.64 at τ_q 0.99 - on real data the six-haplotype demotion catches these (3,782
+  phase-conflict demotions in the original SV set), which the score-only spike arm does not include ("RF+P(demote)" PR-AUC
+  0.70 vs 0.45). thresholds 0.3.0 updated; P18 v6 (all classes on the final operating points) queued.
 - **P18 v5 - first two-tier cohort call (2026-09-14 11:14 PDT read; relabel 54295042, rescore3 54295043 [per-variant-class rf_q:
   SNV / INDEL references ~86 k / ~128 k rows per fold], integrate 54295044 33/33, concordance 54295045, WES arm 54295046; all
   COMPLETED):**

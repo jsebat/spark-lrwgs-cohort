@@ -85,7 +85,10 @@ def rules_fail(row: Dict[str, object], p: FinalParams) -> List[str]:
     ac = _f(row.get("cohort_AC_loo"))
     if m3 is not None and ac is not None and ac > float(m3):
         fails.append("cohort")
-    if r.get("mask", True) and (str(row.get("segdup_overlap") or "") == "1" or str(row.get("mask_overlap") or "") == "1"):
+    mk = r.get("mask", True)
+    if isinstance(mk, dict):                          # per variant class, e.g. {default: true, SV: false}: 92 % of SV candidates lie in the
+        mk = mk.get(str(row.get("variant_class") or ""), mk.get("default", True))   # mask (SVs are repeat-borne), so for SVs it stays a FLAG
+    if mk and (str(row.get("segdup_overlap") or "") == "1" or str(row.get("mask_overlap") or "") == "1"):
         fails.append("mask")
     return fails
 
