@@ -333,6 +333,16 @@ a method paper. What that fixes:
   that the read-level review does not support as clean heterozygous events (mostly phase-conflict / inconclusive). Whether
   they are polymorphic mobile-element insertions missed in the parents or true de novo insertions in hard sequence is to be
   examined against the parental read evidence before any sentence about them is written. *Examined 2026-09-13:* 118 such insertions in 33 probands; 96 % have parental alt-supporting reads (89 % with ≥ 3), 70 % of positions recur in other children's candidates, none is WES-evaluable; the review classes them inherited-missed / phase-conflict and the module calls one. The sentence the paper can carry: about 9 % of the original small-variant de novo set are inherited long insertions with parental read support that the joint genotyper missed, and the phase-aware review removes them.
+- *Measured, five genuine seeds (2026-09-13, `train/harness_5seed`; ROC-AUC mean [min-max] over seeds 0-4, presence-leak
+  guard active, read-quality columns not yet in the real tables):* SNV/indel RF **0.9991** [0.9973-0.9995] vs slivar H1
+  0.887 [0.884-0.889] (its operating point TPR 0.48 at FPR 0.0078), no-phase 0.9988, phase-only 0.953; SV RF **0.9944**
+  [0.9943-0.9946] vs genotype heuristic 0.61, no-phase 0.990, phase-only 0.867; TR RF **0.892** [0.890-0.893] vs family /
+  cohort heuristics 0.58 / 0.59, no-phase 0.840, phase-only 0.878. Seed ranges are <= 0.003 for every RF arm: the mean +-
+  range requirement of P14 is met and the fold seed is not a material variance source at 33 families. Ablation read-out per
+  class: phase neutral on synthetic SNV/indel labels (caller features saturate), additive for SV, the main signal for TR.
+  The full table, the "+P(demote)" arms and the baselines are in PLAN_MODULE1.md (same date). The harness is re-run on the
+  re-reviewed cohort tables (`harness_v2`) so the read-quality block enters the models; that table replaces this one if it
+  differs.
 - **The headline (P22) is the harness table**: per class, ROC/PR-AUC of the phase-aware classifier vs. the pipeline's
   heuristic sweeps on identical swap-closed family folds, with the operating point of each heuristic marked on its curve;
   ablations (no-phase / phase-only) and the grouped attribution answer JS's "how much weight does phase get". Caveat

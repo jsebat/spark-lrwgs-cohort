@@ -296,6 +296,40 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   in the module env). Dry run against the cohort layout: `all` = 101 jobs, `m4` = 81; M1/hapdepth/candidates recognised as up
   to date. Untested so far: an actual slurm submission through the profile — to be exercised on one family after the
   re-review chain (the DAG will then be current and a forced single rule is the smoke).
+- **Five-seed harness, genuine seeds (2026-09-13, jobs 54285372/3/4 -> `train/harness_5seed`, 3 h 41 / 0 h 23 / 2 h 52;
+  ROC-AUC mean [min-max] over seeds 0-4, identical swap-closed family folds per seed, presence-leak guard active - the
+  same 17/27/23 never-produced columns dropped as in the seed-0 run, plus the four read-quality columns, which the real
+  tables still lacked when these jobs started):**
+
+  | arm | SNV/indel (51 feat.) | SV (34) | TR (38) |
+  |---|---|---|---|
+  | RF (XGBoost, full) | **0.9991** [0.9973-0.9995] | **0.9944** [0.9943-0.9946] | **0.8918** [0.8898-0.8931] |
+  | RF no-phase | 0.9988 [0.9966-0.9994] | 0.9901 [0.9899-0.9902] | 0.8396 [0.8348-0.8412] |
+  | RF phase-only | 0.9526 [0.9508-0.9533] | 0.8666 [0.8639-0.8687] | 0.8777 [0.8768-0.8785] |
+  | RF + P(demote) | 0.8975 [0.8969-0.8980] | 0.8464 [0.8454-0.8478] | 0.8472 [0.8457-0.8486] |
+  | sklearn RF baseline | 0.9954 [0.9946-0.9958] | 0.9938 [0.9936-0.9939] | 0.8832 [0.8822-0.8840] |
+  | logistic regression | 0.9837 [0.9835-0.9840] | 0.9873 [0.9868-0.9878] | 0.8401 [0.8399-0.8408] |
+  | H1 (slivar / genotype / family) | 0.8871 [0.8838-0.8893]; op TPR 0.48 @ FPR 0.0078 | 0.6125 [0.6121-0.6128] | 0.5841 [0.5831-0.5856] |
+  | H2 (hiconf / cohort / cohort) | 0.8740 [0.8709-0.8760]; op TPR 0.03 | 0.1977 [0.1972-0.1983] | 0.5887 [0.5756-0.5963] |
+  | H3 cohort (SNV/indel only) | 0.8739 [0.8709-0.8759] | - | - |
+
+  Read-out unchanged from seed 0 and now with seed ranges: the classifier-vs-heuristic gap is large in every class; phase is
+  neutral for SNV/indel on synthetic labels, additive for SV (+0.004), and the main signal for TR (no-phase 0.84 vs full 0.89,
+  phase-only alone 0.88). Ranges are narrow (<= 0.003 for every RF arm) - the fold seed is not a material source of
+  variance at 33 families. The SV "H2 cohort" arm scores below 0.5 by construction: synthetic positives are inherited,
+  hence common in the cohort, so a cohort-frequency heuristic anti-ranks them on synthetic labels (the same leak direction
+  P22/P24 record for population features; the arm is reported as a scorer, P25, and judged on external truth). Provisional
+  τ (0.1 % real pass rate, median over seeds) 0.875 / 0.998 / 0.885 and τ_rescue 0.072 / 0.981 / 0.440 differ markedly
+  from the seed-0 values (0.974 / 0.998 / 0.809; 0.432 / 0.983 / 0.420) - the probability scale moves between seeds as it
+  did between folds, which is why integration uses the fold-quantile `rf_q`, not the raw probability. **Frozen five-seed
+  models** (P21): `harness_5seed/models/{snv_indel,sv,tr}.xgb.json` + `training_manifest.json` (51/34/38 features,
+  1.74 M / 0.44 M / 1.21 M rows, seeds 0-4, model and registry sha256 recorded); 150 per-seed/fold models in
+  `fold_models/` for the P27 external arms. **Not run:** the rf+phase integration with these rf_probs. The cohort re-review
+  finished at 18:06 (66/66 COMPLETED; the four read-quality columns are filled on 81-96 % of real rows and 80-99 % of
+  synthetic rows, so the guard will keep them), and `harness_5seed` was scored on the pre-re-review tables; mixing those
+  scores with re-reviewed phase classes would give a table superseded within hours. Instead the same five-seed training is
+  resubmitted on the re-reviewed tables into `harness_v2`, with rescore -> integrate -> concordance -> external arms
+  chained behind it (see next entry).
 - **Swap blood-family constraint fixed (2026-09-13):** `phase-dnm swap --blood-family-prefix` defaulted to `REACH`, but the
   blood quad's *family* id follows the cohort's F0xxx pattern (only its *sample* ids start with REACH), so the constraint
   matched nothing when the five fold files were generated. Checked on Expanse: the blood family nonetheless has five
