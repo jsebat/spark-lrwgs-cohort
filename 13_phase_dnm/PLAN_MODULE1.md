@@ -2,22 +2,23 @@
 
 ## Status
 
-**Where things stand (2026-09-14, 01:00 PDT; commit see git log).** All four modules exist, are tested (104 tests) and have run
+**Where things stand (2026-09-14, 14:00 PDT; commit see git log).** All four modules exist, are tested (108 tests) and have run
 on the whole cohort (33 complete-trio families, 35 children). M1 phasing/transmission: gate passed (31 PASS, 4 LOW_DEPTH).
-M2 review: 105 evidence tables (thresholds 0.2.0, readable-read observability), features + P9 likelihood + P26 annotation
-(gnomAD, LOFO founder counts) refreshed; spike-in harness cohort-wide (germline recovery ≥ 0.91 exact / ≥ 0.98 lenient, PoO
-1.00; mosaics 0.05–0.15 = the depth floor); cohort re-reviewed so the four read-quality features are filled on both sides.
-M3: final tables + VCFs, P18 v4 concordance on the five-seed `rf_q` decision (SNV/indel 797 concordant / 538 original-only /
-1,789 module-only, per proband 38 → 72, paternal 0.757, per-child range 18–152; SV 3 / 8,126 / 3; TR 28 / 190 / 851). M4:
-swap-closed folds, 5 genuine seeds × 35 synthetic trios through the same chain, one harness (`harness_v2`, headline): RF /
-no-phase / phase-only vs H1: SNV/indel 0.9967 / 0.9958 / 0.953 vs 0.887, SV 0.9945 / 0.990 / 0.872 vs 0.61, TR 0.892 / 0.840 /
-0.881 vs 0.59, seed ranges ≤ 0.003; attribution phase share 0.17 / 0.29 / 0.68 (seed 0). External truth: WES-confirmed exonic
-DNMs 28 / 58 called (original set 34 / 58), 0 of 1,864 WES-inherited called, RF 0.943 vs slivar 0.880 ROC-AUC; spike-ins TR
-0.99 / SV 0.63 recall at τ_q. GIAB HG002 trio running through the cohort WDL (HG004 35.7× → depth-matched second run
-planned). Open before the paper: the operating point (recall vs purity; two-tier call proposed), Snakemake slurm-profile
-exercise, GIAB, METHODS + PDF report.
-Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatch splits `--export` values at commas
-(positional seeds), and one fold model's probability scale is not another's (rf_q).
+M2 review: 105 evidence tables re-reviewed with the read-quality block (thresholds 0.3.0), features + P9 likelihood + P26
+annotation; spike-ins cohort-wide (germline recovery ≥ 0.91 exact, PoO 1.00; mosaics 0.05–0.15 = the depth floor). M4: five
+genuine seeds, one harness (`harness_v2`, headline): RF / no-phase / phase-only vs H1 = SNV/indel 0.9967 / 0.9958 / 0.953 vs
+0.887, SV 0.9945 / 0.990 / 0.872 vs 0.61, TR 0.892 / 0.840 / 0.881 vs 0.59; attribution phase share 0.17 / 0.29 / 0.68; three
+frozen models + manifests in `models/` (P21) with `phase-dnm score` as the transfer path. **M3: two-tier decision (P15
+amended; JS confirmed the rule layer and the SV mask-as-flag):** rf_q per variant class, tier 1 = rf_q ≥ 0.99 / 0.99 /
+0.999 (SNV/indel / SV / TR) + germline review gate + rules (gnomAD or SV-catalogue AF < 0.001, LOFO founder recurrence 0,
+LOFO cohort AC 0, mask), tier 2 = 0.95 / 0.97 / 0.997. P18 v6: **tier 1 = 73 SNV/indel per proband (64 + 7, paternal
+0.770), 0.3 SV, 15 TR (paternal 0.70); tier 2 adds 25 / ~1.4 / 3.** Exome truth (56 positives): tier 1 recovers 41 with 0 FP
+of 2,926; tiers 1+2 48 at 10 FP (exonic FDR 0.17); original set 34 at 2 FP with 38 / proband. Concordance: 1,058 of the
+original 1,335 at tier 1, 66 at tier 2, 211 lost (mostly demotions / below τ). Snakemake runs through the Slurm executor
+(exercised). `00_upstream` documents alignment / calling (WDL v3.3.1 @477ef39, digests, driver, inputs). METHODS draft and
+the 2026-09-14 PDF report exist. **GIAB** HG002 trio in DeepVariant call_variants at full depth (48 / 46 / 36×; 14 h task
+limit after TIMEOUTs at the 6 h default); depth-matched run at ~23× next, then M1–M3 with the frozen models for genome-wide
+precision. Open: tier-2 indel threshold; profile of the 37 % of planted SVs never ranked high; pytest in the Expanse env.
 
 - **MODULE 1 GATE PASSED (2026-09-12).** `phase-dnm phase-qc` over all 33 complete-trio families / 35 children:
   **31 PASS**; the four flags are all `LOW_DEPTH` (children 9.4× and 11.5×, fathers 8.3× and 11.9×; R11) — every
