@@ -1,0 +1,110 @@
+#!/bin/bash
+#SBATCH --job-name=glnexus_full_N105
+# submit with: sbatch -A <account> -p <partition> -q <qos> cohort/glnexus_full.sb
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=180G
+#SBATCH --time=36:00:00
+#SBATCH --output=%x.%A.out
+#SBATCH --error=%x.%A.err
+#
+# Freeze 1 small-variant joint genotyping: all 105 gVCFs (D44).
+#
+# Sizing rationale, from the N=10 benchmark (job 54164625):
+#   29m40s, MaxRSS 49.8 GB against a 60 GB budget, 10.4M sites, 892 MB out.
+#   Phases: bulk load 5m47s, unifier 13s, genotyping 22m01s.
+#   19 of 30 min was thread stall -> I/O-bound on Lustre, so 16 cores is
+#   deliberate; more would idle.
+#   Memory is a BUDGET, not a measured need -- glnexus fills what it is given.
+#   Runtime projection from one point is 4-20 h, hence 36 h of walltime rather
+#   than a tight fit. Cap is 48 h.
+set -uo pipefail
+
+C="$(cd "$(dirname "$0")" && pwd)"
+K="${CALLSETS_DIR:?per-sample gVCF directory}"
+OUTDIR="${FREEZE_DIR:?output directory for the joint callset}"
+CONFIG=$C/glnexus_config.yml
+WORK="${SCRATCH_ROOT:?}/glnexus_full/${SLURM_JOB_ID:-manual}"
+SIF=$(ls ${SIF_CACHE:?singularity image cache used by miniwdl}/*glnexus*.sif 2>/dev/null | head -1)
+THREADS=${SLURM_CPUS_PER_TASK:-16}
+MEMGB=170
+
+source /etc/profile.d/modules.sh 2>/dev/null
+source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2 2>/dev/null
+export SINGULARITY_BIND=/expanse:/expanse
+
+echo "=== GLnexus Freeze 1, all samples  node=$(hostname)  job=${SLURM_JOB_ID:-?} ==="
+date '+start %Y-%m-%d %H:%M:%S'
+
+# --- preflight ----------------------------------------------------------------
+[ -n "$SIF" ]    || { echo "FATAL: no glnexus sif"; exit 3; }
+[ -s "$CONFIG" ] || { echo "FATAL: $CONFIG missing/empty -- run extract_config.py"; exit 3; }
+if head -1 "$CONFIG" | grep -q '^[[:space:]]'; then
+  echo "FATAL: $CONFIG top-level key indented; glnexus rejects it"; head -3 "$CONFIG"; exit 3
+fi
+
+rm -rf "$WORK"; mkdir -p "$WORK" "$OUTDIR" || exit 2
+cd "$WORK" || exit 2
+cp "$CONFIG" ./config.yml
+
+# --- inputs: every gVCF, not a head -n slice ----------------------------------
+mapfile -t GVCFS < <(find "$K" -maxdepth 5 -name '*.small_variants.g.vcf.gz' 2>/dev/null | sort)
+EXPECT=105
+if [ "${#GVCFS[@]}" -ne "$EXPECT" ]; then
+  echo "FATAL: found ${#GVCFS[@]} gVCFs under $K, expected $EXPECT"
+  echo "  families present: $(ls "$K" 2>/dev/null | wc -l)"
+  echo "  If a family was legitimately added or removed, update EXPECT deliberately."
+  exit 3
+fi
+bad=0
+for g in "${GVCFS[@]}"; do
+  sz=$(stat -Lc %s "$g" 2>/dev/null || echo 0)
+  if [ "$sz" -lt 10000000 ]; then echo "  EMPTY/SMALL: $sz bytes $g"; bad=1; fi
+done
+[ "$bad" -eq 0 ] || { echo "FATAL: some gVCFs are empty or truncated (D43)"; exit 3; }
+printf '%s\n' "${GVCFS[@]}" > gvcf.list
+echo "staged ${#GVCFS[@]} gVCFs"
+echo "sample order recorded in $WORK/gvcf.list"
+
+# --- run ----------------------------------------------------------------------
+T0=$(date +%s)
+singularity exec "$SIF" glnexus_cli \
+  --threads "$THREADS" \
+  --mem-gbytes "$MEMGB" \
+  --dir ./GLnexus.DB \
+  --config ./config.yml \
+  --list gvcf.list \
+  > freeze1.cohort.bcf 2> glnexus.stderr
+rc=$?
+T1=$(date +%s)
+
+echo "=== rc=$rc  elapsed $(( (T1-T0)/3600 ))h $(( ((T1-T0)%3600)/60 ))m ==="
+grep -E 'bulk load|discovered|genotyping|complete' glnexus.stderr | tail -6 | sed 's/^/  /'
+tail -3 glnexus.stderr | sed 's/^/  /'
+
+if [ "$rc" -ne 0 ]; then
+  echo "FAILED -- read glnexus.stderr in $WORK before resubmitting (rule 6)"
+  exit $rc
+fi
+
+sz=$(stat -c %s freeze1.cohort.bcf 2>/dev/null || echo 0)
+echo "  output: $sz bytes"
+if [ "$sz" -lt 1000000000 ]; then
+  echo "  SUSPECT: under 1 GB for 105 WGS samples (N=10 alone was 892 MB)"; exit 4
+fi
+
+# --- index and publish to the permanent freeze directory ----------------------
+BASE=$(ls ${SIF_CACHE:?singularity image cache used by miniwdl}/*pb_wdl_base*.sif 2>/dev/null | head -1)
+if [ -n "$BASE" ]; then
+  singularity exec "$BASE" bcftools index --threads 4 freeze1.cohort.bcf \
+    && echo "  indexed"
+  cp -f freeze1.cohort.bcf freeze1.cohort.bcf.csi "$OUTDIR"/ 2>/dev/null \
+    && echo "  published to $OUTDIR"
+  singularity exec "$BASE" bcftools query -l freeze1.cohort.bcf | wc -l \
+    | xargs echo "  samples in output:"
+fi
+date '+done %Y-%m-%d %H:%M:%S'
+echo "  MaxRSS: sacct -j ${SLURM_JOB_ID:-?} --format=JobID,Elapsed,MaxRSS,ReqMem"
+exit 0

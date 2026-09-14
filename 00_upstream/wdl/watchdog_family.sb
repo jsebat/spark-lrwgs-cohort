@@ -1,0 +1,62 @@
+#!/bin/bash
+# Slurm-resident supervisor for one family's driver job.  Replaces the
+# login-node stall_watchdog_any.sh.  Expects FAMILY and RUNROOT in the env.
+# Detects driver death via squeue (node-independent), restarts from the miniwdl
+# call cache up to MAXRESTART times, and emails on stall.
+set -uo pipefail
+# --- site configuration: every path and account comes from config/upstream.env (copy upstream.env.example) ---
+UP_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UP_ENV="${UPSTREAM_ENV:-$UP_HERE/config/upstream.env}"
+[ -f "$UP_ENV" ] && source "$UP_ENV"
+: "${WDL_DIR:?set WDL_DIR (HiFi-human-WGS-WDL checkout, v3.3.1) in config/upstream.env}"
+: "${INPUTS_DIR:?}" "${RUNROOT:?}" "${SLURM_ACCOUNT:?}" "${SLURM_PARTITION:?}" "${SLURM_QOS:?}"
+NOTIFY_EMAIL="${NOTIFY_EMAIL:-}"
+FAMILY="${FAMILY:?}"; RUNROOT="${RUNROOT:?}"
+C="$UP_HERE/wdl"
+RUNDIR="$RUNROOT/run_$FAMILY"
+EMAIL="${NOTIFY_EMAIL:-}"
+MAXRESTART=${MAXRESTART:-3}
+STALL_MIN=${STALL_MIN:-180}   # no log growth for this long => email
+POLL=300
+
+note() { echo "$(date '+%F %T') $*"; }
+driver_state() { squeue -u "$USER" -h -n "drv_$FAMILY" -o "%T" 2>/dev/null | head -1; }
+finished() { grep -qE 'SUCCESS|FAILED' "$RUNDIR/RESULT.status" 2>/dev/null; }
+
+restarts=0
+note "watchdog up for $FAMILY (job ${SLURM_JOB_ID:-?}), max $MAXRESTART restarts"
+while :; do
+  sleep $POLL
+  if finished; then note "run finished: $(cat $RUNDIR/RESULT.status)"; break; fi
+
+  st=$(driver_state)
+  if [ -z "$st" ]; then
+    # EXPANSE.md rule 11: make sure the old driver is really gone before relaunch
+    note "no driver job for $FAMILY; confirming it is gone"
+    sleep 90
+    if finished; then note "finished during grace period"; break; fi
+    [ -n "$(driver_state)" ] && { note "driver reappeared; standing down"; continue; }
+    if [ "$restarts" -ge "$MAXRESTART" ]; then
+      echo "$FAMILY: driver died and $MAXRESTART restarts exhausted." \
+        | mail -s "[Expanse] $FAMILY watchdog GIVING UP" "$EMAIL" 2>/dev/null || true
+      note "restarts exhausted; exiting"; break
+    fi
+    restarts=$((restarts+1))
+    note "restarting driver for $FAMILY (restart $restarts/$MAXRESTART)"
+    bash "$C/run_family.sh" --driver-only "$FAMILY" "$RUNROOT" || note "resubmit failed"
+    echo "$FAMILY: driver died; watchdog resubmitted it (restart $restarts/$MAXRESTART)." \
+      | mail -s "[Expanse] $FAMILY driver restarted" "$EMAIL" 2>/dev/null || true
+    continue
+  fi
+
+  log=$(ls -t "$RUNDIR"/miniwdl.*.log 2>/dev/null | head -1)
+  if [ -n "$log" ]; then
+    age=$(( ( $(date +%s) - $(stat -c %Y "$log") ) / 60 ))
+    if [ "$age" -ge "$STALL_MIN" ] && [ ! -f "$RUNDIR/.stall_notified" ]; then
+      touch "$RUNDIR/.stall_notified"
+      echo "$FAMILY: driver $st but log quiet for ${age}m. Last lines:
+$(tail -15 "$log")" | mail -s "[Expanse] $FAMILY possible stall" "$EMAIL" 2>/dev/null || true
+      note "stall email sent (${age}m quiet)"
+    fi
+  fi
+done

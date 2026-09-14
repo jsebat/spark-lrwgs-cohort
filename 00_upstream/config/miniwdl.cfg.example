@@ -1,0 +1,36 @@
+[scheduler]
+container_backend = slurm_singularity
+# THROTTLED 2026-08-29: QOS ind-shared-normal has MaxTRESPU node=16 with
+# DenyOnLimit -- exceeding it REJECTS the sbatch, which miniwdl treats as a
+# task failure and aborts the run. Budget is 16 concurrent jobs across ALL
+# drivers; 2 drivers x 6 = 12 leaves headroom. Raise only after SDSC lifts
+# the node cap. Previous value: 200.
+task_concurrency = 11
+fail_fast = false
+
+[file_io]
+allow_any_input = true
+
+[call_cache]
+put = true
+get = true
+dir = "$PWD/miniwdl_call_cache"
+
+[task_runtime]
+command_shell = /bin/bash
+defaults = {
+        "maxRetries": 2,
+        "docker": "ubuntu:20.04"
+    }
+
+[singularity]
+exe = ["/cm/local/apps/singularitypro/4.1/bin/singularity"]
+run_options = [
+        "--containall"
+    ]
+image_cache = "<SIF_CACHE: shared singularity image cache>"
+
+[slurm]
+# --time is the per-TASK limit; 06:00:00 is calibrated to ~22-24x genomes. Deeper inputs (GIAB at 46-48x) exceed it on the largest
+# DeepVariant make_examples shard: override per run with MINIWDL__SLURM__EXTRA_ARGS="... --time=14:00:00 ..." rather than editing this file.
+extra_args = "--partition <partition> --account=<account> --time=06:00:00 --nodes=1 --ntasks-per-node=1 --comment humanwgs"

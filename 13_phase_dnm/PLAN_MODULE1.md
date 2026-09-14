@@ -399,6 +399,14 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **`00_upstream` module added to the public repo (2026-09-14; JS: keep the per-family clinical workflow separate):** the
+  alignment / variant-calling layer the repo previously started after - HiFi-human-WGS-WDL v3.3.1 @477ef39 pin with the
+  container digests it resolves to, the five-key inputs format (`config/inputs.template.json`, `wdl/make_inputs.py`,
+  manifest builders), the sanitised driver / watchdog / run scripts with every path and account in
+  `config/upstream.env` (gitignored; example provided), the miniwdl config example with the per-task time-limit lesson,
+  the reference-map templates on `${RESOURCES_ROOT}`, the cohort-wide GLnexus joint-call script, and the GIAB trio inputs
+  as the external example. `docs/METHODS.md` §1 gained the "how it was run" paragraph; the top-level README's directory
+  order starts at `00_upstream`. Builder asserted no identifier or lab path remains; PHI scan clean.
 - **Snakemake slurm profile exercised (2026-09-14):** `snakemake <family>/m2_reclassify.status --profile workflow/profiles/expanse
   --forcerun m2_reclassify` submitted job 54296864 through the slurm executor plugin (snakemake 9.26.1) and finished; the
   family's status was recreated (thresholds 0.3.0). Three profile defects found and fixed on the way: an empty

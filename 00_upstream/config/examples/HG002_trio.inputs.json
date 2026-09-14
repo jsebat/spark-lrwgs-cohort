@@ -1,0 +1,40 @@
+{
+  "humanwgs_family.family": {
+    "family_id": "HG002_trio",
+    "samples": [
+      {
+        "sample_id": "HG002",
+        "hifi_reads": [
+          "${GIAB_READS}/HG002/HG002_PacBio-Revio_m84039_230928_213653_s3.hifi_reads.bam",
+          "${GIAB_READS}/HG002/HG002_PacBio-Revio_m84039_231005_222902_s1.hifi_reads.bam"
+        ],
+        "affected": false,
+        "sex": "MALE",
+        "father_id": "HG003",
+        "mother_id": "HG004"
+      },
+      {
+        "sample_id": "HG003",
+        "hifi_reads": [
+          "${GIAB_READS}/HG003/HG003_PacBio-Revio_m84039_230928_220759_s4.hifi_reads.bam",
+          "${GIAB_READS}/HG003/HG003_PacBio-Revio_m84039_231006_220627_s2.hifi_reads.bam"
+        ],
+        "affected": false,
+        "sex": "MALE"
+      },
+      {
+        "sample_id": "HG004",
+        "hifi_reads": [
+          "${GIAB_READS}/HG004/HG004_PacBio-Revio_m84039_230929_004333_s1.hifi_reads.bam",
+          "${GIAB_READS}/HG004/HG004_PacBio-Revio_m84039_231006_223645_s3.hifi_reads.bam"
+        ],
+        "affected": false,
+        "sex": "FEMALE"
+      }
+    ]
+  },
+  "humanwgs_family.ref_map_file": "${UPSTREAM_CONFIG_DIR}/GRCh38.ref_map.v3p1p0.hpc.tsv",
+  "humanwgs_family.tertiary_map_file": "${UPSTREAM_CONFIG_DIR}/GRCh38.tertiary_map.v3p1p0.hpc.tsv",
+  "humanwgs_family.backend": "HPC",
+  "humanwgs_family.preemptible": false
+}

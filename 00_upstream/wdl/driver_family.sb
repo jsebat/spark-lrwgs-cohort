@@ -1,0 +1,45 @@
+#!/bin/bash
+# Slurm-resident miniwdl driver.  Submitted by run_family.sh; never run directly
+# on a login node (EXPANSE.md rule 1).  Expects FAMILY and RUNROOT in the env.
+set -uo pipefail
+# --- site configuration: every path and account comes from config/upstream.env (copy upstream.env.example) ---
+UP_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UP_ENV="${UPSTREAM_ENV:-$UP_HERE/config/upstream.env}"
+[ -f "$UP_ENV" ] && source "$UP_ENV"
+: "${WDL_DIR:?set WDL_DIR (HiFi-human-WGS-WDL checkout, v3.3.1) in config/upstream.env}"
+: "${INPUTS_DIR:?}" "${RUNROOT:?}" "${SLURM_ACCOUNT:?}" "${SLURM_PARTITION:?}" "${SLURM_QOS:?}"
+NOTIFY_EMAIL="${NOTIFY_EMAIL:-}"
+FAMILY="${FAMILY:?FAMILY not set}"
+RUNROOT="${RUNROOT:?RUNROOT not set}"
+WDL="$WDL_DIR/workflows/family.wdl"
+INPUTS="$INPUTS_DIR/$FAMILY.inputs.json"
+RUNDIR="$RUNROOT/run_$FAMILY"
+
+mkdir -p "$RUNDIR"; cd "$RUNDIR" || exit 2
+# record which Slurm job owns this run, so watchdog/status need no pgrep
+echo "${SLURM_JOB_ID:-unknown}" > "$RUNDIR/.driver_job"
+
+export MAMBA_ROOT_PREFIX="$HOME/micromamba"
+eval "$("$HOME/bin/micromamba" shell hook -s bash)"
+micromamba activate "${WDL_ENV:-wdl_env}"
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load "${SINGULARITY_MODULE:-singularitypro/4.1.2}"
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-$RUNROOT/sing_tmp}"
+mkdir -p "$SINGULARITY_TMPDIR"
+
+STAMP=$(date +%Y%m%d_%H%M%S)
+LOG="$RUNDIR/miniwdl.$STAMP.log"
+START=$(date)
+echo "START $START job=${SLURM_JOB_ID:-?} node=$(hostname) [$FAMILY]" > "$RUNDIR/RESULT.status"
+
+miniwdl run "$WDL" -i "$INPUTS" --dir "$RUNDIR" --error-json > "$LOG" 2>&1
+STATUS=$?
+END=$(date)
+[ $STATUS -eq 0 ] && RESULT="SUCCESS" || RESULT="FAILED (exit $STATUS)"
+OUTDIR=$(ls -dt "$RUNDIR"/*_humanwgs_family 2>/dev/null | head -1)
+
+# Write the terminal status FIRST, and atomically. Anything after this (mail,
+# tail) can block or be killed; if RESULT.status is written last, the run looks
+# non-terminal forever and supervisors restart a job that already succeeded.
+# Cost two family runs on 2026-08-31 (lab decision D34).
+printf '%s at %s (exit %s)\n' "$RESULT" "$END" "$STATUS" > "$RUNDIR/.RESULT.tmp" && mv -f "$RUNDIR/.RESULT.tmp" "$RUNDIR/RESULT.status"

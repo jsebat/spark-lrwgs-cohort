@@ -10,6 +10,14 @@ Expanse; GRCh38 no-alt analysis set. Small variants DeepVariant with GLnexus joi
 (Freeze 1: 21,780,907 sites); structural variants sawfish joint calling (347,631 records); tandem
 repeats TRGT (937,195 loci). Composition from pipeline-written pedigrees: 68 founders (65
 unaffected, 3 affected) and 37 offspring (36 affected, 1 unaffected). D54, D56.
+*How it was run (module `00_upstream`):* HiFi-human-WGS-WDL v3.3.1 (commit 477ef39) `family.wdl`, one miniwdl run per
+family on Slurm with the `slurm_singularity` backend (SingularityPro 4.1.2), PacBio resource bundle v3.1.0, backend
+`HPC`, no preemption; tools pinned by container digest in the workflow's image manifest (pbmm2; DeepVariant 1.10.0 with
+GLnexus; HiPhase 1.6.0; sawfish 2.2.1; TRGT 5.0.0; mosdepth, paraphase, mitorsaw, pbstarphase, MethBat, pb-cpg-tools,
+svpack, slivar for tertiary annotation). Inputs are one five-key `inputs.json` per family generated from the cohort
+manifest; a driver job runs miniwdl and a watchdog relaunches from the call cache on driver death. The per-task Slurm
+time limit (6 h) is calibrated to ~22-24x and is raised per run for deeper inputs. The cohort-wide GLnexus joint call
+(`cohort/glnexus_full.sb`) produces freeze 1 from the 105 per-sample gVCFs.
 
 ## 2. Quality control, identity and masking
 somalier relatedness and sex concordance. Cross-platform identity: long-read and short-read

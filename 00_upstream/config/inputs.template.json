@@ -1,0 +1,38 @@
+{
+  "humanwgs_family.family": {
+    "family_id": "FAM01",
+    "samples": [
+      {
+        "sample_id": "CHILD01",
+        "hifi_reads": [
+          "/path/to/CHILD01.movie1.hifi_reads.bam",
+          "/path/to/CHILD01.movie2.hifi_reads.bam"
+        ],
+        "affected": true,
+        "sex": "MALE",
+        "father_id": "FATHER01",
+        "mother_id": "MOTHER01"
+      },
+      {
+        "sample_id": "FATHER01",
+        "hifi_reads": [
+          "/path/to/FATHER01.hifi_reads.bam"
+        ],
+        "affected": false,
+        "sex": "MALE"
+      },
+      {
+        "sample_id": "MOTHER01",
+        "hifi_reads": [
+          "/path/to/MOTHER01.hifi_reads.bam"
+        ],
+        "affected": false,
+        "sex": "FEMALE"
+      }
+    ]
+  },
+  "humanwgs_family.ref_map_file": "${UPSTREAM_CONFIG_DIR}/GRCh38.ref_map.v3p1p0.hpc.tsv",
+  "humanwgs_family.tertiary_map_file": "${UPSTREAM_CONFIG_DIR}/GRCh38.tertiary_map.v3p1p0.hpc.tsv",
+  "humanwgs_family.backend": "HPC",
+  "humanwgs_family.preemptible": false
+}

@@ -23,7 +23,7 @@ identifiers as arguments and never embed them. **Run `scripts/phi_scan.sh` befor
 push.** This repository is distinct from the earlier per-family clinical-interpretation
 workflow, which is not included.
 
-Directory order is execution order: `01_qc` → `02_tiering` → `03_panel` → `04_burden`,
+Directory order is execution order: `00_upstream` (alignment and variant calling: how the per-family PacBio WDL was run) → `01_qc` → `02_tiering` → `03_panel` → `04_burden`,
 `05_denovo`, `06_inheritance`, `07_ascertainment`, `08_phenotype`.
 
 ## Relationship to the per-family workflow

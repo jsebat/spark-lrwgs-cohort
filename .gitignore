@@ -25,3 +25,6 @@ __pycache__/
 
 # snakemake runtime state (13_phase_dnm workflow)
 .snakemake/
+
+# 00_upstream site configuration (paths, account)
+00_upstream/config/upstream.env
