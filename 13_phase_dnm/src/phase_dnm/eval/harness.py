@@ -165,6 +165,11 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
         real_glob = os.path.join(evidence_dir, "*", "features", "*.%s.features.rf.tsv" % class_group)
         synth_glob = os.path.join(train_dir, "seed%d" % seed, "*", "features", "*.%s.features.rf.tsv" % class_group)
         d = CV.load_matrices(real_glob, synth_glob, class_group, family_of_child, max_real_per_child=max_real_per_child, seed=seed, allowed=allowed_cols)
+        gate = getattr(CV.load_matrices, "last_positive_gate", None)
+        if gate:
+            log("  positive rarity gate (P24 correction): %d -> %d synthetic rows kept (%.1f %%), %d unannotated"
+                % (gate["before"], gate["after"], 100 * gate["kept_frac"], gate["unannotated"]))
+            report.setdefault("positive_rarity_gate", []).append(dict(seed=seed, **gate))
         log("harness %s seed %d: %d real + %d synthetic rows, %d features" % (class_group, seed, d.n_real, d.n_synth, len(d.features)))
         dropped = getattr(CV.load_matrices, "last_dropped", {})
         if dropped:

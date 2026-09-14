@@ -101,3 +101,43 @@ def test_attribution_feature_families():
     assert AT.family_of("c_alt_mapq_mean") == "C_reads" and AT.family_of("c_alt_rq_mean") == "C_reads"
     assert AT.family_of("child_GQ") == "A_caller" and AT.family_of("min_PL0") == "A_caller"
     assert AT.family_of("gc_200bp") == "B_context" and AT.family_of("segdup_overlap") == "B_context" and AT.family_of("delta_units") == "B_context"
+
+
+def test_positive_rarity_gate_keeps_only_private_synthetic_rows(tmp_path):
+    """P24 correction: SynthDNM keeps a synthetic positive only at AC = 2 (child + the one transmitting real parent).
+    Ported as cohort_AC_loo == 0 with a population-frequency ceiling, applied to the POSITIVES only."""
+    from phase_dnm.train import nested_cv as CV
+    cols = ["family_id", "sample_id", "variant_id", "variant_class", "x"]
+    def write(d, name, rows):
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / name, "w", newline="") as fh:
+            fh.write("\t".join(cols) + "\n")
+            for r in rows:
+                fh.write("\t".join(str(v) for v in r) + "\n")
+    real = tmp_path / "ev" / "famA" / "features"
+    write(real, "kidA.snv_indel.features.rf.tsv", [("famA", "kidA", "v%d" % i, "SNV", i) for i in range(6)])
+    syn = tmp_path / "tr" / "seed0" / "syn1" / "features"
+    write(syn, "kidA.snv_indel.features.rf.tsv", [("famA", "kidA", "s%d" % i, "SNV", i) for i in range(4)])
+    ann = tmp_path / "tr" / "seed0" / "syn1" / "annot"
+    ann.mkdir(parents=True, exist_ok=True)
+    with open(ann / "kidA.snv_indel.annot.tsv", "w", newline="") as fh:
+        fh.write("variant_id\tgnomad_af\tcohort_AC_loo\n")
+        fh.write("s0\t-1.0\t0\n")        # private, absent from gnomAD  -> KEEP
+        fh.write("s1\t0.0005\t0\n")      # private, rare in gnomAD      -> KEEP
+        fh.write("s2\t-1.0\t7\n")        # common in the cohort         -> drop
+        fh.write("s3\t0.08\t0\n")        # common in gnomAD             -> drop
+    d = CV.load_matrices(str(real / "*.rf.tsv"), str(syn / "*.rf.tsv"), "snv_indel", {"kidA": "famA"})
+    assert d.n_synth == 2 and d.n_real == 6
+    g = CV.load_matrices.last_positive_gate
+    assert g["before"] == 4 and g["after"] == 2 and g["unannotated"] == 0
+    d2 = CV.load_matrices(str(real / "*.rf.tsv"), str(syn / "*.rf.tsv"), "snv_indel", {"kidA": "famA"}, rare_positives=False)
+    assert d2.n_synth == 4
+
+
+def test_site_qual_is_not_a_registry_feature():
+    """It is a joint-callset site statistic that rises with carrier count; SynthDNM uses QD / AQ instead (P24 correction)."""
+    import os, yaml
+    reg = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), "..", "config", "features.yaml")))
+    items = [it for sec in reg.values() if isinstance(sec, list) for it in sec if isinstance(it, dict)]
+    sq = [it for it in items if it.get("name") == "site_qual"]
+    assert sq and sq[0]["status"] == "drop" and sq[0]["classes"] == []

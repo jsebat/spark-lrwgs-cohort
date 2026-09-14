@@ -52,14 +52,42 @@ def _read_matrix(path: str) -> pd.DataFrame:
     return df
 
 
+def _private_ids(features_path: str, af_max: float) -> Optional[set]:
+    """SynthDNM's rarity gate on the positives, ported (P24 correction 2026-09-14).
+
+    `make_feature_table.py` keeps a synthetic (truth = 1) row only when `variant.num_het == 2` and
+    `variant.num_hom_alt == 0` over the whole callset — allele count 2, the child plus the one real parent that
+    transmitted it — and requires by XOR that exactly one REAL parent carries the allele. Our synthetic rows are already
+    annotated with the leave-one-family-out cohort allele count (P26), which excludes the child's family (hence the
+    transmitting real parent) and the surrogate parents' family: a variant carried only by the child and one real parent
+    therefore has `cohort_AC_loo == 0`. That, with a population-frequency ceiling for variants common outside this cohort,
+    is the gate. Returns the variant ids to KEEP, or None when no annotation sits beside the matrix."""
+    ann = features_path.replace(os.sep + "features" + os.sep, os.sep + "annot" + os.sep).replace(".features.rf.tsv", ".annot.tsv")
+    if not os.path.exists(ann):
+        return None
+    a = pd.read_csv(ann, sep="\t", dtype=str, keep_default_na=False)
+    if a.empty or "cohort_AC_loo" not in a.columns:
+        return None
+    ac = pd.to_numeric(a["cohort_AC_loo"], errors="coerce").fillna(0)
+    af = pd.to_numeric(a["gnomad_af"], errors="coerce").fillna(-1.0) if "gnomad_af" in a.columns else pd.Series([-1.0] * len(a))
+    keep = (ac == 0) & ((af < af_max) | (af < 0))
+    return set(a.loc[keep, "variant_id"])
+
+
 def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_child: Dict[str, str],
                   max_real_per_child: Optional[int] = None, seed: int = 0, allowed: Optional[Iterable[str]] = None,
-                  max_presence_gap: float = 0.5, min_real_presence: float = 0.01) -> Data:
+                  max_presence_gap: float = 0.5, min_real_presence: float = 0.01,
+                  rare_positives: bool = True, positive_af_max: float = 0.001) -> Data:
     """Concatenate real (label 0) and synthetic (label 1) rf matrices for one class group. Real rows may be thinned per
-    child (seeded) for speed; the fold assignment uses the CHILD's family for both kinds of rows."""
+    child (seeded) for speed; the fold assignment uses the CHILD's family for both kinds of rows.
+
+    `rare_positives` applies SynthDNM's allele-count gate to the POSITIVES only (see `_private_ids`); negatives stay the
+    raw putative-DNM set, as in SynthDNM. Without it the positives are dominated by common inherited variants and every
+    caller-quality feature becomes a frequency proxy (P24 correction)."""
     rng = np.random.default_rng(seed)
     frames = []
     n_real = n_synth = 0
+    n_syn_before = n_syn_nogate = 0
     for path in sorted(glob.glob(real_glob)):
         df = _read_matrix(path)
         if df.empty:
@@ -72,10 +100,25 @@ def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_c
         df = _read_matrix(path)
         if df.empty:
             continue
+        n_syn_before += len(df)
+        if rare_positives:
+            keep = _private_ids(path, positive_af_max)
+            if keep is None:
+                n_syn_nogate += len(df)
+            else:
+                df = df[df["variant_id"].isin(keep)]
+                if df.empty:
+                    continue
         df["label"] = 1; df["origin"] = "synthetic"
         n_synth += len(df); frames.append(df)
+    if rare_positives:
+        load_matrices.last_positive_gate = dict(before=n_syn_before, after=n_synth, unannotated=n_syn_nogate,
+                                                kept_frac=round(n_synth / max(n_syn_before, 1), 4), af_max=positive_af_max)
     if not frames:
         raise ValueError("no matrices for %s" % class_group)
+    if rare_positives and n_syn_before and not n_synth:
+        raise ValueError("the positive rarity gate removed every synthetic row for %s; is the annot/ directory present "
+                         "beside the synthetic features? (set rare_positives=False to disable)" % class_group)
     all_ = pd.concat(frames, ignore_index=True)
     # TR candidate ids were the TRID until 2026-09-13 (two outlier alleles of one locus share an id): keep one row per key
     all_ = all_.drop_duplicates(subset=["sample_id", "variant_id", "origin"], keep="first").reset_index(drop=True)
