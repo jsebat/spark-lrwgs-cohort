@@ -9,7 +9,6 @@ default-resources:
   mem_mb: 4000
   runtime: 60
   cpus: 1
-set-resources: {}
 latency-wait: 120
 retries: 1
 rerun-incomplete: true
