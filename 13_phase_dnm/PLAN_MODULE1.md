@@ -2,18 +2,20 @@
 
 ## Status
 
-**Where things stand (2026-09-13, evening; commit see git log).** All four modules exist, are tested (102 tests) and have run
+**Where things stand (2026-09-14, 01:00 PDT; commit see git log).** All four modules exist, are tested (104 tests) and have run
 on the whole cohort (33 complete-trio families, 35 children). M1 phasing/transmission: gate passed (31 PASS, 4 LOW_DEPTH).
 M2 review: 105 evidence tables (thresholds 0.2.0, readable-read observability), features + P9 likelihood + P26 annotation
 (gnomAD, LOFO founder counts) refreshed; spike-in harness cohort-wide (germline recovery ≥ 0.91 exact / ≥ 0.98 lenient, PoO
-1.00; mosaics 0.05–0.15 = the depth floor). M3: final tables + VCFs, P18 concordance in rf+phase mode (SNV/indel 749
-concordant / 586 original-only / 2,658 module-only, per proband 38 → 81, paternal 0.70; SV 4 / 8,125 / 10; TR 26 / 192 /
-2,044). M4: swap-closed folds, 5 seeds × 35 synthetic trios through the same chain, one harness; seed-0 table RF / no-phase
-/ phase-only vs H1: SNV/indel 0.997 / 0.997 / 0.951 vs 0.887, SV 0.994 / 0.990 / 0.864 vs 0.61, TR 0.890 / 0.835 / 0.877 vs
-0.59; attribution phase share 0.17 / 0.29 / 0.68; spike-in external truth RF → RF+P(rescue) 0.986 → 0.998, 0.988 → 0.999,
-0.992 → 0.996; decision on the fold-quantile score `rf_q` with provisional τ_q 0.997 / 0.999 / 0.999. Running: the 5-seed
-harness (mean ± range) and the WES-confirmed exonic external truth (P27 arm 2). Open before the paper: τ from external truth,
-the cohort re-review that fills the four read-quality columns, the long-insertion observation, Snakemake assembly, GIAB.
+1.00; mosaics 0.05–0.15 = the depth floor); cohort re-reviewed so the four read-quality features are filled on both sides.
+M3: final tables + VCFs, P18 v4 concordance on the five-seed `rf_q` decision (SNV/indel 797 concordant / 538 original-only /
+1,789 module-only, per proband 38 → 72, paternal 0.757, per-child range 18–152; SV 3 / 8,126 / 3; TR 28 / 190 / 851). M4:
+swap-closed folds, 5 genuine seeds × 35 synthetic trios through the same chain, one harness (`harness_v2`, headline): RF /
+no-phase / phase-only vs H1: SNV/indel 0.9967 / 0.9958 / 0.953 vs 0.887, SV 0.9945 / 0.990 / 0.872 vs 0.61, TR 0.892 / 0.840 /
+0.881 vs 0.59, seed ranges ≤ 0.003; attribution phase share 0.17 / 0.29 / 0.68 (seed 0). External truth: WES-confirmed exonic
+DNMs 28 / 58 called (original set 34 / 58), 0 of 1,864 WES-inherited called, RF 0.943 vs slivar 0.880 ROC-AUC; spike-ins TR
+0.99 / SV 0.63 recall at τ_q. GIAB HG002 trio running through the cohort WDL (HG004 35.7× → depth-matched second run
+planned). Open before the paper: the operating point (recall vs purity; two-tier call proposed), Snakemake slurm-profile
+exercise, GIAB, METHODS + PDF report.
 Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatch splits `--export` values at commas
 (positional seeds), and one fold model's probability scale is not another's (rf_q).
 
@@ -330,6 +332,31 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   scores with re-reviewed phase classes would give a table superseded within hours. Instead the same five-seed training is
   resubmitted on the re-reviewed tables into `harness_v2`, with rescore -> integrate -> concordance -> external arms
   chained behind it (see next entry).
+- **P18 v4 + external truth on the harness_v2 models (2026-09-14 00:43 PDT read; rescore 54287647 7 min, integrate array
+  54287648 33/33, concordance 54287649, external 54287650/54287651 - all COMPLETED, no failures; decision on `rf_q` from
+  the 25 fold models of five seeds, τ_q 0.997 / 0.999 / 0.999, τ_q,rescue 0.99):**
+  *Concordance vs the original pipeline's de novo set (concordant / original-only / module-only):* **SNV/indel 797 / 538 /
+  1,789** (v3: 748 / 587 / 2,027), per proband 38 → **72** (v3 74), paternal fraction of module YES **0.757** (v3 0.738),
+  per-child YES range **18-152** (v3 10-480: the fold-scale outlier is gone), 65 % of YES through the rf branch and 35 %
+  through rescue (v3: 36 / 64 - the branches swapped as the model got sharper on real negatives); original-only by reason:
+  437 below τ, 41 demoted inherited-missed, 55 demoted phase-conflict, 4 mosaic, 1 rf-unsupported. **TR 28 / 190 / 851**
+  (v3 26 / 192 / 971), per proband 6 → 25, range 9-37, paternal 0.694. **SV 3 / 8,126 / 3** (v3 4 / 8,125 / 9): six calls in
+  four children; 3,782 of the original 8,126 are phase-conflict demotions and 3,900 below τ - the original SV "de novo"
+  set (247/proband) is almost entirely inherited or artefact under six-haplotype review, unchanged since v1.
+  *WES-confirmed exonic truth (58 positives / 2,926 negatives, 33 children), full P15 decision on the v4 final tables:*
+  **28 of 58 called (48 %)** (v3 24 / 41 %; original pipeline's set 34 / 59 %): 21 rf branch, 7 rescued, 29 below τ (their
+  rf_q median 0.995), 1 demoted (phase_conflict). Negatives: **0 of 1,864 WES-inherited candidates called**; 17 of 1,062
+  WES-hom-ref rows called (16 by rescue - the LR-specific calls to examine against the WES depth at those sites). Ranking
+  arm (`external_wes`): RF ROC-AUC **0.943** (v3 0.930) vs slivar 0.880 (its operating point TPR 0.64 @ FPR 0.023); PR-AUC
+  0.585 vs 0.543. τ_q needed for WES recall 0.8 / 0.9 = **0.977 / 0.894** (real pass rate 2.3 % / 10.6 %; v3 0.961 / 0.783 =
+  3.9 % / 22 %) - the read-quality block moved true exonic DNMs up the ranking. *Spike-in arm (seed-0 fold models):* TR RF
+  recall at τ_q 0.99 (v3 0.89), PR-AUC 0.91 (0.52); SV recall 0.63 (0.22), PR 0.45 (0.35); SNV/indel unchanged at recall 0
+  / PR 0.045 - identical to the seed-0 run (0 / 0.053): planted small variants carry no caller block and the model's
+  default direction for missing caller features sends them down the ranking (P27 caveat; the rescue arm lifts them to ROC
+  0.998). **Operating point remains the open paper decision**, now with a better trade-off curve: at τ_q 0.977 the module
+  would recover ~80 % of exonic truth at a 2.3 % pass rate (~2,600 → ~26,000 YES cohort-wide - too many), at 0.997 it
+  recovers 48 % with 0 inherited false positives among 1,864. A two-tier call (tier 1 = rf ≥ τ_q or rescued; tier 2 =
+  rf_q ≥ 0.977 with `germline_DNM_*` class, reported unfiltered with the score) is the candidate resolution for JS.
 - **harness_v2 training done (2026-09-13 22:52 PDT read; 54287644/5/6 COMPLETED in 4 h 02 / 0 h 23 / 2 h 58; re-reviewed
   real tables, five genuine seeds, identical folds):** the presence-leak guard now drops only the never-produced
   annotation/context columns (14 / 23 / 20, all 0 % on both sides) and **keeps the read-quality block** - models carry
