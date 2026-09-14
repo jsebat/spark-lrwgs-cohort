@@ -399,6 +399,22 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **P18 v5 - first two-tier cohort call (2026-09-14 11:14 PDT read; relabel 54295042, rescore3 54295043 [per-variant-class rf_q:
+  SNV / INDEL references ~86 k / ~128 k rows per fold], integrate 54295044 33/33, concordance 54295045, WES arm 54295046; all
+  COMPLETED):**
+  *SNV/indel, per proband (median of 35):* **tier 1 = 73 (64 SNV + 7 indel), paternal fraction 0.770** (n = 2,336 phased); tier 2 = 25
+  (8 SNV + 17 indel), paternal 0.622 (n = 857) - the per-class quantile shrank tier 2 from 34 to 25 and made it what it is: an
+  indel-heavy validation list with a parent-of-origin ratio between noise (0.5) and DNMs (0.78). *Concordance with the original
+  set (1,335):* concordant at tier 1 **1,058 (79 %)**, recovered at tier 2 66, lost 211 (88 below τ, 96 demoted, 4 mosaic, 9
+  inconclusive, 14 rules: 13 recurrence + cohort, 1 mask); module-only tier 1 1,610, tier 2 962.
+  *WES-confirmed exonic truth, tightened (56 positives after removing the two hom-alt children; 2,926 negatives):* **tier 1 calls 41 of
+  56 (73 %) with 0 false positives among 2,926**; tier 2 adds 7 (cumulative 48 / 56 = **86 %**) against 10 false candidates (9
+  WES-inherited, 1 WES-hom-ref) -> **cumulative exonic FDR 17 %**, inside JS's 10-20 % budget; the remaining 8: 5 below τ, 2 rules
+  (gnomAD-common / recurrent - the impure ones), 1 demoted. RF ROC-AUC on the tightened set 0.951 (slivar 0.892), PR-AUC 0.604.
+  *TR:* tier 1 15 / proband (paternal 0.703), tier 2 7; concordant 15 / 199 lost / 517 module-only; 14 originals fail the mask.
+  *SV:* tier 1 0, tier 2 1 cohort-wide - with the rule layer and mask on, τ_q 0.999 leaves nothing; the SV operating point is set
+  by its own sweep next (see below). *Open knob for JS:* tier-2 indels (17 / proband at INDEL τ_q 0.95, paternal 0.62) - a
+  per-class key `tau_q_tier2: {INDEL: 0.97}` is supported if a tighter indel tier 2 is preferred.
 - **Two-tier decision implemented (2026-09-14; thresholds 0.3.0; 106 tests):** `integrate.decide` now returns `dnm_call` ∈ {YES,
   CANDIDATE, NO} and `dnm_tier` ∈ {1, 2, 0}; `rules_fail()` applies gnomAD AF < 0.001 / LOFO founder recurrence 0 / LOFO cohort AC 0 /
   mask after the score to both tiers (`decision_reason` RULES:<failed>), tunable and switchable in `thresholds.yaml final.rules` /

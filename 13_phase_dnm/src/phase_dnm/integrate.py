@@ -37,7 +37,7 @@ MOSAIC = ("child_postzygotic_mosaic", "parental_mosaic_transmitted")
 RF_BRANCH_CLASSES = ("germline_DNM_phased", "germline_DNM_unphased")
 
 
-DEFAULT_RULES = dict(gnomad_af_max=0.001, founder_recurrence_max=0, cohort_ac_max=0, mask=True)
+DEFAULT_RULES = dict(gnomad_af_max=0.001, catalog_af_max=0.001, founder_recurrence_max=0, cohort_ac_max=0, mask=True)
 
 
 @dataclass
@@ -63,7 +63,8 @@ def _f(x) -> Optional[float]:
 
 def rules_fail(row: Dict[str, object], p: FinalParams) -> List[str]:
     """P15 rule layer (JS 2026-09-14): the original pipeline's filters applied AFTER the classifier score - population frequency
-    (gnomAD AF < gnomad_af_max; absent / -1 = rare), leave-one-family-out founder-panel recurrence, leave-one-family-out cohort
+    (gnomAD AF < gnomad_af_max; absent / -1 = rare; for SVs the long-read catalogue AF < catalog_af_max), leave-one-family-out
+    founder-panel recurrence, leave-one-family-out cohort
     allele count, and the lab region mask. These quantities are rf_safe: false (P24: a label leak in training) and enter only here.
     Returns the names of the failing rules (empty = pass)."""
     r = p.rules or {}
@@ -72,6 +73,10 @@ def rules_fail(row: Dict[str, object], p: FinalParams) -> List[str]:
     af = _f(row.get("gnomad_af"))
     if mx is not None and af is not None and af >= 0 and af >= float(mx):
         fails.append("gnomad")
+    mc = r.get("catalog_af_max")
+    caf = _f(row.get("lr_sv_catalog_af"))            # SV: long-read SV population catalogue AF (RO >= 0.5); absent / -1 = rare
+    if mc is not None and caf is not None and caf >= 0 and caf >= float(mc):
+        fails.append("catalog")
     m2 = r.get("founder_recurrence_max")
     pon = _f(row.get("pon_founder_recurrence_loo"))
     if m2 is not None and pon is not None and pon > float(m2):

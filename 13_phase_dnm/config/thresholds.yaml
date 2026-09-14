@@ -79,6 +79,7 @@ final:                       # P15 - decision layer (M3), amended 2026-09-14 (JS
   tr_rescue_min_units: 3     # a TIER-2 TR call needs >= 3 motif units (one-haplotype stutter mimics a phased 1-unit change; cohort PoO 0.56 vs 0.75)
   rules:                     # rule layer, applied after the score to both tiers (JS 2026-09-14). These are rf_safe: false features (P24) -
     gnomad_af_max: 0.001     #   population frequency (absent from gnomAD = rare, as in the original pipeline's denovo_tier.py)
+    catalog_af_max: 0.001    #   SV analogue: long-read SV population catalogue AF (lr_sv_catalog_af, RO >= 0.5); absent = rare
     founder_recurrence_max: 0  # leave-one-family-out founder-panel recurrence (P26)
     cohort_ac_max: 0         #   leave-one-family-out cohort allele count (P26); LOFO keeps sib-shared DNMs of a quad
     mask: true               #   the lab segdup / simple-repeat mask (10 % of the genome), from the features' segdup_overlap flag

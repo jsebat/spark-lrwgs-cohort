@@ -146,6 +146,21 @@ def evaluate_spikes(evidence_dir: str, harness_dir: str, class_group: str, seed:
     if tau is not None and g.any():
         out["recall_at_tau_by_class"] = {vc: float((df[col][g & (df["variant_class"] == vc)] >= tau).mean()) for vc in sorted(set(df["variant_class"][g]))}
         out["real_pass_rate_at_tau"] = float((df[col][df["origin"] == "real"] >= tau).mean())
+    # operating-point sweep (2026-09-14): the same quantities on a tau grid, so SV / TR tiers - which have no orthogonal truth -
+    # can be set from planted-germline recall, planted-inherited (IM) pass rate and the real pass rate together
+    im = (df["origin"] == "spike") & (df["scenario"] == "IM")
+    real = df["origin"] == "real"
+    sweep = {}
+    for t in (0.9995, 0.999, 0.998, 0.997, 0.995, 0.99, 0.98, 0.97, 0.95, 0.9):
+        rec = dict(recall_G=float((df[col][g] >= t).mean()) if g.any() else None,
+                   IM_pass=float((df[col][im] >= t).mean()) if im.any() else None,
+                   real_pass=float((df[col][real] >= t).mean()) if real.any() else None)
+        for sc in ("CM", "PM"):
+            m = (df["origin"] == "spike") & (df["scenario"] == sc)
+            if m.any():
+                rec[sc + "_above"] = float((df[col][m] >= t).mean())
+        sweep[str(t)] = rec
+    out["sweep_%s" % col] = sweep
     return out
 
 

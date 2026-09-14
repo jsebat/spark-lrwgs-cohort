@@ -59,6 +59,10 @@ def test_rule_layer_after_the_score():
     P_loose = I.FinalParams(tau={"SNV": 0.8}, tau_tier2={"SNV": 0.4}, rules=dict(gnomad_af_max=0.01, founder_recurrence_max=1, cohort_ac_max=2, mask=False))
     assert I.decide(row(gnomad_af="0.005", pon_founder_recurrence_loo="1", cohort_AC_loo="2", segdup_overlap="1"), P_loose, 0.9)["dnm_call"] == "YES"
     assert I.rules_fail(row(gnomad_af="0.005", cohort_AC_loo="3"), P_loose) == ["cohort"]
+    # SV: the long-read catalogue AF plays gnomAD's part
+    P_sv = I.FinalParams(tau={"SV": 0.8}, tau_tier2={"SV": 0.4})
+    assert I.decide(row(vclass="SV", lr_sv_catalog_af="0.05"), P_sv, 0.9)["decision_reason"] == "RULES:catalog"
+    assert I.decide(row(vclass="SV", lr_sv_catalog_af="-1.0"), P_sv, 0.9)["dnm_call"] == "YES"
 
 
 def test_decide_provisional_mode():
@@ -208,7 +212,7 @@ def test_thresholds_carry_provisional_tau_q():
     thr = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), "..", "config", "thresholds.yaml")))
     f = thr["final"]
     assert f["tau_q"]["snv_indel"] == 0.99 and f["tau_q"]["sv"] == 0.999 and f["tau_q"]["tr"] == 0.999
-    assert f["tau_q_tier2"]["snv_indel"] == 0.95 and f["rules"] == {"gnomad_af_max": 0.001, "founder_recurrence_max": 0, "cohort_ac_max": 0, "mask": True}
+    assert f["tau_q_tier2"]["snv_indel"] == 0.95 and f["rules"] == {"gnomad_af_max": 0.001, "catalog_af_max": 0.001, "founder_recurrence_max": 0, "cohort_ac_max": 0, "mask": True}
     assert thr["version"] == "0.3.0"
 
 
