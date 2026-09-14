@@ -399,6 +399,21 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **Genome-wide sanity check of the candidate tiers (2026-09-14, job 54294717; JS: "> 50 de novo SNVs per genome - are those
+  only exonic?"):** the thresholds and the per-proband counts are genome-wide; only the recall / precision labels are exonic.
+  The lab mask covers 0.32 Gb = **10 % of the genome** (segdups + simple repeats), so ~90 % of true DNMs lie outside it.
+  Composition per proband (median, outside the mask, gate + rules): **tier-1 candidate (τ_q 0.99): 73 calls = 65 SNV + 8
+  indel (SNV fraction 0.89), 54 % phased, paternal fraction 0.778 (n = 1,425 phased)** - the same paternal fraction as the
+  original set (0.780) and the expected 50-80 de novo SNVs per genome; the calls not in the original set are
+  indistinguishable in child GQ (42 vs 44) and haplotype observation (6 vs 6) from those that are. Tier 1 captures 1,051 of
+  the original's 1,335 (79 %): 164 originals fail the germline review gate (demoted / mosaic / inconclusive), 35 the rules or
+  mask, 85 sit below 0.99. *τ_q 0.95: 107 = 77 SNV + 30 indel* - the 34 added per proband are indel-heavy and 60 % unphased
+  (phased share 0.40), the profile of indel noise rather than of DNMs, though the phased subset keeps paternal 0.777. *τ_q
+  0.997: 28 / proband, SNV 0.88* (under-calling, like the original's 38 = 31 SNV + 7 indel). Reading: **tier 1 at 0.99 is the
+  natural operating point** (expected count, expected SNV/indel ratio, expected parent-of-origin ratio); tier 2 should be set
+  per variant class - indels need their own quantile - and 0.97 (92 / proband, exonic precision 0.98) is the safer
+  tier-2 value until GIAB gives genome-wide precision. Genome-wide precision of tier 1 is bounded by the count argument at
+  ~75-95 % (58-70 expected true outside the mask vs 73 called), not the exonic 1.00.
 - **Masked re-cut = the fair comparison JS defined (2026-09-14, job 54294421; `harness_v2/wes_sweep_masked.snv_indel.tsv`):**
   the mask IS computed (features `segdup_overlap`, same `mask.segdup_repeat.bed.gz` as the original pipeline; 66 % of raw
   candidates and 54 % of germline-gated candidates are masked) but never reaches the final table's `mask_overlap`
