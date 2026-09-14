@@ -399,6 +399,19 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **P18 v6 - all classes on the final operating points (2026-09-14 12:48 PDT read; integrate 54295780 33/33, concordance
+  54295781; thresholds 0.3.0: SNV/indel 0.99 / 0.95, SV 0.99 / 0.97 with the mask as a flag [JS confirmed], TR 0.999 / 0.997).
+  This is the frozen-threshold cohort call unless GIAB moves a threshold.**
+  *SNV/indel:* unchanged from v5 - tier 1 2,668 cohort-wide = **73 / proband (64 SNV + 7 indel), paternal 0.770**; tier 2 1,028 =
+  25 / proband (8 SNV + 17 indel), paternal 0.622; concordant 1,058 / original 1,335, +66 at tier 2, 211 lost.
+  *SV:* tier 1 **10 cohort-wide** (0.3 / proband; 2 in the original set; 9 of the 10 carry the mask flag, as expected for SVs), tier
+  2 49 (median 2 / proband among the 22 children with any SV call; 14 in the original set; 45 flagged); paternal fraction not
+  informative at these counts (0.60 on n = 10; 0.54 on n = 41). Original SV set 8,129: 3,782 phase-conflict demotions, 3,829 below
+  τ, 205 inherited-missed, 239 mosaic-flagged, 56 inconclusive.
+  *TR:* tier 1 532 = **15 / proband, paternal 0.703**; tier 2 126 = 3 / proband (paternal 0.59) - far below the sweep's 22 / proband
+  because tier 2 keeps the ≥ 3-motif-unit rule (one-haplotype stutter of the longer parental allele mimics a phased 1-unit
+  change; the sweep did not apply it); concordant 15 / original 205, 202 lost (148 below τ, 34 demoted, 13 mask, 4 mosaic).
+  *Cohort de novo call per proband, tier 1: ~73 SNV/indel + ~0.3 SV + ~15 TR; tier 2 adds ~25 + ~1.4 + ~3.*
 - **SV and TR operating points from their own sweeps (2026-09-14, jobs 54295621 / 54295702; `harness_v2/svtr_sweep.*.tsv`,
   spike-arm τ grid `external.{sv,tr}.seed0.json` → `sweep_rf_q`):** no orthogonal truth exists for these classes, so the
   yardsticks are planted-germline recall and planted-inherited (IM) pass rate on the spike-ins, and on the real tables the
