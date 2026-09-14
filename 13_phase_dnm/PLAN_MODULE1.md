@@ -399,6 +399,13 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **Snakemake slurm profile exercised (2026-09-14):** `snakemake <family>/m2_reclassify.status --profile workflow/profiles/expanse
+  --forcerun m2_reclassify` submitted job 54296864 through the slurm executor plugin (snakemake 9.26.1) and finished; the
+  family's status was recreated (thresholds 0.3.0). Three profile defects found and fixed on the way: an empty
+  `set-resources: {}` is rejected by snakemake 9; `--qos` may not sit in `slurm_extra` (the plugin sets it from the `qos`
+  resource); Expanse's bank_limit plugin requires `--nodes`, so `nodes: 1` is a default resource; rule resources renamed
+  `cpus` → `cpus_per_task`. Side effect to know: snakemake deletes the target status file of a failed submission, so a
+  failed profile run leaves that family "not done" until the rule reruns.
 - **METHODS draft assembled (2026-09-14):** `13_phase_dnm/METHODS.md` - one paragraph per decision P1-P27 in pipeline order
   (input data, M1 orientation / transmission / QC, M2 candidates / six-haplotype matrix / rule / likelihood / mosaic floor /
   spike-ins, M4 construction / folds / models / heuristic arms / annotation / rf_q / frozen models, M3 two-tier decision +
