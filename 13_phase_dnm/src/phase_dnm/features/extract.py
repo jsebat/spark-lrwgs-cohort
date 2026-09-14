@@ -235,7 +235,23 @@ def caller_features(rec: CandidateRecord, sex: str) -> Dict[str, object]:
     sx = normalise_sex(sex)
     nonpar_x = rec.chrom in ("chrX", "X") and not any(lo <= rec.start <= hi for lo, hi in PAR_GRCH38)
     f["haploid_flag"] = int(sx == "M" and (nonpar_x or rec.chrom in ("chrY", "Y")))
-    f["site_qual"] = rec.caller_qual
+    # QD, computed here rather than taken from the caller (P24 correction 2026-09-14, JS).
+    # Raw site QUAL is unusable as a feature: in a joint callset it rises with the number of carriers, AND our real
+    # candidates come from the per-FAMILY joint VCF while the synthetic ones come from the 105-sample cohort BCF, so the
+    # same variant scores differently on the two sides of the label. GATK's QD (QUAL normalised by the depth of the
+    # informative samples) is the frequency-independent form, but QD is GATK-only and DeepVariant/GLnexus, sawfish and
+    # TRGT do not emit it. So it is derived from PER-SAMPLE evidence, which is on the same scale in both sources:
+    #   numerator   PL[0] = the child's Phred evidence against hom-ref (the per-sample analogue of QUAL); GQ when the
+    #               caller emits no PL (sawfish, TRGT)
+    #   denominator the child's READABLE depth from our own six-haplotype matrix, falling back to the caller's DP
+    f["site_qual"] = rec.caller_qual        # kept in the evidence tables for provenance; NOT a registry feature
+    _num = _f(f.get("child_PL0"))
+    if _num is None:
+        _num = _f(f.get("child_GQ"))
+    _den = (_f(f.get("c_dp_hapA")) or 0.0) + (_f(f.get("c_dp_hapO")) or 0.0)
+    if not _den:
+        _den = _f(f.get("child_DP")) or 0.0
+    f["qd_child"] = round(_num / _den, 4) if (_num is not None and _den) else None
     f["site_filter_fail"] = int(rec.caller_filter not in (".", "PASS", ""))
     f["multiallelic"] = int(int(pl.get("n_alts", 1) or 1) > 1)
     f["glnexus_rnc_child"] = pl.get("rnc")

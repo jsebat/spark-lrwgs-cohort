@@ -141,3 +141,14 @@ def test_site_qual_is_not_a_registry_feature():
     items = [it for sec in reg.values() if isinstance(sec, list) for it in sec if isinstance(it, dict)]
     sq = [it for it in items if it.get("name") == "site_qual"]
     assert sq and sq[0]["status"] == "drop" and sq[0]["classes"] == []
+
+
+def test_qd_is_computed_from_per_sample_evidence_only():
+    """P24 correction: QD must not depend on cohort size, carrier count, or which VCF the row came from."""
+    import pandas as pd
+    from phase_dnm.train.nested_cv import add_derived
+    # same variant, same per-sample evidence, but site QUAL differs wildly between the family VCF and the cohort BCF
+    fam = pd.DataFrame({"variant_id": ["v"], "child_PL0": ["48"], "c_dp_hapA": ["8"], "c_dp_hapO": ["8"],
+                        "child_DP": ["16"], "site_qual": ["31"]})
+    coh = fam.copy(); coh["site_qual"] = ["999"]
+    assert add_derived(fam)["qd_child"].iloc[0] == add_derived(coh)["qd_child"].iloc[0] == 3.0

@@ -49,6 +49,35 @@ class Data:
 
 def _read_matrix(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    return add_derived(df)
+
+
+def add_derived(df: pd.DataFrame) -> pd.DataFrame:
+    """Features computed from columns the matrix already holds, so matrices written before the change carry them too.
+
+    `qd_child` — QD computed by us (P24 correction): the child's per-sample Phred evidence against hom-ref (PL[0], or GQ
+    when the caller emits no PL) divided by the child's readable depth from the six-haplotype matrix (caller DP as a
+    fallback). Both parts are per-sample, so unlike site QUAL the value does not depend on cohort size, on how many other
+    samples carry the allele, or on whether the row came from a family VCF or the cohort BCF."""
+    if "qd_child" in df.columns or df.empty:
+        return df
+    num = None
+    for c in ("child_PL0", "child_GQ"):
+        if c in df.columns:
+            v = pd.to_numeric(df[c], errors="coerce")
+            num = v if num is None else num.fillna(v)
+    if num is None:
+        return df
+    den = None
+    if "c_dp_hapA" in df.columns and "c_dp_hapO" in df.columns:
+        den = pd.to_numeric(df["c_dp_hapA"], errors="coerce").fillna(0) + pd.to_numeric(df["c_dp_hapO"], errors="coerce").fillna(0)
+    if "child_DP" in df.columns:
+        dp = pd.to_numeric(df["child_DP"], errors="coerce")
+        den = dp if den is None else den.where(den > 0, dp)
+    if den is None:
+        return df
+    df = df.copy()
+    df["qd_child"] = (num / den.where(den > 0)).round(4).astype(object).where(den > 0, "")
     return df
 
 
