@@ -399,6 +399,41 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **Masked re-cut = the fair comparison JS defined (2026-09-14, job 54294421; `harness_v2/wes_sweep_masked.snv_indel.tsv`):**
+  the mask IS computed (features `segdup_overlap`, same `mask.segdup_repeat.bed.gz` as the original pipeline; 66 % of raw
+  candidates and 54 % of germline-gated candidates are masked) but never reaches the final table's `mask_overlap`
+  (propagation bug, to fix). Joined from the features tables, rule layer **R3 = gnomAD AF < 0.001 + LOFO founder recurrence 0
+  + LOFO cohort AC 0 + outside mask**, after the classifier score and the germline review gate:
+
+  | τ_q | recall (58) | recall (56 child-0/1) | FP (labelled) | exonic precision | calls / proband (median) |
+  |---|---|---|---|---|---|
+  | 0.997 | 0.34 | 0.36 | 0 | 1.00 | 28 |
+  | 0.995 | 0.48 | 0.50 | 0 | 1.00 | 51 |
+  | **0.99** | **0.71** | **0.73** | **0** | **1.00** | **73** |
+  | 0.98 | 0.74 | 0.77 | 0 | 1.00 | 85 |
+  | 0.97 | 0.79 | 0.82 | 1 | 0.98 | 92 |
+  | **0.95** | **0.83** | **0.86** | **4 (1 hom-ref, 3 inherited)** | **0.92** | **107** |
+  | 0.93 | 0.83 | 0.86 | 10 | 0.83 | 117 |
+  | 0.90 | 0.83 | 0.86 | 11 | 0.81 | 131 |
+  | 0.85 | 0.86 | 0.89 | 15 | 0.77 | 143 |
+  | rules only, no classifier | 0.86 | 0.89 | 39 | 0.56 | 427 |
+  | original `denovo_tiered` set | 0.59 | 0.61 | 2 | 0.94 | 38 |
+
+  **The classifier + the original pipeline's own rules dominates the original set:** at τ_q 0.95 recall 0.83-0.86 vs 0.59-
+  0.61 at precision 0.92 vs 0.94; at τ_q 0.99 recall 0.71-0.73 with zero labelled false positives. The classifier's
+  contribution over the rules alone is the 427 → 107 calls / proband cut at a loss of one positive. Ceiling: 51 of 58 pass the
+  rules (the 6 impure ones and one masked credible DNM do not) and 55 pass the germline gate, so recall saturates at 0.86 (0.89
+  of the child-0/1 set); JS's "> 90 %" is not reachable on this truth set with the rules applied, 86-89 % is. JS's FDR budget
+  (10-20 %) is met with room: exonic FDR 8 % at τ_q 0.95, 19 % at 0.90-0.93.
+  **Recommended tiers (P15 amendment, pending JS's confirmation of the two values):** *Tier 1* τ_q >= 0.99 + gate + rules -
+  ~73 / proband, the expected germline DNM count, exonic precision 1.00; *Tier 2* τ_q >= 0.95 + gate + rules - ~107 /
+  proband, exonic FDR ~8 %, recall 0.86 of credible exonic DNMs, for experimental validation. The rescue branch is
+  subsumed (phased-germline rows between 0.95 and 0.99 land in tier 2; rescue-to-tier-1 kept only if GIAB supports it).
+  Caveat unchanged: exonic precision is an upper bound for the genome; 107 / proband against ~70 expected implies a
+  genome-wide tier-2 FDR nearer 30-35 % even at full recall - GIAB sets that number. Implementation list: propagate the mask
+  flag into the final table; add the rule layer and `dnm_tier` (1 / 2 / 0) to `integrate.py` + VCF INFO (`PDNM_TIER` is
+  currently the source tier - rename to avoid a clash); τ_q per tier in `thresholds.yaml`; tighten the WES label to child
+  0/1; re-run integration + concordance + WES arm; report tier-1 and tier-2 rows in P18.
 - **Operating-point evaluation requested by JS (2026-09-14; "relax and see if the classifier still outperforms; FDR 10-20 %
   at > 90 % recall could be tolerated"). Jobs 54294272 / 54294323; tables `harness_v2/wes_sweep*.snv_indel.tsv`.**
   *What the 58 "WES positives" are (JS asked):* not a curated list of known DNMs. They are our own long-read exonic
