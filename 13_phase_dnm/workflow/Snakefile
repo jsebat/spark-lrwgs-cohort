@@ -74,13 +74,13 @@ rule all:
 # ------------------------------------------------------------------ M1
 rule m1_orient:
     output: os.path.join(PHASE_DIR, "{family}", "m1.status")
-    resources: mem_mb=4000, runtime=120, cpus=1
+    resources: mem_mb=4000, runtime=120, cpus_per_task=1
     shell: COMMON + "bash " + SB("m1_orient_family.sb") + " {wildcards.family} && printf 'OK\\n' > {output}"
 
 rule m1_xoreads:
     input: rules.m1_orient.output
     output: os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status")
-    resources: mem_mb=4000, runtime=120, cpus=1
+    resources: mem_mb=4000, runtime=120, cpus_per_task=1
     shell: COMMON + "bash " + SB("m1_xoreads_family.sb") + " {wildcards.family} && printf 'OK\\n' > {output}"
 
 SAMPLES = sorted({r["sample_id"] for r in csv.DictReader(open(MANIFEST, newline=""), delimiter="\t") if r["family_id"] in FAMILIES})
@@ -88,7 +88,7 @@ SAMPLES = sorted({r["sample_id"] for r in csv.DictReader(open(MANIFEST, newline=
 rule m1_hapdepth:
     # hapdepth_array.sb is written for a sample array (LIST + SLURM_ARRAY_TASK_ID); one sample per rule instance
     output: os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz")
-    resources: mem_mb=4000, runtime=240, cpus=1
+    resources: mem_mb=4000, runtime=240, cpus_per_task=1
     shell:
         COMMON + "mkdir -p %s/hapdepth/lists && echo {wildcards.sample} > %s/hapdepth/lists/{wildcards.sample}.txt && "
         "LIST=%s/hapdepth/lists/{wildcards.sample}.txt SLURM_ARRAY_TASK_ID=1 bash " % (PHASE_DIR, PHASE_DIR, PHASE_DIR) + SB("hapdepth_array.sb")
@@ -96,34 +96,34 @@ rule m1_hapdepth:
 rule phase_qc:
     input: expand(os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status"), family=FAMILIES), expand(os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz"), sample=SAMPLES)
     output: os.path.join(PHASE_DIR, "cohort_phase_qc.tsv")
-    resources: mem_mb=4000, runtime=30, cpus=1
+    resources: mem_mb=4000, runtime=30, cpus_per_task=1
     shell: COMMON + "source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli phase-qc --manifest $MANIFEST --phase-dir $PHASE_DIR --hapdepth-dir $PHASE_DIR/hapdepth --thresholds %s/config/thresholds.yaml" % (ENV, HERE)
 
 
 # ------------------------------------------------------------------ M2
 rule m2_candidates:
     output: os.path.join(EVIDENCE_DIR, "{family}", "candidates", "m2_candidates.status")
-    resources: mem_mb=4000, runtime=60, cpus=1
+    resources: mem_mb=4000, runtime=60, cpus_per_task=1
     shell: COMMON + "bash " + SB("m2_candidates_family.sb") + " {wildcards.family}"
 
 rule m2_review:
     input: rules.m2_candidates.output, rules.m1_xoreads.output
     output: os.path.join(EVIDENCE_DIR, "{family}", "m2_review.status")
-    resources: mem_mb=4000, runtime=240, cpus=1
+    resources: mem_mb=4000, runtime=240, cpus_per_task=1
     shell: COMMON + "bash " + SB("m2_review_family.sb") + " {wildcards.family}"
 
 rule m2_reclassify:
     # reclassify -> likelihood -> features (with annotation and geometry when present); the review output stays immutable
     input: rules.m2_review.output
     output: os.path.join(EVIDENCE_DIR, "{family}", "m2_reclassify.status")
-    resources: mem_mb=4000, runtime=120, cpus=1
+    resources: mem_mb=4000, runtime=120, cpus_per_task=1
     shell: COMMON + "REPLACE_REVIEW=1 bash " + SB("m2_reclassify_family.sb") + " {wildcards.family}"
 
 rule annotate_real:
     # P26 cohort annotation for one class group (gnomAD via slivar, leave-one-family-out founder counts, sib-shared)
     input: expand(os.path.join(EVIDENCE_DIR, "{family}", "candidates", "m2_candidates.status"), family=FAMILIES)
     output: touch(os.path.join(EVIDENCE_DIR, "..", "annot", "real", ".done.{cls}"))
-    resources: mem_mb=32000, runtime=360, cpus=2
+    resources: mem_mb=32000, runtime=360, cpus_per_task=2
     shell: COMMON + "bash " + SB("m4_annotate.sb") + " {wildcards.cls}"
 
 
@@ -132,46 +132,46 @@ rule m3_integrate:
     input: rules.m2_reclassify.output
     output: os.path.join(EVIDENCE_DIR, "{family}", "m3_integrate.status")
     params: rf=lambda w: ("RF_PROBS_DIR=%s/harness/rf_probs TAU_DIR=%s/harness " % (TRAIN_DIR, TRAIN_DIR)) if os.path.isdir(os.path.join(TRAIN_DIR, "harness", "rf_probs")) else ""
-    resources: mem_mb=4000, runtime=60, cpus=1
+    resources: mem_mb=4000, runtime=60, cpus_per_task=1
     shell: COMMON + "{params.rf}bash " + SB("m3_integrate_family.sb") + " {wildcards.family}"
 
 rule m3_concordance:
     input: expand(os.path.join(EVIDENCE_DIR, "{family}", "m3_integrate.status"), family=FAMILIES)
     output: expand(os.path.join(FINAL_DIR, "concordance.{cls}.summary.json"), cls=CLASS_GROUPS)
-    resources: mem_mb=32000, runtime=90, cpus=1
+    resources: mem_mb=32000, runtime=90, cpus_per_task=1
     shell: COMMON + "bash " + SB("m3_concordance.sb")
 
 
 # ------------------------------------------------------------------ M4
 rule m4_swap:
     output: expand(os.path.join(TRAIN_DIR, "folds", "synthetic_trios.seed{seed}.tsv"), seed=SEEDS)
-    resources: mem_mb=2000, runtime=10, cpus=1
+    resources: mem_mb=2000, runtime=10, cpus_per_task=1
     shell: COMMON + "source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli swap --manifest $MANIFEST --out-dir %s/folds --n-folds %d --seeds %s" % (ENV, TRAIN_DIR, int(config.get("n_folds", 5)), ",".join(str(s) for s in SEEDS))
 
 checkpoint m4_synthetic_seed:
     # all synthetic trios of one seed (array in the hand-run version); one status per trio inside TRAIN_DIR/seed<k>/
     input: os.path.join(TRAIN_DIR, "folds", "synthetic_trios.seed{seed}.tsv"), expand(os.path.join(EVIDENCE_DIR, "{family}", "m2_reclassify.status"), family=FAMILIES)
     output: touch(os.path.join(TRAIN_DIR, "seed{seed}", ".synthetic.done"))
-    resources: mem_mb=8000, runtime=1440, cpus=2
+    resources: mem_mb=8000, runtime=1440, cpus_per_task=2
     shell:
         COMMON + "T={input[0]}; N=$(( $(wc -l < $T) - 1 )); for i in $(seq 1 $N); do bash " + SB("m4_synthetic_trio.sb") + " $T $i && bash " + SB("m4_annotate_synthetic.sb") + " $T $i; done"
 
 rule m4_train:
     input: expand(os.path.join(TRAIN_DIR, "seed{seed}", ".synthetic.done"), seed=SEEDS), expand(os.path.join(EVIDENCE_DIR, "..", "annot", "real", ".done.{cls}"), cls=["snv_indel", "sv"])
     output: os.path.join(TRAIN_DIR, "harness", "cv_report.{cls}.json")
-    resources: mem_mb=64000, runtime=480, cpus=8
+    resources: mem_mb=64000, runtime=480, cpus_per_task=8
     shell: COMMON + "OUT_DIR=%s/harness bash " % TRAIN_DIR + SB("m4_train.sb") + " {wildcards.cls} " + ",".join(str(s) for s in SEEDS)
 
 rule m4_rescore:
     input: rules.m4_train.output
     output: touch(os.path.join(TRAIN_DIR, "harness", ".rescored.{cls}"))
-    resources: mem_mb=48000, runtime=120, cpus=4
+    resources: mem_mb=48000, runtime=120, cpus_per_task=4
     shell: COMMON + "source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli rescore --class-group {wildcards.cls} --manifest $MANIFEST --evidence-dir $EVIDENCE_DIR --harness-dir %s/harness --folds-dir %s/folds --seeds %s" % (ENV, TRAIN_DIR, TRAIN_DIR, ",".join(str(s) for s in SEEDS))
 
 rule m4_external:
     input: expand(os.path.join(TRAIN_DIR, "harness", ".rescored.{cls}"), cls=CLASS_GROUPS)
     output: touch(os.path.join(TRAIN_DIR, "harness", ".external.done"))
-    resources: mem_mb=32000, runtime=120, cpus=4
+    resources: mem_mb=32000, runtime=120, cpus_per_task=4
     shell: COMMON + "SEED=0 OUT_DIR=%s/harness bash " % TRAIN_DIR + SB("m4_external.sb") + " && SEED=0 OUT_DIR=%s/harness bash " % TRAIN_DIR + SB("m4_external_wes.sb")
 
 rule m4:
