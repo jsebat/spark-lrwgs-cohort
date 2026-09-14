@@ -434,6 +434,27 @@ precision. Open: tier-2 indel threshold; profile of the 37 % of planted SVs neve
   applies a frozen model to a cohort - rf_prob from the model, rf_q against that cohort's own candidates per variant class,
   tau json with `score_column rf_q` - so `integrate` runs unchanged; the model checksum is verified and a tampered file is
   refused. Tests: manifests match models in the repo; score path end-to-end (skipped where xgboost is unavailable).
+- **TRAINING-SET ERROR FOUND (2026-09-14, JS): synthetic positives were not restricted to rare variants, and `site_qual`
+  should never have been a feature. Everything trained on those positives is provisional.** Trigger: JS asked where the
+  cohort's two pathogenic de novo SVs (MECP2, DNMT3A) land in the new call set. Answer: **both rejected, `BELOW_TAU`** —
+  MECP2 rf_q 0.938 (`inconclusive`, 2 of 6 haplotypes observed; a 35 kb deletion), DNMT3A rf_q 0.954
+  (`germline_DNM_phased`, 6 of 6 haplotypes, 15/15 alt reads confined to one child haplotype, zero parental support,
+  paternal) — as are CELSR1 (0.645) and FBRSL1 (0.123). Forensic (job 54299413, TreeSHAP on the five held-out fold
+  models): the caller block dominates every rejection (A_caller SHAP -3.55 MECP2, -2.33 DNMT3A, -4.37 CELSR1, -5.86
+  FBRSL1) and `site_qual` is the single largest term in three of the four; the phase-only fold models score the same rows
+  0.842 (MECP2) and **0.964 (DNMT3A)** while the no-phase models score them 0.116 and 0.078. Root cause (jobs 54299447/55,
+  and the SynthDNM source at `j3guevar/dnms/synthdnm/make_feature_table.py`): (1) `make_feature_table.py` gates every
+  synthetic positive on `num_het != 2` + `num_hom_alt != 0` (AC = 2) plus an XOR requiring exactly one real parent to
+  carry — I implemented only "child het, surrogate parents hom-ref", so 69 % of my SNV/indel positives and 85 % of my SV
+  positives are common variants (cohort AC_loo median 15 / 13); (2) SynthDNM uses QD / AQ and never raw QUAL, while
+  `features.yaml` admitted `site_qual` — whose own registry note says it is cohort-size dependent and needs verifying.
+  Result: `site_qual` alone separates positives from negatives at ROC-AUC 0.958 (SV) / 0.900 (SNV/indel); SV positives sit
+  at QUAL 999 against real de novo candidates at 128 and the four known de novo SVs at 57-645. Impact by class: SNV/indel
+  dented but functional (true exonic DNMs have QUAL 41 vs positives 55 — overlapping); **SV broken**; TR to be re-measured
+  (its matrix has no `site_qual`, so the QUAL channel is absent there, but the rarity error applies to its positives too).
+  Fix queued (not applied): AC = 2 + XOR on synthetic positive generation, `site_qual` out and a depth-normalised quality
+  in, retrain all three classes, re-derive thresholds, re-cut P18 and the external arms. The report update JS asked for
+  waits for that re-cut.
 - **P18 v6 - all classes on the final operating points (2026-09-14 12:48 PDT read; integrate 54295780 33/33, concordance
   54295781; thresholds 0.3.0: SNV/indel 0.99 / 0.95, SV 0.99 / 0.97 with the mask as a flag [JS confirmed], TR 0.999 / 0.997).
   This is the frozen-threshold cohort call unless GIAB moves a threshold.**

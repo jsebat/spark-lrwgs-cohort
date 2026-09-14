@@ -226,6 +226,37 @@ TR) because a child against unrelated parents shows ~1.5 M "de novo" small varia
 review on synthetic trios is the only BAM pass in M4 (~30–60 min per synthetic trio; one per real child per seed).
 
 ### P24 — What the classifier sees, and the labels (M4)
+**CORRECTION 2026-09-14 (JS found it; two deviations from SynthDNM, both mine).** The construction below generated
+positives WITHOUT SynthDNM's rarity condition, and the feature registry admitted a site-level QUAL that SynthDNM
+deliberately omits. `make_feature_table.py` gates every synthetic (truth = 1) row on
+`if variant.num_het != 2: continue` and `if variant.num_hom_alt != 0: continue` (marked in the source by the comment
+`# check for AC number here #`), plus an XOR requiring exactly one REAL parent to carry the allele: the positive is a
+**private (AC = 2) variant transmitted from one parent**, the closest analogue to a de novo mutation (AC = 1). P23 as
+implemented kept only the first three conditions (child het, both surrogate parents hom-ref) and dropped the AC and XOR
+gates. *Measured 2026-09-14:* 69 % of the SNV/indel positives have gnomAD AF >= 0.001 (64 % >= 0.01), cohort AC_loo
+median 15; 85 % of the SV positives have cohort AC_loo >= 2, median 13 — against SynthDNM's AC = 2 for every positive.
+Second deviation: SynthDNM's site-level features are DP, ExcessHet, FS, MQ, **QD**, SOR, VQSLOD and the rank sums (GATK
+mode) or AQ (GLnexus mode) — depth-normalised or per-allele, never raw QUAL. `config/features.yaml` admitted
+`site_qual` as `rf_safe: true` with a `why` that names the hazard ("GLnexus QUAL is site-level and cohort-size dependent
+-> verify scaling (synthdnm drops INFO_DP/AN for that reason)") and the verification was never done. In a joint-genotyped
+callset QUAL rises with the number of carriers, so with common positives it is close to a direct readout of cohort
+frequency: **single-feature ROC-AUC of `site_qual` alone, positives vs negatives, 0.958 (SV) and 0.900 (SNV/indel)**; SV
+positives sit at QUAL median 999 (q10 680) against real de novo candidates at median 128. The classifier therefore learned
+"high caller quality => de novo" when its training data said "high caller quality => common inherited variant". P24's
+earlier response to the same symptom — banning the population-frequency features as leaks (`rf_safe: false`) — treated the
+symptom: it closed the gnomAD channel and left the identical information flowing through the caller-quality block.
+*Cost, by class:* SNV/indel is dented but works (positives QUAL median 55 vs WES-confirmed true de novo 41 — overlapping,
+so other features carry the decision; tier 1 recovers 41/56 exonic truths at zero false positives). **SV is broken:** all
+four of the cohort's prioritised de novo SVs fall below threshold, including the two pathogenic ones — MECP2 (35 kb
+deletion, QUAL 160, rf_q 0.938) and DNMT3A (302 bp frameshift deletion, QUAL 645, rf_q 0.954, and `germline_DNM_phased`
+with six haplotypes observed, 15/15 alt reads on one child haplotype and zero parental support). The phase-only model
+scores DNMT3A 0.964 on its own; the caller block drags the full model down (TreeSHAP A_caller -2.33 vs D_phase +0.44).
+*Fix, agreed to be applied before any further result stands:* regenerate synthetic positives under SynthDNM's AC = 2 and
+XOR conditions; drop `site_qual` and replace it with a depth-normalised per-sample quality (QD-equivalent) for each class;
+retrain all three classes; re-derive thresholds; re-cut P18 and the external arms. Every number below that was produced
+with the old positives is provisional until then.
+
+
 Training rows are the `rf_safe` matrix columns only (registry gate, P11), identical for synthetic and real rows; the
 label is 1 for a synthetic-trio candidate and 0 for a real-trio raw candidate (P13). No parent-of-origin, transmitted
 haplotype or orientation column is available to any model — JS 2026-09-12: "inferring parent of origin is something we
