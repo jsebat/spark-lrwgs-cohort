@@ -379,7 +379,16 @@ def cmd_swap(a: argparse.Namespace) -> int:
         rows = list(csv.DictReader(fh, delimiter="\t"))
     cols = list(rows[0].keys())
     by_id = {r["sample_id"]: r for r in rows}
-    sources = {r["family_id"]: "blood" for r in rows if a.blood_family_prefix and r["family_id"].startswith(a.blood_family_prefix)}
+    # blood-derived family (fold stratification, DESIGN P12): found by SAMPLE-id prefix (the REACH quad's family id follows the
+    # cohort's F0xxx pattern, so a family-id prefix alone matched nothing — fixed 2026-09-13) or by family-id prefix; both from
+    # the env file when set (BLOOD_SAMPLE_PREFIX / BLOOD_FAMILY_PREFIX).
+    sources = {}
+    for r in rows:
+        if (a.blood_sample_prefix and r["sample_id"].startswith(a.blood_sample_prefix)) or (
+            a.blood_family_prefix and r["family_id"].startswith(a.blood_family_prefix)
+        ):
+            sources[r["family_id"]] = "blood"
+    sys.stderr.write("SWAP blood families: %d (%s)\n" % (len(sources), ", ".join(sorted(sources)) or "none"))
     fams = FO.families_from_manifest(rows, sources)
     parents = {}
     for f in fams:
@@ -805,7 +814,10 @@ def build_parser() -> argparse.ArgumentParser:
     sw = sub.add_parser("swap", help="M4: swap-closed family folds and within-fold pedigree swaps (synthetic trios) per seed")
     sw.add_argument("--manifest", required=True), sw.add_argument("--out-dir", required=True)
     sw.add_argument("--n-folds", type=int, default=5), sw.add_argument("--seeds", default="0,1,2,3,4")
-    sw.add_argument("--blood-family-prefix", default="REACH", help="family-id prefix of the blood-derived family (kept with company in fold 0)")
+    sw.add_argument("--blood-sample-prefix", default=os.environ.get("BLOOD_SAMPLE_PREFIX", "REACH"),
+                    help="sample-id prefix identifying the blood-derived family (kept with company in fold 0); env BLOOD_SAMPLE_PREFIX")
+    sw.add_argument("--blood-family-prefix", default=os.environ.get("BLOOD_FAMILY_PREFIX", ""),
+                    help="family-id prefix identifying the blood-derived family (alternative to the sample prefix); env BLOOD_FAMILY_PREFIX")
     sw.set_defaults(func=cmd_swap)
     tr = sub.add_parser("train", help="M4: nested CV harness per class group (RF arms, ablations, baselines, heuristic sweeps), rf_probs, tau, frozen model")
     tr.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"])

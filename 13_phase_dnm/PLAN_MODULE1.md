@@ -296,6 +296,13 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   in the module env). Dry run against the cohort layout: `all` = 101 jobs, `m4` = 81; M1/hapdepth/candidates recognised as up
   to date. Untested so far: an actual slurm submission through the profile — to be exercised on one family after the
   re-review chain (the DAG will then be current and a forced single rule is the smoke).
+- **Swap blood-family constraint fixed (2026-09-13):** `phase-dnm swap --blood-family-prefix` defaulted to `REACH`, but the
+  blood quad's *family* id follows the cohort's F0xxx pattern (only its *sample* ids start with REACH), so the constraint
+  matched nothing when the five fold files were generated. Checked on Expanse: the blood family nonetheless has five
+  companion families in every seed (folds 0/1/0/1/1), so the existing folds, synthetic trios and the running five-seed
+  harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
+  default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
+  F0-family case.
 - **GIAB Ashkenazi trio submitted through the cohort WDL recipe (2026-09-13 17:24 PDT, approved by JS "Ok go"):**
   `cohort/run_family.sh HG002_trio /expanse/lustre/projects/ddp195/jsebat/giab_wdl` — driver 54287102 + watchdog 54287103
   (ind-shared, 48 h limit), inputs `config/inputs/HG002_trio.inputs.json` in the cohort's five-key format (HG002 male

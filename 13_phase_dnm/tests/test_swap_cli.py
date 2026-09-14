@@ -40,3 +40,26 @@ def test_swap_cli_outputs(tmp_path):
     m = read_manifest(os.path.join(out, "manifests", syn[0]["synthetic_id"] + ".manifest.tsv"))
     assert trio_of(m, syn[0]["child"]) == (syn[0]["surrogate_father"], syn[0]["surrogate_mother"])
     assert m[syn[0]["child"]]["family_id"] == syn[0]["synthetic_id"] and len(m) == 3
+
+
+def test_swap_cli_blood_family_by_sample_prefix(tmp_path):
+    """The cohort's blood family has REACH sample ids but an F0xxx family id: the sample-id prefix must find it."""
+    man = str(tmp_path / "manifest.tsv"); write_manifest(man)
+    rows = list(csv.DictReader(open(man), delimiter="\t"))
+    for r_ in rows:
+        if r_["family_id"] == "FX07":
+            r_["sample_id"] = "REACH" + r_["sample_id"]
+            for k in ("father_id", "mother_id"):
+                if r_[k] != "0":
+                    r_[k] = "REACH" + r_[k]
+    with open(man, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLS, delimiter="\t", lineterminator="\n"); w.writeheader(); w.writerows(rows)
+    out = str(tmp_path / "train")
+    env = dict(os.environ, PYTHONPATH=os.path.join(os.path.dirname(__file__), "..", "src"))
+    env.pop("BLOOD_FAMILY_PREFIX", None); env.pop("BLOOD_SAMPLE_PREFIX", None)
+    r = subprocess.run([sys.executable, "-m", "phase_dnm.cli", "swap", "--manifest", man, "--out-dir", out, "--n-folds", "3", "--seeds", "0"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert "blood families: 1 (FX07)" in r.stderr + r.stdout
+    folds = list(csv.DictReader(open(os.path.join(out, "folds.seed0.tsv")), delimiter="\t"))
+    assert [f for f in folds if f["family_id"] == "FX07"][0]["outer_fold"] == "0"

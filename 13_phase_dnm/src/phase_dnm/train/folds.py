@@ -2,7 +2,8 @@
 
 Units are FAMILIES (a quad's two children stay together). Outer folds are drawn by seed; within an outer fold the
 pedigree-swap pairings are drawn from that fold's families only, so no synthetic trio ever combines a training child
-with a test family's parents. Constraints: the single blood-derived family (REACH) is never alone in a fold with fewer
+with a test family's parents. Constraints: the single blood-derived family (REACH sample ids; found by the CLI's sample-id
+prefix) is never alone in a fold with fewer
 than `min_fold_size` families; families are balanced by number of complete-trio children.
 
 Nothing here reads data: the input is the manifest's pedigree (family -> complete-trio children, DNA source), the
