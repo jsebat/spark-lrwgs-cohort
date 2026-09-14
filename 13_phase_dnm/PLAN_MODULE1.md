@@ -330,6 +330,13 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   scores with re-reviewed phase classes would give a table superseded within hours. Instead the same five-seed training is
   resubmitted on the re-reviewed tables into `harness_v2`, with rescore -> integrate -> concordance -> external arms
   chained behind it (see next entry).
+- **harness_v2 chain submitted (2026-09-13 18:55 PDT):** five-seed training on the re-reviewed tables — 54287644
+  (snv_indel) / 54287645 (sv) / 54287646 (tr), OUT_DIR `train/harness_v2` — then rescore over the five seeds' fold models
+  (54287647), integrate with `rf_q` / τ_q (array 54287648), concordance (54287649), and the two external arms on seed-0
+  fold models (spike-ins 54287650, WES truth 54287651). ETA: training done ~22:40 PDT (3 h 41 for SNV/indel last time),
+  the rest by ~00:30; check scheduled 22:52 PDT. Expected differences vs `harness_5seed`: the guard now keeps the four
+  read-quality columns (55/38/42 features), so the no-phase-vs-full comparison and the WES recall at τ_q are the numbers to
+  watch (JS 2026-09-13: the full model must not be handicapped against the unphased one).
 - **Swap blood-family constraint fixed (2026-09-13):** `phase-dnm swap --blood-family-prefix` defaulted to `REACH`, but the
   blood quad's *family* id follows the cohort's F0xxx pattern (only its *sample* ids start with REACH), so the constraint
   matched nothing when the five fold files were generated. Checked on Expanse: the blood family nonetheless has five
