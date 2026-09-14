@@ -1,6 +1,6 @@
 # Every threshold the module uses, versioned. The version string is written into every output row / summary
 # so a result can always be traced to the rule set that produced it. Rationale for each value: DESIGN.md P#.
-version: "0.2.0"          # 0.2.0 (2026-09-13): observability, error allowance and mosaic depth floors on READABLE reads (P7)
+version: "0.3.0"          # 0.3.0 (2026-09-14): two-tier decision + rule layer (P15, JS); 0.2.0: observability/error allowance/mosaic floors on READABLE reads (P7)
 
 orient:                      # P2
   min_sites: 20              # informative sites needed to orient a child block
@@ -62,18 +62,28 @@ likelihood:                  # P9 — per-read false-alt rate, mis-tagging rate,
     child_mosaic: 0.0005     #   mosaic is nearly indistinguishable from germline, so this prior caps phase_score there (P10)
     artefact: 0.8962
 
-final:                       # P15 — decision layer (M3). tau / tau_rescue per variant_class come from M4 outer folds at a
-  tau: {}                    #   target FDR on the external sets; while they are null the decision runs in PROVISIONAL phase-only mode
-  tau_rescue: {}             #   (call_mode = phase_only): YES iff germline_DNM_phased, hap_obs_k5 == 6, phase_score >= phase_only_min_score
-  phase_only_min_score: 0.9  # the rule ∩ posterior set carried the parent-of-origin signal on the cohort (0.72 vs 0.50; PLAN 2026-09-13)
+final:                       # P15 - decision layer (M3), amended 2026-09-14 (JS): TWO TIERS + the original pipeline's rule layer AFTER the score.
+  tau: {}                    #   tau / tau_rescue on rf_prob are legacy; the decision runs on rf_q (fold-quantile score) with tau_q below.
+  tau_rescue: {}             #   While no score exists the decision runs in PROVISIONAL phase-only mode: YES iff germline_DNM_phased,
+  phase_only_min_score: 0.9  #   hap_obs_k5 == 6, phase_score >= phase_only_min_score (rule ∩ posterior carried the PoO signal, 0.72 vs 0.50)
   require_hap_obs: 6
-  tau_q:                     # fold-quantile score thresholds (rf_q = 1 - pass rate among held-out real candidates); PROVISIONAL from the
-    snv_indel: 0.997         #   cohort sweep 2026-09-13 (yield-matched ~60 YES/child; paternal fraction flat ~0.67 from 0.999 to 0.995)
-    sv: 0.999                #   0-3 per child, 23 cohort-wide
-    tr: 0.999                #   31 per child, paternal 0.68 (best TR purity in the sweep)
-  tau_q_rescue: 0.99         # rescue: rf_q >= this AND germline_DNM_phased AND six haplotypes observed
-  tr_rescue_min_units: 3     # TR rescue also needs >= 3 motif units (one-haplotype stutter mimics a phased 1-unit change; cohort PoO 0.56 vs 0.75)
-                             # the rf branch (rf_q >= tau_q) requires a germline-consistent review class (not inconclusive): PoO 0.46 for inconclusive rows
+  tau_q:                     # TIER 1 (dnm_call YES): rf_q >= tau_q AND germline review class AND rules pass. rf_q = 1 - pass rate among the
+    snv_indel: 0.99          #   fold's held-out real candidates of the same variant class. 0.99 = 1 % pass rate: 65 SNV + 8 indel per proband
+    sv: 0.999                #   outside the mask, paternal fraction 0.778 (= the original set's), exonic WES precision 1.00, recall 0.73 (2026-09-14)
+    tr: 0.999                #   SV / TR provisional until their own rule-layer sweeps; a key per variant class (SNV, INDEL) overrides the group key
+  tau_q_tier2:               # TIER 2 (dnm_call CANDIDATE, reported for experimental validation): tau_q_tier2 <= rf_q < tau_q, same gate + rules.
+    snv_indel: 0.95          #   107 per proband outside the mask (77 SNV + 30 indel), exonic recall 0.86, exonic FDR 0.08 (JS: "maybe ok for a 2nd tier")
+    sv: 0.99
+    tr: 0.99
+  tau_q_rescue: 0.99         # legacy name of the pre-0.3.0 rescue branch; used as tier 2 only when tau_q_tier2 is absent
+  tr_rescue_min_units: 3     # a TIER-2 TR call needs >= 3 motif units (one-haplotype stutter mimics a phased 1-unit change; cohort PoO 0.56 vs 0.75)
+  rules:                     # rule layer, applied after the score to both tiers (JS 2026-09-14). These are rf_safe: false features (P24) -
+    gnomad_af_max: 0.001     #   population frequency (absent from gnomAD = rare, as in the original pipeline's denovo_tier.py)
+    founder_recurrence_max: 0  # leave-one-family-out founder-panel recurrence (P26)
+    cohort_ac_max: 0         #   leave-one-family-out cohort allele count (P26); LOFO keeps sib-shared DNMs of a quad
+    mask: true               #   the lab segdup / simple-repeat mask (10 % of the genome), from the features' segdup_overlap flag
+  apply_rules: true
+                             # the rf branch requires a germline-consistent review class (not inconclusive): PoO 0.46 for inconclusive rows
 
 qc_gates:                    # M1d — cohort values measured 2026-09-12 in brackets
   crossovers_per_meiosis: [15, 65]     # CROSSOVER excl. child-switch overlaps [F median 30 (18-53), M 43 (30-61)]; lower bound method

@@ -399,6 +399,14 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **Two-tier decision implemented (2026-09-14; thresholds 0.3.0; 106 tests):** `integrate.decide` now returns `dnm_call` ∈ {YES,
+  CANDIDATE, NO} and `dnm_tier` ∈ {1, 2, 0}; `rules_fail()` applies gnomAD AF < 0.001 / LOFO founder recurrence 0 / LOFO cohort AC 0 /
+  mask after the score to both tiers (`decision_reason` RULES:<failed>), tunable and switchable in `thresholds.yaml final.rules` /
+  `apply_rules`; per-variant-class τ_q keys (SNV, INDEL) override the class-group key; the features' `segdup_overlap` flag is propagated
+  into `mask_overlap` (bug fixed); `PDNM_DTIER` added to the VCF INFO; concordance gains `original_tier2` / `module_tier2` statuses and a
+  per-proband tier-2 median; `train/rescore.py` builds the rf_q reference per variant class (SNV and INDEL separately); the WES label
+  rejects hom-alt children (`child_hom_alt`). Rescue branch retired. Next: rescore → integrate → concordance → relabel → WES arm on
+  the cohort (P18 v5 with tier-1 / tier-2 rows, SNV and indel separately).
 - **Genome-wide sanity check of the candidate tiers (2026-09-14, job 54294717; JS: "> 50 de novo SNVs per genome - are those
   only exonic?"):** the thresholds and the per-proband counts are genome-wide; only the recall / precision labels are exonic.
   The lab mask covers 0.32 Gb = **10 % of the genome** (segdups + simple repeats), so ~90 % of true DNMs lie outside it.

@@ -58,8 +58,8 @@ def rescore_class(class_group: str, harness_dir: str, evidence_dir: str, folds_d
             fm = CV.FoldModel.load(prefix)
             n_models += 1
             fams = [f for f, kk in fold_of.items() if kk == k]
-            per_child: Dict[str, Tuple[pd.DataFrame, np.ndarray]] = {}
-            ref_parts = []
+            per_child: Dict[str, Tuple[pd.DataFrame, np.ndarray, np.ndarray]] = {}
+            ref_parts: Dict[str, List[np.ndarray]] = defaultdict(list)     # reference per VARIANT CLASS (SNV / INDEL separately; JS 2026-09-14)
             for fam in fams:
                 for sid in children_by_fam.get(fam, []):
                     paths = glob.glob(os.path.join(evidence_dir, fam, "features", "%s.%s.features.rf.tsv" % (sid, class_group)))
@@ -69,15 +69,22 @@ def rescore_class(class_group: str, harness_dir: str, evidence_dir: str, folds_d
                     if df.empty:
                         continue
                     p, _ = fm.predict(df)
-                    per_child[sid] = (df, p)
-                    idx = np.arange(len(p)) if len(p) <= max_ref_per_child else np.sort(rng.choice(len(p), max_ref_per_child, replace=False))
-                    ref_parts.append(p[idx])
-            ref = ecdf_ref(np.concatenate(ref_parts)) if ref_parts else np.array([])
-            for sid, (df, p) in per_child.items():
-                q = quantile(ref, p)
+                    vc = df["variant_class"].astype(str).values if "variant_class" in df.columns else np.array(["ALL"] * len(p))
+                    per_child[sid] = (df, p, vc)
+                    for c in np.unique(vc):
+                        pc = p[vc == c]
+                        idx = np.arange(len(pc)) if len(pc) <= max_ref_per_child else np.sort(rng.choice(len(pc), max_ref_per_child, replace=False))
+                        ref_parts[c].append(pc[idx])
+            refs = {c: ecdf_ref(np.concatenate(parts)) for c, parts in ref_parts.items()}
+            for sid, (df, p, vc) in per_child.items():
+                q = np.full(len(p), np.nan)
+                for c, ref in refs.items():
+                    m = vc == c
+                    if m.any():
+                        q[m] = quantile(ref, p[m])
                 for vid, pv, qv in zip(df["variant_id"], p, q):
                     acc_p[(sid, vid)].append(float(pv)); acc_q[(sid, vid)].append(float(qv))
-            log("rescore %s seed %d fold %d: %d children, reference %d real rows" % (class_group, seed, k, len(per_child), len(ref)))
+            log("rescore %s seed %d fold %d: %d children, reference real rows %s" % (class_group, seed, k, len(per_child), {c: len(v) for c, v in refs.items()}))
     out_dir = os.path.join(harness_dir, "rf_probs")
     os.makedirs(out_dir, exist_ok=True)
     by_child: Dict[str, List[Tuple[str, float, float, int]]] = defaultdict(list)
@@ -91,7 +98,8 @@ def rescore_class(class_group: str, harness_dir: str, evidence_dir: str, folds_d
     tau_path = os.path.join(harness_dir, "tau.%s.json" % class_group)
     tau = json.load(open(tau_path)) if os.path.exists(tau_path) else {"class_group": class_group}
     tau.update(score_column="rf_q", tau_q=0.999, tau_q_rescue=0.99,
-               basis_q="rf_q = 1 - pass rate among the fold's held-out real candidates (per fold model, seed-averaged); tau_q 0.999 = 0.1 % pass rate, rescue 0.99 = 1 %")
+               basis_q="rf_q = 1 - pass rate among the fold's held-out real candidates OF THE SAME VARIANT CLASS (per fold model, seed-averaged); "
+                       "thresholds.yaml final.tau_q / tau_q_tier2 set the operating points (0.3.0: tier 1 / tier 2 + rule layer)")
     with open(tau_path, "w") as fh:
         json.dump(tau, fh, indent=1)
     return {"class_group": class_group, "fold_models": n_models, "children": len(by_child), "rows": len(acc_q)}

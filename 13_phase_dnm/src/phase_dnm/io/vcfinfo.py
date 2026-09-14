@@ -10,7 +10,7 @@ INFO_FIELDS = [
     ("PDNM_PROB", "1", "Float", "Module 4 classifier probability (rf_prob); missing until a model is frozen"),
     ("PDNM_CALL", "1", "String", "Final de novo call after the P15 phase layer: YES or NO"),
     ("PDNM_MODE", "1", "String", "Decision mode: rf+phase or phase_only (provisional, no classifier)"),
-    ("PDNM_WHY", "1", "String", "Decision reason: RF, RESCUED, BELOW_TAU, RF_UNSUPPORTED:<class>, PHASE_ONLY, DEMOTED:<class>, MOSAIC:<class>, NOT_PHASED_GERMLINE, HAP_UNOBSERVED, LOW_POSTERIOR"),
+    ("PDNM_WHY", "1", "String", "Decision reason: TIER1, TIER2, RULES:<failed rules>, BELOW_TAU, TIER2_TR_SIZE, RF_UNSUPPORTED:<class>, PHASE_ONLY, DEMOTED:<class>, MOSAIC:<class>, NOT_PHASED_GERMLINE, HAP_UNOBSERVED, LOW_POSTERIOR"),
     ("PDNM_POO", "1", "String", "Parent of origin of the alt-carrying child haplotype: paternal, maternal, undetermined"),
     ("PDNM_POOR", "1", "String", "Parent-of-origin reason code"),
     ("PDNM_POOC", "1", "Float", "Parent-of-origin confidence (fraction of tagged alt reads on the origin haplotype)"),
@@ -28,14 +28,15 @@ INFO_FIELDS = [
     ("PDNM_MOSAIC", "0", "Flag", "Row is a mosaic class (never YES; reported separately)"),
     ("PDNM_FLAGS", ".", "String", "Review flags"),
     ("PDNM_TIER", "1", "String", "Source tier of the candidate: HIGH, LOW, UNFILTERED (P5)"),
-    ("PDNM_MASK", "1", "Integer", "Overlaps the pipeline's region mask (flag, never a filter)"),
+    ("PDNM_MASK", "1", "Integer", "Overlaps the pipeline's region mask (flag; a rule of the tier layer since 0.3.0)"),
+    ("PDNM_DTIER", "1", "Integer", "Decision tier: 1 = call (dnm_call YES), 2 = candidate for validation (CANDIDATE), 0 = none (P15, 2026-09-14)"),
 ]
 COLUMN_OF = {"PDNM_PROB": "rf_prob", "PDNM_CALL": "dnm_call", "PDNM_MODE": "call_mode", "PDNM_WHY": "decision_reason",
              "PDNM_POO": "parent_of_origin", "PDNM_POOR": "poo_reason", "PDNM_POOC": "poo_confidence", "PDNM_CLASS": "phase_class",
              "PDNM_RULE": "rule_score", "PDNM_HAPOBS": "hap_obs_k5", "PDNM_CHF": "child_alt_hap_frac", "PDNM_CAO": "child_alt_other_hap",
              "PDNM_TALT": "transmitted_parent_alt_reads", "PDNM_UALT": "untransmitted_parent_alt_reads", "PDNM_TDP": "transmitted_parent_dp",
              "PDNM_SCORE": "phase_score", "PDNM_ALT": "lik_best_alternative", "PDNM_LR": "lik_log10lr_germline",
-             "PDNM_FLAGS": "flags", "PDNM_TIER": "source_tier", "PDNM_MASK": "mask_overlap"}
+             "PDNM_FLAGS": "flags", "PDNM_TIER": "source_tier", "PDNM_MASK": "mask_overlap", "PDNM_DTIER": "dnm_tier"}
 
 
 def header_lines(source: str = "phase_dnm") -> List[str]:

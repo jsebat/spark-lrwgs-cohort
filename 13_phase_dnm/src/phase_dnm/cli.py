@@ -285,9 +285,11 @@ def cmd_spike(a: argparse.Namespace) -> int:
 def _final_params(thr: dict):
     from .integrate import FinalParams
     f = thr.get("final", {})
-    return FinalParams(tau=dict(f.get("tau", {}) or {}), tau_rescue=dict(f.get("tau_rescue", {}) or {}),
+    from .integrate import DEFAULT_RULES
+    rules = dict(DEFAULT_RULES); rules.update(f.get("rules") or {})
+    return FinalParams(tau=dict(f.get("tau", {}) or {}), tau_rescue=dict(f.get("tau_rescue", {}) or {}), tau_tier2=dict(f.get("tau_tier2", {}) or {}),
                        phase_only_min_score=f.get("phase_only_min_score", 0.9), require_hap_obs=f.get("require_hap_obs", 6),
-                       tr_rescue_min_units=float(f.get("tr_rescue_min_units", 3)))
+                       tr_rescue_min_units=float(f.get("tr_rescue_min_units", 3)), rules=rules, apply_rules=bool(f.get("apply_rules", True)))
 
 
 def cmd_integrate(a: argparse.Namespace) -> int:
@@ -305,9 +307,15 @@ def cmd_integrate(a: argparse.Namespace) -> int:
         fq = thr.get("final", {})
         for vc in ({"snv_indel": ("SNV", "INDEL"), "sv": ("SV",), "tr": ("TR",)}[a.class_group]):
             if score_col == "rf_q":
-                # thresholds.yaml final.tau_q per class group wins over the tau json's uniform value (recorded provisional choice)
-                tq = (fq.get("tau_q") or {}).get(a.class_group, tj.get("tau_q", 0.999))
-                p.tau[vc] = float(tq); p.tau_rescue[vc] = float(fq.get("tau_q_rescue", tj.get("tau_q_rescue", 0.99)))
+                # thresholds.yaml final.tau_q / tau_q_tier2 win over the tau json's uniform value; a key per variant class (SNV, INDEL)
+                # overrides the class-group key (snv_indel) - indels get their own operating point (JS 2026-09-14)
+                def _pick(d, default):
+                    d = d or {}
+                    v = d.get(vc, d.get(a.class_group, default))
+                    return None if v is None else float(v)
+                p.tau[vc] = _pick(fq.get("tau_q"), tj.get("tau_q", 0.999))
+                t2 = _pick(fq.get("tau_q_tier2"), fq.get("tau_q_rescue", tj.get("tau_q_rescue", 0.99)))
+                p.tau_tier2[vc] = t2; p.tau_rescue[vc] = t2
             else:
                 if tj.get("tau") is not None:
                     p.tau[vc] = float(tj["tau"])

@@ -2,7 +2,7 @@
 (per chromosome, 142k samples, FORMAT GT RNC DP AD GQ PL) is queried at the cohort's exonic candidate sites for the
 101 cohort samples it contains, and each candidate of a child gets a label from the WES trio genotypes:
 
-    1  WES de novo:   child het (GQ >= min_gq, DP >= min_dp, alt reads >= 2), both parents hom-ref (GQ >= min_gq,
+    1  WES de novo:   child HET (0/1; hom-alt is -1 child_hom_alt) (GQ >= min_gq, DP >= min_dp, alt reads >= 2), both parents hom-ref (GQ >= min_gq,
                       DP >= min_dp, alt reads == 0)
     0  WES refutes:   child hom-ref at DP >= neg_dp (the allele is not in the child's exome reads), OR a parent carries
                       the allele (GT has it, or alt reads >= 3) - inherited, not de novo
@@ -136,6 +136,8 @@ def label_trio(child: str, father: str, mother: str, alt_index: int, min_gq: int
         if (g is not None and alt_index in g) or (a is not None and a >= 3):
             return 0, "parent_carries_%s" % who
     if child_has:
+        if all(x == alt_index for x in cg):
+            return -1, "child_hom_alt"          # a hom-alt child with hom-ref parents is not a single de novo event (audit 2026-09-14)
         if (cq or 0) < min_gq or cd < min_dp or (c_alt is not None and c_alt < 2):
             return -1, "child_low_quality"
         for g, q, d, a, who in ((fg, fq, fd, f_alt, "father"), (mg, mq, md, m_alt, "mother")):

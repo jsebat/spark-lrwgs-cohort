@@ -146,9 +146,11 @@ def concordance(final_rows: Iterable[dict], vclass_group: str, baselines_dir: st
             if hit is not None:
                 matched_baseline.add(key)
         yes = r.get("dnm_call") == "YES"
-        status = ("concordant_YES" if yes and hit is not None else "original_only" if hit is not None else "module_only" if yes else "neither")
+        cand = r.get("dnm_call") == "CANDIDATE"          # tier 2 (0.3.0): an original call recovered at tier 2 is neither concordant nor lost
+        status = ("concordant_YES" if yes and hit is not None else "original_tier2" if cand and hit is not None else
+                  "original_only" if hit is not None else "module_only" if yes else "module_tier2" if cand else "neither")
         per_row.append(dict(sample_id=sid, variant_id=r.get("variant_id"), variant_class=r.get("variant_class"), status=status,
-                            dnm_call=r.get("dnm_call"), phase_class=r.get("phase_class"), decision_reason=r.get("decision_reason"),
+                            dnm_call=r.get("dnm_call"), dnm_tier=r.get("dnm_tier", ""), phase_class=r.get("phase_class"), decision_reason=r.get("decision_reason"),
                             parent_of_origin=r.get("parent_of_origin"), source_tier=r.get("source_tier"), mask_overlap=r.get("mask_overlap"),
                             baseline_tier=(hit or {}).get("tier", "") if vclass_group == "snv_indel" else ""))
     # baseline rows the module never saw as a candidate at all (not in the unfiltered set)
@@ -163,10 +165,12 @@ def concordance(final_rows: Iterable[dict], vclass_group: str, baselines_dir: st
     pp: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for d in per_row:
         pp[d["sample_id"]][d["status"]] += 1
-        if d["status"] in ("concordant_YES", "original_only"):
+        if d["status"] in ("concordant_YES", "original_only", "original_tier2"):
             pp[d["sample_id"]]["original_seen"] += 1
         if d["dnm_call"] == "YES":
             pp[d["sample_id"]]["module_YES"] += 1
+        if d["dnm_call"] == "CANDIDATE":
+            pp[d["sample_id"]]["module_CANDIDATE"] += 1   # counter, distinct from the status module_tier2
         if d["dnm_call"] == "YES" and d["parent_of_origin"] == "paternal":
             pp[d["sample_id"]]["module_YES_paternal"] += 1
     for k in unseen:
@@ -189,6 +193,8 @@ def concordance(final_rows: Iterable[dict], vclass_group: str, baselines_dir: st
             yes_pat += d["parent_of_origin"] == "paternal"; yes_mat += d["parent_of_origin"] == "maternal"
     summary = dict(vclass_group=vclass_group, n_rows=len(rows), n_probands=len(pp), concordant_YES=n("concordant_YES"),
                    original_only=n("original_only"), module_only=n("module_only"), original_unseen_as_candidate=len(unseen),
+                   original_tier2=n("original_tier2"), module_tier2=n("module_tier2"),
+                   per_proband_module_tier2_median=_median([c.get("module_CANDIDATE", 0) for c in pp.values()]),
                    original_only_by_phase_class=dict(by_class_orig_only), original_only_by_reason=dict(by_reason_orig_only),
                    module_only_by_tier=dict(by_tier_mod_only), module_only_in_mask=mask_mod_only,
                    module_YES_paternal_fraction=round(yes_pat / (yes_pat + yes_mat), 3) if (yes_pat + yes_mat) else None,

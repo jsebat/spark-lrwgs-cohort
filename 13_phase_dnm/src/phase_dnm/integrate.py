@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
 FINAL_CORE = ["family_id", "sample_id", "chrom", "start", "end", "ref", "alt", "variant_class", "caller", "caller_gt", "caller_qual",
-              "rf_prob", "dnm_call", "call_mode", "decision_reason", "mosaic_flag",
+              "rf_prob", "dnm_call", "dnm_tier", "call_mode", "decision_reason", "mosaic_flag",
               "parent_of_origin", "poo_reason", "poo_confidence",
               "phase_class", "rule_score", "hap_obs_k3", "hap_obs_k5", "child_alt_hap_frac", "child_alt_other_hap",
               "transmitted_parent_alt_reads", "untransmitted_parent_alt_reads", "transmitted_parent_dp", "phase_score",
@@ -37,15 +37,21 @@ MOSAIC = ("child_postzygotic_mosaic", "parental_mosaic_transmitted")
 RF_BRANCH_CLASSES = ("germline_DNM_phased", "germline_DNM_unphased")
 
 
+DEFAULT_RULES = dict(gnomad_af_max=0.001, founder_recurrence_max=0, cohort_ac_max=0, mask=True)
+
+
 @dataclass
 class FinalParams:
-    tau: Dict[str, Optional[float]] = field(default_factory=dict)          # per variant_class, from M4 outer folds
-    tau_rescue: Dict[str, Optional[float]] = field(default_factory=dict)
+    tau: Dict[str, Optional[float]] = field(default_factory=dict)          # TIER 1 threshold per variant_class (rf_q, or rf_prob)
+    tau_rescue: Dict[str, Optional[float]] = field(default_factory=dict)   # legacy (< 0.3.0 rescue branch); tier-2 fallback when tau_tier2 is unset
+    tau_tier2: Dict[str, Optional[float]] = field(default_factory=dict)    # TIER 2 threshold per variant_class (CANDIDATE, for validation)
     phase_only_min_score: float = 0.9
     require_hap_obs: int = 6
-    tr_rescue_min_units: float = 3.0     # TR rescue needs an expansion of >= this many motif units: one-haplotype stutter of the longer
+    tr_rescue_min_units: float = 3.0     # a TIER-2 TR call needs an expansion of >= this many motif units: one-haplotype stutter of the longer
                                          # parental allele looks like a phased 1-unit germline change (rescue-branch PoO ratio 0.56 at
-                                         # < 3 units vs 0.75 at >= 3, cohort 2026-09-13); the rf branch keeps 1-unit calls (0.73)
+                                         # < 3 units vs 0.75 at >= 3, cohort 2026-09-13); tier 1 keeps 1-unit calls (0.73)
+    rules: Dict[str, object] = field(default_factory=lambda: dict(DEFAULT_RULES))
+    apply_rules: bool = True
 
 
 def _f(x) -> Optional[float]:
@@ -55,35 +61,71 @@ def _f(x) -> Optional[float]:
         return None
 
 
+def rules_fail(row: Dict[str, object], p: FinalParams) -> List[str]:
+    """P15 rule layer (JS 2026-09-14): the original pipeline's filters applied AFTER the classifier score - population frequency
+    (gnomAD AF < gnomad_af_max; absent / -1 = rare), leave-one-family-out founder-panel recurrence, leave-one-family-out cohort
+    allele count, and the lab region mask. These quantities are rf_safe: false (P24: a label leak in training) and enter only here.
+    Returns the names of the failing rules (empty = pass)."""
+    r = p.rules or {}
+    fails: List[str] = []
+    mx = r.get("gnomad_af_max")
+    af = _f(row.get("gnomad_af"))
+    if mx is not None and af is not None and af >= 0 and af >= float(mx):
+        fails.append("gnomad")
+    m2 = r.get("founder_recurrence_max")
+    pon = _f(row.get("pon_founder_recurrence_loo"))
+    if m2 is not None and pon is not None and pon > float(m2):
+        fails.append("recurrence")
+    m3 = r.get("cohort_ac_max")
+    ac = _f(row.get("cohort_AC_loo"))
+    if m3 is not None and ac is not None and ac > float(m3):
+        fails.append("cohort")
+    if r.get("mask", True) and (str(row.get("segdup_overlap") or "") == "1" or str(row.get("mask_overlap") or "") == "1"):
+        fails.append("mask")
+    return fails
+
+
+def _no(reason: str, mode: str, mosaic: int = 0) -> Dict[str, object]:
+    return dict(dnm_call="NO", dnm_tier=0, call_mode=mode, decision_reason=reason, mosaic_flag=mosaic)
+
+
 def decide(row: Dict[str, object], p: FinalParams, rf_prob: Optional[float]) -> Dict[str, object]:
-    """P15. Returns dnm_call, call_mode, decision_reason, mosaic_flag."""
+    """P15, amended 2026-09-14 (two tiers). Demotions and mosaics first. Then, with a score and a tier-1 threshold for the class:
+    TIER 1 (dnm_call YES) = score >= tau, germline review class, rule layer passed; TIER 2 (dnm_call CANDIDATE, reported for
+    validation) = tau_tier2 <= score < tau with the same gate and rules (TR additionally >= tr_rescue_min_units). Without a score
+    the provisional phase-only rule applies. Returns dnm_call, dnm_tier, call_mode, decision_reason, mosaic_flag."""
     cls = str(row.get("phase_class") or "")
     vclass = str(row.get("variant_class") or "")
     hap_obs = _f(row.get("hap_obs_k5"))
     six = hap_obs is not None and int(hap_obs) >= p.require_hap_obs
-    mosaic = int(cls in MOSAIC)
+    mode = "rf+phase" if rf_prob is not None else "phase_only"
     if cls in DEMOTE:
-        return dict(dnm_call="NO", call_mode="rf+phase" if rf_prob is not None else "phase_only", decision_reason="DEMOTED:%s" % cls, mosaic_flag=mosaic)
-    if mosaic:
-        return dict(dnm_call="NO", call_mode="rf+phase" if rf_prob is not None else "phase_only", decision_reason="MOSAIC:%s" % cls, mosaic_flag=1)
-    tau, tau_r = p.tau.get(vclass), p.tau_rescue.get(vclass)
-    if rf_prob is not None and tau is not None:
-        if rf_prob >= tau:
-            if cls in RF_BRANCH_CLASSES:
-                return dict(dnm_call="YES", call_mode="rf+phase", decision_reason="RF", mosaic_flag=0)
-            return dict(dnm_call="NO", call_mode="rf+phase", decision_reason="RF_UNSUPPORTED:%s" % (cls or "none"), mosaic_flag=0)
-        if tau_r is not None and rf_prob >= tau_r and cls == "germline_DNM_phased" and six:
-            if vclass == "TR":
-                du = _f(_payload(row).get("delta_units"))
-                if du is None or du < p.tr_rescue_min_units:
-                    return dict(dnm_call="NO", call_mode="rf+phase", decision_reason="RESCUE_TR_SIZE", mosaic_flag=0)
-            return dict(dnm_call="YES", call_mode="rf+phase", decision_reason="RESCUED", mosaic_flag=0)
-        return dict(dnm_call="NO", call_mode="rf+phase", decision_reason="BELOW_TAU", mosaic_flag=0)
+        return _no("DEMOTED:%s" % cls, mode, int(cls in MOSAIC))
+    if cls in MOSAIC:
+        return _no("MOSAIC:%s" % cls, mode, 1)
+    tau1 = p.tau.get(vclass)
+    tau2 = p.tau_tier2.get(vclass, p.tau_rescue.get(vclass))
+    if rf_prob is not None and tau1 is not None:
+        tier = 1 if rf_prob >= tau1 else (2 if tau2 is not None and rf_prob >= tau2 else 0)
+        if tier == 0:
+            return _no("BELOW_TAU", mode)
+        if cls not in RF_BRANCH_CLASSES:
+            return _no("RF_UNSUPPORTED:%s" % (cls or "none"), mode)
+        if tier == 2 and vclass == "TR":
+            du = _f(_payload(row).get("delta_units"))
+            if du is None or du < p.tr_rescue_min_units:
+                return _no("TIER2_TR_SIZE", mode)
+        fails = rules_fail(row, p) if p.apply_rules else []
+        if fails:
+            return _no("RULES:%s" % "+".join(fails), mode)
+        if tier == 1:
+            return dict(dnm_call="YES", dnm_tier=1, call_mode=mode, decision_reason="TIER1", mosaic_flag=0)
+        return dict(dnm_call="CANDIDATE", dnm_tier=2, call_mode=mode, decision_reason="TIER2", mosaic_flag=0)
     ps = _f(row.get("phase_score"))
     if cls == "germline_DNM_phased" and six and ps is not None and ps >= p.phase_only_min_score:
-        return dict(dnm_call="YES", call_mode="phase_only", decision_reason="PHASE_ONLY", mosaic_flag=0)
+        return dict(dnm_call="YES", dnm_tier=1, call_mode="phase_only", decision_reason="PHASE_ONLY", mosaic_flag=0)
     why = "NOT_PHASED_GERMLINE" if cls != "germline_DNM_phased" else ("HAP_UNOBSERVED" if not six else "LOW_POSTERIOR")
-    return dict(dnm_call="NO", call_mode="phase_only", decision_reason=why, mosaic_flag=0)
+    return _no(why, "phase_only")
 
 
 # ----------------------------------------------------------------------------------------------
@@ -171,9 +213,10 @@ def integrate_table(evidence_lik_tsv: str, features_tsv: Optional[str], out_tsv:
             for r in rd:
                 feats[r["variant_id"]] = r
     cols = final_columns(vclass_group, feat_names)
-    counts: Dict[str, int] = {"rows": 0, "YES": 0, "NO": 0, "mosaic": 0}
+    counts: Dict[str, int] = {"rows": 0, "YES": 0, "CANDIDATE": 0, "NO": 0, "mosaic": 0}
     reasons: Dict[str, int] = {}
     per_class_yes: Dict[str, int] = {}
+    per_class_t2: Dict[str, int] = {}
     rf_probs = rf_probs or {}
     os.makedirs(os.path.dirname(os.path.abspath(out_tsv)), exist_ok=True)
     with open(evidence_lik_tsv, newline="") as fh, open(out_tsv, "w", newline="") as out:
@@ -184,15 +227,17 @@ def integrate_table(evidence_lik_tsv: str, features_tsv: Optional[str], out_tsv:
             row: Dict[str, object] = dict(r)
             for new, old in RENAME.items():
                 row[new] = r.get(old)
+            f = feats.get(r["variant_id"], {})
+            for k in feat_names:
+                if k not in row or row.get(k) in (None, ""):
+                    row[k] = f.get(k, "")
+            if str(row.get("mask_overlap") or "") in ("", "0") and str(f.get("segdup_overlap") or "") == "1":
+                row["mask_overlap"] = 1      # the record field is never filled by the context step; the features mask flag is authoritative (fixed 2026-09-14)
             rf = rf_probs.get(r["variant_id"])
             row["rf_prob"] = "" if rf is None else rf
             d = decide(row, p, rf)
             row.update(d)
             row.update(class_columns(r))
-            f = feats.get(r["variant_id"], {})
-            for k in feat_names:
-                if k not in row or row.get(k) in (None, ""):
-                    row[k] = f.get(k, "")
             w.writerow({c: ("" if row.get(c) is None else row.get(c)) for c in cols})
             counts["rows"] += 1
             counts[d["dnm_call"]] += 1
@@ -200,7 +245,9 @@ def integrate_table(evidence_lik_tsv: str, features_tsv: Optional[str], out_tsv:
             reasons[d["decision_reason"]] = reasons.get(d["decision_reason"], 0) + 1
             if d["dnm_call"] == "YES":
                 per_class_yes[r["variant_class"]] = per_class_yes.get(r["variant_class"], 0) + 1
-    return {"counts": counts, "reasons": reasons, "yes_by_class": per_class_yes, "columns": len(cols), "features": len(feat_names)}
+            elif d["dnm_call"] == "CANDIDATE":
+                per_class_t2[r["variant_class"]] = per_class_t2.get(r["variant_class"], 0) + 1
+    return {"counts": counts, "reasons": reasons, "yes_by_class": per_class_yes, "tier2_by_class": per_class_t2, "columns": len(cols), "features": len(feat_names)}
 
 
 def write_parquet(tsv: str) -> Optional[str]:

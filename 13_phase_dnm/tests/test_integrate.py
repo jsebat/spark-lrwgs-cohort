@@ -17,18 +17,22 @@ def row(cls="germline_DNM_phased", hap=6, ps=0.98, vclass="SNV", **kw):
 
 
 def test_decide_rf_mode():
-    assert I.decide(row(), P, 0.9) == dict(dnm_call="YES", call_mode="rf+phase", decision_reason="RF", mosaic_flag=0)
-    # rescue: below tau, above tau_rescue, phased germline with six haplotypes observed
-    assert I.decide(row(), P, 0.5)["decision_reason"] == "RESCUED"
-    assert I.decide(row(hap=5), P, 0.5)["dnm_call"] == "NO" and I.decide(row(hap=5), P, 0.5)["decision_reason"] == "BELOW_TAU"
-    assert I.decide(row(cls="germline_DNM_unphased"), P, 0.5)["dnm_call"] == "NO"
-    # the rf branch needs a germline-consistent review: unphased passes on rf alone, inconclusive does not
-    assert I.decide(row(cls="germline_DNM_unphased", hap=4), P, 0.9)["decision_reason"] == "RF"
+    # tier 1: score >= tau, germline class, rules pass (no annotation on the row = rules pass)
+    assert I.decide(row(), P, 0.9) == dict(dnm_call="YES", dnm_tier=1, call_mode="rf+phase", decision_reason="TIER1", mosaic_flag=0)
+    # tier 2: between tau_rescue (legacy tier-2 fallback) and tau -> CANDIDATE, phased or unphased germline alike
+    d = I.decide(row(), P, 0.5)
+    assert d["dnm_call"] == "CANDIDATE" and d["dnm_tier"] == 2 and d["decision_reason"] == "TIER2"
+    assert I.decide(row(hap=5), P, 0.5)["dnm_call"] == "CANDIDATE"                 # six haplotypes are not required any more
+    assert I.decide(row(cls="germline_DNM_unphased"), P, 0.5)["dnm_call"] == "CANDIDATE"
+    assert I.decide(row(), P, 0.3)["decision_reason"] == "BELOW_TAU"
+    # the rf branch needs a germline-consistent review: unphased passes on rf alone, inconclusive does not (either tier)
+    assert I.decide(row(cls="germline_DNM_unphased", hap=4), P, 0.9)["decision_reason"] == "TIER1"
     d = I.decide(row(cls="inconclusive"), P, 0.99)
     assert d["dnm_call"] == "NO" and d["decision_reason"] == "RF_UNSUPPORTED:inconclusive"
+    assert I.decide(row(cls="inconclusive"), P, 0.5)["decision_reason"] == "RF_UNSUPPORTED:inconclusive"
     # demotion beats any probability
     d = I.decide(row(cls="inherited_missed_in_parent"), P, 0.99)
-    assert d["dnm_call"] == "NO" and d["decision_reason"] == "DEMOTED:inherited_missed_in_parent"
+    assert d["dnm_call"] == "NO" and d["dnm_tier"] == 0 and d["decision_reason"] == "DEMOTED:inherited_missed_in_parent"
     assert I.decide(row(cls="phase_conflict_artifact"), P, 0.99)["dnm_call"] == "NO"
     # mosaics are never YES, flagged
     d = I.decide(row(cls="child_postzygotic_mosaic"), P, 0.99)
@@ -37,8 +41,28 @@ def test_decide_rf_mode():
     assert I.decide(row(vclass="TR"), P, 0.99)["call_mode"] == "phase_only"
 
 
+def test_rule_layer_after_the_score():
+    """P15 amendment (JS 2026-09-14): gnomAD, founder recurrence, cohort recurrence and the mask are rules AFTER the score, both tiers."""
+    ok = I.decide(row(gnomad_af="-1.0", pon_founder_recurrence_loo="0", cohort_AC_loo="0", segdup_overlap="0"), P, 0.9)
+    assert ok["dnm_call"] == "YES" and ok["dnm_tier"] == 1
+    assert I.decide(row(gnomad_af="0.0005"), P, 0.9)["dnm_call"] == "YES"                                   # rare passes
+    assert I.decide(row(gnomad_af="0.02"), P, 0.9)["decision_reason"] == "RULES:gnomad"
+    assert I.decide(row(pon_founder_recurrence_loo="2"), P, 0.9)["decision_reason"] == "RULES:recurrence"
+    assert I.decide(row(cohort_AC_loo="1"), P, 0.9)["decision_reason"] == "RULES:cohort"
+    assert I.decide(row(segdup_overlap="1"), P, 0.9)["decision_reason"] == "RULES:mask"
+    assert I.decide(row(mask_overlap="1"), P, 0.9)["decision_reason"] == "RULES:mask"
+    d = I.decide(row(gnomad_af="0.5", segdup_overlap="1"), P, 0.5)                                            # tier 2 is gated the same way
+    assert d["dnm_call"] == "NO" and d["decision_reason"] == "RULES:gnomad+mask" and d["dnm_tier"] == 0
+    # rules can be switched off (ablation) or tuned
+    P_off = I.FinalParams(tau={"SNV": 0.8}, tau_tier2={"SNV": 0.4}, apply_rules=False)
+    assert I.decide(row(gnomad_af="0.5", segdup_overlap="1"), P_off, 0.9)["dnm_call"] == "YES"
+    P_loose = I.FinalParams(tau={"SNV": 0.8}, tau_tier2={"SNV": 0.4}, rules=dict(gnomad_af_max=0.01, founder_recurrence_max=1, cohort_ac_max=2, mask=False))
+    assert I.decide(row(gnomad_af="0.005", pon_founder_recurrence_loo="1", cohort_AC_loo="2", segdup_overlap="1"), P_loose, 0.9)["dnm_call"] == "YES"
+    assert I.rules_fail(row(gnomad_af="0.005", cohort_AC_loo="3"), P_loose) == ["cohort"]
+
+
 def test_decide_provisional_mode():
-    assert I.decide(row(), P, None) == dict(dnm_call="YES", call_mode="phase_only", decision_reason="PHASE_ONLY", mosaic_flag=0)
+    assert I.decide(row(), P, None) == dict(dnm_call="YES", dnm_tier=1, call_mode="phase_only", decision_reason="PHASE_ONLY", mosaic_flag=0)
     assert I.decide(row(ps=0.5), P, None)["decision_reason"] == "LOW_POSTERIOR"
     assert I.decide(row(hap=4), P, None)["decision_reason"] == "HAP_UNOBSERVED"
     assert I.decide(row(cls="inconclusive"), P, None)["decision_reason"] == "NOT_PHASED_GERMLINE"
@@ -86,14 +110,14 @@ def test_integrate_table_and_vcf(tmp_path):
     fep = str(tmp_path / "fe.tsv"); _write(fep, fe, fe_cols)
     out = str(tmp_path / "final.tsv")
     summ = I.integrate_table(evp, fep, out, I.FinalParams(), "snv_indel")
-    assert summ["counts"] == {"rows": 4, "YES": 1, "NO": 3, "mosaic": 1}
+    assert summ["counts"] == {"rows": 4, "YES": 1, "CANDIDATE": 0, "NO": 3, "mosaic": 1}
     assert summ["reasons"] == {"PHASE_ONLY": 1, "DEMOTED:inherited_missed_in_parent": 1, "NOT_PHASED_GERMLINE": 1, "MOSAIC:child_postzygotic_mosaic": 1}
     rows = V.rows_from_final(out)
     cols = list(rows[0].keys())
-    assert cols[:8] == I.FINAL_CORE[:8] and "child_GQ" in cols and "AR_child" in cols
+    assert cols[:8] == I.FINAL_CORE[:8] and "child_GQ" in cols and "AR_child" in cols and "dnm_tier" in cols
     assert cols.index("rf_prob") < cols.index("phase_class") < cols.index("child_GQ")
     by = {r["variant_id"]: r for r in rows}
-    assert by["v1"]["dnm_call"] == "YES" and by["v1"]["call_mode"] == "phase_only" and by["v1"]["child_GQ"] == "30"
+    assert by["v1"]["dnm_call"] == "YES" and by["v1"]["dnm_tier"] == "1" and by["v1"]["call_mode"] == "phase_only" and by["v1"]["child_GQ"] == "30"
     assert by["v2"]["dnm_call"] == "NO" and by["v2"]["decision_reason"].startswith("DEMOTED") and by["v2"]["transmitted_parent_alt_reads"] == "6"
     assert by["v3"]["decision_reason"] == "NOT_PHASED_GERMLINE" and by["v4"]["mosaic_flag"] == "1"
     assert by["v1"]["child_alt_hap_frac"] == "1.0" and by["v1"]["child_alt_other_hap"] == "0" and by["v1"]["rf_prob"] == ""
@@ -101,8 +125,16 @@ def test_integrate_table_and_vcf(tmp_path):
     rf = {"v1": 0.2, "v3": 0.95}
     summ2 = I.integrate_table(evp, fep, str(tmp_path / "f2.tsv"), I.FinalParams(tau={"SNV": 0.8}, tau_rescue={"SNV": 0.1}), "snv_indel", rf_probs=rf)
     by2 = {r["variant_id"]: r for r in V.rows_from_final(str(tmp_path / "f2.tsv"))}
-    assert by2["v1"]["decision_reason"] == "RESCUED" and by2["v3"]["decision_reason"] == "RF" and by2["v3"]["dnm_call"] == "YES"
+    assert by2["v1"]["decision_reason"] == "TIER2" and by2["v1"]["dnm_call"] == "CANDIDATE" and by2["v1"]["dnm_tier"] == "2"
+    assert by2["v3"]["decision_reason"] == "TIER1" and by2["v3"]["dnm_call"] == "YES" and summ2["tier2_by_class"] == {"SNV": 1}
     assert by2["v2"]["decision_reason"].startswith("DEMOTED")
+    assert "PDNM_DTIER=2" in V.info_string(by2["v1"]) and "PDNM_DTIER=1" in V.info_string(by2["v3"])
+    # the features' mask flag is propagated and is a rule: a masked row above tau is RULES:mask
+    fe_m = [dict(family_id="fam", sample_id="kid", variant_id=v, child_GQ="30", AR_child="0.02", c_alt_hap_frac="1.0", segdup_overlap="1" if v == "v3" else "0") for v in ["v1", "v2", "v3", "v4"]]
+    fem = str(tmp_path / "fe_m.tsv"); _write(fem, fe_m, fe_cols + ["segdup_overlap"])
+    I.integrate_table(evp, fem, str(tmp_path / "f3.tsv"), I.FinalParams(tau={"SNV": 0.8}, tau_tier2={"SNV": 0.1}), "snv_indel", rf_probs=rf)
+    by3 = {r["variant_id"]: r for r in V.rows_from_final(str(tmp_path / "f3.tsv"))}
+    assert by3["v3"]["decision_reason"] == "RULES:mask" and by3["v3"]["mask_overlap"] == "1" and by3["v1"]["mask_overlap"] == "0"
     # VCF
     info = V.info_string(by["v1"])
     assert "PDNM_CALL=YES" in info and "PDNM_POO=paternal" in info and "PDNM_SCORE=0.98" in info and "PDNM_MOSAIC" not in info
@@ -175,15 +207,30 @@ def test_thresholds_carry_provisional_tau_q():
     import yaml, os
     thr = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), "..", "config", "thresholds.yaml")))
     f = thr["final"]
-    assert f["tau_q"]["snv_indel"] == 0.997 and f["tau_q"]["sv"] == 0.999 and f["tau_q"]["tr"] == 0.999 and f["tau_q_rescue"] == 0.99
+    assert f["tau_q"]["snv_indel"] == 0.99 and f["tau_q"]["sv"] == 0.999 and f["tau_q"]["tr"] == 0.999
+    assert f["tau_q_tier2"]["snv_indel"] == 0.95 and f["rules"] == {"gnomad_af_max": 0.001, "founder_recurrence_max": 0, "cohort_ac_max": 0, "mask": True}
+    assert thr["version"] == "0.3.0"
 
 
-def test_tr_rescue_needs_three_motif_units():
-    P2 = I.FinalParams(tau={"TR": 0.999}, tau_rescue={"TR": 0.99})
+def test_tr_tier2_needs_three_motif_units():
+    P2 = I.FinalParams(tau={"TR": 0.999}, tau_tier2={"TR": 0.99})
     small = row(vclass="TR", class_payload=json.dumps({"delta_units": 1.0}))
     big = row(vclass="TR", class_payload=json.dumps({"delta_units": 3.0}))
-    assert I.decide(small, P2, 0.995)["decision_reason"] == "RESCUE_TR_SIZE" and I.decide(small, P2, 0.995)["dnm_call"] == "NO"
-    assert I.decide(big, P2, 0.995)["decision_reason"] == "RESCUED"
-    assert I.decide(small, P2, 0.9995)["decision_reason"] == "RF"            # the rf branch keeps 1-unit calls
+    assert I.decide(small, P2, 0.995)["decision_reason"] == "TIER2_TR_SIZE" and I.decide(small, P2, 0.995)["dnm_call"] == "NO"
+    assert I.decide(big, P2, 0.995)["decision_reason"] == "TIER2" and I.decide(big, P2, 0.995)["dnm_call"] == "CANDIDATE"
+    assert I.decide(small, P2, 0.9995)["decision_reason"] == "TIER1"            # tier 1 keeps 1-unit calls
     snv = row(vclass="SNV", class_payload="{}")
-    assert I.decide(snv, I.FinalParams(tau={"SNV": 0.999}, tau_rescue={"SNV": 0.99}), 0.995)["decision_reason"] == "RESCUED"
+    assert I.decide(snv, I.FinalParams(tau={"SNV": 0.999}, tau_tier2={"SNV": 0.99}), 0.995)["decision_reason"] == "TIER2"
+
+
+def test_concordance_tier2_statuses():
+    rows = [dict(sample_id="kid", variant_id="a", variant_class="SNV", chrom="chr1", start="100", end="100", ref="A", alt="G", dnm_call="CANDIDATE", dnm_tier="2", phase_class="germline_DNM_phased", decision_reason="TIER2", parent_of_origin="paternal", source_tier="UNFILTERED", mask_overlap="0"),
+            dict(sample_id="kid", variant_id="c", variant_class="SNV", chrom="chr1", start="300", end="300", ref="T", alt="C", dnm_call="CANDIDATE", dnm_tier="2", phase_class="germline_DNM_unphased", decision_reason="TIER2", parent_of_origin="undetermined", source_tier="UNFILTERED", mask_overlap="0")]
+    import tempfile
+    with tempfile.TemporaryDirectory() as b:
+        with open(os.path.join(b, "denovo_tiered.tsv"), "w") as fh:
+            fh.write("family\tproband\tchrom\tpos\tref\talt\tgene\ttier\nfam\tkid\tchr1\t100\tA\tG\tX\tt1\n")
+        per_row, per_prob, s = C.concordance(rows, "snv_indel", b)
+    st = {d["variant_id"]: d["status"] for d in per_row}
+    assert st == {"a": "original_tier2", "c": "module_tier2"} and s["original_tier2"] == 1 and s["module_tier2"] == 1
+    assert s["concordant_YES"] == 0 and s["original_only"] == 0 and s["per_proband_module_tier2_median"] == 2 and per_prob[0]["module_CANDIDATE"] == 2 and per_prob[0]["original_seen"] == 1

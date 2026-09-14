@@ -22,6 +22,7 @@ def test_targets_and_exonic_sites(tmp_path):
 def test_label_trio_rules():
     # WES de novo: child het with alt reads, parents clean hom-ref
     assert W.label_trio("0/1:45:30:15,15", "0/0:50:28:28,0", "0/0:48:31:31,0", 1) == (1, "wes_de_novo")
+    assert W.label_trio("1/1:27:13:0,13", "0/0:50:46:46,0", "0/0:50:50:50,0", 1) == (-1, "child_hom_alt")     # not a single DNM (audit 2026-09-14)
     # a parent carries -> inherited (label 0), even if the child looks de novo
     assert W.label_trio("0/1:45:30:15,15", "0/1:50:28:14,14", "0/0:48:31:31,0", 1) == (0, "parent_carries_father")
     assert W.label_trio("0/1:45:30:15,15", "0/0:50:28:25,3", "0/0:48:31:31,0", 1) == (0, "parent_carries_father")   # 3 alt reads in a "hom-ref" parent
