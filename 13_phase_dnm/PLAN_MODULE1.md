@@ -296,6 +296,14 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   in the module env). Dry run against the cohort layout: `all` = 101 jobs, `m4` = 81; M1/hapdepth/candidates recognised as up
   to date. Untested so far: an actual slurm submission through the profile — to be exercised on one family after the
   re-review chain (the DAG will then be current and a forced single rule is the smoke).
+- **GIAB Ashkenazi trio submitted through the cohort WDL recipe (2026-09-13 17:24 PDT, approved by JS "Ok go"):**
+  `cohort/run_family.sh HG002_trio /expanse/lustre/projects/ddp195/jsebat/giab_wdl` — driver 54287102 + watchdog 54287103
+  (ind-shared, 48 h limit), inputs `config/inputs/HG002_trio.inputs.json` in the cohort's five-key format (HG002 male
+  child, father HG003, mother HG004, `affected: false`, six unaligned Revio BAMs, 211 GB), same WDL checkout
+  (HiFi-human-WGS-WDL v3.3.1 @477ef39), same ref/tertiary map files as the cohort. Cohort quads took 6–10 h at ~22×; the
+  GIAB release is roughly twice the input per sample, so **ETA 12–24 h**; checks scheduled 19:02 PDT and 08:00 PDT
+  2026-09-14. Coverage will be compared to the cohort (~22–24×) when the aligned BAMs land; downsample to cohort depth
+  before M1/M2 if it is materially deeper (P16: GIAB touches no fold, calibration or threshold).
 - **GIAB Ashkenazi trio on the filer (2026-09-12, array 54274150, 28–38 min per sample, md5 OK):** unaligned PacBio
   HiFi Revio reads (2023-10-31 release; HG002 48×, HG003 46×, HG004 36×; 78 + 76 + 57 GB) under
   `/expanse/projects/sebat1/jsebat/giab/AshkenazimTrio_PacBio_HiFi-Revio_20231031/`. Coriell LCL DNA — state the
