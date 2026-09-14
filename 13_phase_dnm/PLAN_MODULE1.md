@@ -399,6 +399,12 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **P21 freeze (2026-09-14):** the three `harness_v2` models and their training manifests are in the repository under `models/`
+  (9.2 MB; checksums verified against the manifests; no identifiers), with `models/FROZEN.md` (training data, features,
+  hyperparameters, operating points, transfer caveat, retraining recipe). New `phase-dnm score` subcommand (`train/score.py`)
+  applies a frozen model to a cohort - rf_prob from the model, rf_q against that cohort's own candidates per variant class,
+  tau json with `score_column rf_q` - so `integrate` runs unchanged; the model checksum is verified and a tampered file is
+  refused. Tests: manifests match models in the repo; score path end-to-end (skipped where xgboost is unavailable).
 - **P18 v6 - all classes on the final operating points (2026-09-14 12:48 PDT read; integrate 54295780 33/33, concordance
   54295781; thresholds 0.3.0: SNV/indel 0.99 / 0.95, SV 0.99 / 0.97 with the mask as a flag [JS confirmed], TR 0.999 / 0.997).
   This is the frozen-threshold cohort call unless GIAB moves a threshold.**

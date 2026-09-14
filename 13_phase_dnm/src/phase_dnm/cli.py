@@ -556,6 +556,19 @@ def cmd_rescore(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_score(a: argparse.Namespace) -> int:
+    """P21 transfer path: score a cohort with a FROZEN model (models/<class>.xgb.json); rf_q against the scored cohort itself."""
+    from .train import score as SC
+    man = read_manifest(a.manifest)
+    ids = set(man)
+    kids = sorted({(r["family_id"], sid) for sid, r in man.items()
+                   if r.get("role") == "offspring" and r.get("father_id") in ids and r.get("mother_id") in ids})
+    log = lambda m: sys.stderr.write(m + "\n")
+    rep = SC.score_class(a.class_group, a.model, a.evidence_dir, a.out_dir, kids, manifest_path=a.model_manifest, log=log)
+    log("score %s: %s" % (a.class_group, json.dumps(rep)))
+    return 0
+
+
 def cmd_attribution(a: argparse.Namespace) -> int:
     """P14: TreeSHAP share by feature family on held-out rows (real, synthetic, classifier-called real rows)."""
     from .eval import attribution as AT
@@ -854,6 +867,11 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--evidence-dir", required=True), rs.add_argument("--harness-dir", required=True), rs.add_argument("--folds-dir", required=True)
     rs.add_argument("--seeds", default="0"), rs.add_argument("--max-real-per-child", type=int, default=20000)
     rs.set_defaults(func=cmd_rescore)
+    sc = sub.add_parser("score", help="P21: score a cohort with a FROZEN model (models/<class>.xgb.json) -> rf_probs/ (rf_prob, rf_q) + tau json; then `integrate`")
+    sc.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), sc.add_argument("--manifest", required=True)
+    sc.add_argument("--evidence-dir", required=True), sc.add_argument("--out-dir", required=True, help="written: rf_probs/<child>.<class>.rf_probs.tsv, tau.<class>.json")
+    sc.add_argument("--model", required=True, help="frozen model, e.g. models/snv_indel.xgb.json"), sc.add_argument("--model-manifest", help="default: <model>.training_manifest.json beside it")
+    sc.set_defaults(func=cmd_score)
     at = sub.add_parser("attribution", help="P14: TreeSHAP share by feature family (A caller / B context / C reads / D phase) on held-out rows")
     at.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), at.add_argument("--manifest", required=True)
     at.add_argument("--evidence-dir", required=True), at.add_argument("--train-dir", required=True), at.add_argument("--harness-dir", required=True)
