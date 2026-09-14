@@ -399,6 +399,61 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **Operating-point evaluation requested by JS (2026-09-14; "relax and see if the classifier still outperforms; FDR 10-20 %
+  at > 90 % recall could be tolerated"). Jobs 54294272 / 54294323; tables `harness_v2/wes_sweep*.snv_indel.tsv`.**
+  *What the 58 "WES positives" are (JS asked):* not a curated list of known DNMs. They are our own long-read exonic
+  candidates whose SPARK iWES v3 trio genotypes are de-novo-consistent (child alt with GQ >= 20, DP >= 10, >= 2 alt reads;
+  both parents 0/0 with GQ >= 20, DP >= 10, 0 alt reads; `eval/wes_truth.py`). Negatives (2,926) are candidates WES calls
+  inherited (a parent carries) or child hom-ref at DP >= 20. **The truth set is impure:** 6 of the 58 have gnomAD AF 0.02-
+  0.11 and/or are seen in 2-14 other cohort families (inherited, missed in a WES parent), and 2 are 1/1 in the child's WES
+  (a hom-alt child with hom-ref parents is not a single DNM). ~50 credible positives; the labelling rule will be tightened
+  to child 0/1 and the two counts reported side by side.
+  *Comparator correction:* the harness "H1 slivar" arm (TPR 0.64, precision 0.36 on these rows) is NOT the original
+  pipeline's set. The actual `denovo_tiered` set (slivar + gnomAD AF < 0.001 + segdup/simpleRepeat/rmsk mask + founder-panel
+  recurrence, `cohort/denovo_tier.py`) scores **recall 34/58 = 0.59 with 2 FP, precision 0.94** on the same rows (38 calls /
+  proband). That, not the re-implemented slivar rule, is the bar.
+  *Classifier alone (rf_q, germline gate), exonic labelled rows:* τ_q 0.997 recall 0.36 / precision 0.96; 0.995 0.50 /
+  0.83; 0.99 0.72 / 0.65 (139 / proband); 0.97 0.83 / 0.36; 0.90 0.86 / 0.15 (764 / proband); 0.85 0.90 / 0.12. **Relaxed,
+  the bare classifier does not outperform the original set** - because the two filters that make the original set clean,
+  population frequency and cohort recurrence, are exactly the features P24 forbids the classifier (label leak under the
+  synthetic construction). That prohibition is right for training and wrong for the call: they belong in a post-classifier
+  rule layer, where the original pipeline has them.
+  *Classifier + rule layer R2 (gnomAD AF < 0.001 with absent = rare; leave-one-family-out founder recurrence 0; LOFO
+  cohort AC 0 - P26 annotation, already computed):*
+
+  | τ_q | recall (of 58) | recall (of ~52 credible) | FP (labelled) | exonic precision | calls / proband (median) |
+  |---|---|---|---|---|---|
+  | 0.997 | 0.34 | 0.38 | 0 | 1.00 | 32 |
+  | 0.995 | 0.48 | 0.54 | 0 | 1.00 | 61 |
+  | **0.99** | **0.71** | **0.79** | 3 (all WES-hom-ref) | **0.93** | **95** |
+  | 0.98 | 0.74 | 0.83 | 7 | 0.86 | 125 |
+  | **0.97** | **0.79** | **0.88** | 11 (10 hom-ref, 1 inherited) | **0.81** | **155** |
+  | 0.95 | 0.83 | 0.92 | 17 | 0.74 | 201 |
+  | 0.90 | 0.83 | 0.92 | 29 | 0.62 | 291 |
+  | rules only (τ 0) | 0.88 | 0.98 | 82 | 0.38 | 1,223 |
+  | original set | 0.59 | 0.65 | 2 | 0.94 | 38 |
+
+  **Answer: with the rule layer the classifier outperforms the original set at matched purity** - τ_q 0.99 + R2 gives
+  recall 0.71 vs 0.59 at precision 0.93 vs 0.94; JS's target (FDR 10-20 %, recall > 90 %) is approached at τ_q 0.97 + R2
+  (exonic FDR 19 %, recall 0.88 of the credible positives) and 0.95 + R2 (FDR 26 %, recall 0.92). Ceiling: 7 of the 58 fail
+  R2 or the germline gate (6 are the impure ones; 1 credible DNM is `inconclusive` in review), so recall of the nominal 58
+  saturates at 0.88.
+  *Two caveats that travel with the table.* (1) Exonic precision overstates genome-wide precision: exons are the easiest
+  territory and WES can only label sites it covers. At 155-200 calls / proband against ~70 expected germline DNMs, the
+  genome-wide FDR of a tier at τ_q 0.95-0.97 is likely > 50 % even if every true DNM is captured; GIAB (genome-wide truth,
+  depth-matched run) is the arbiter. (2) **Defect found:** `mask_overlap` is 0 on every final-table row - the lab-standard
+  segdup / simpleRepeat / rmsk mask is never populated, so the module's per-proband counts include masked regions the
+  original set excludes (part of 95 vs 38), and the mask-stratified evaluation of P18 has been vacuous. To fix before the
+  tiers are cut.
+  *Low-scoring credible positives (rf_q 0.89-0.99, not in the original set):* long-read depth 7-17 at the site, 2-5 informative
+  haplotypes, or one parent with GQ 6-9 - the caller block pulls them down; nothing a threshold on the classifier alone
+  would recover cleanly.
+  **Proposal for JS (P15 amendment):** *Tier 1* = rf_q >= 0.99, germline review class, rule layer R2 (exonic precision
+  0.93, recall 0.71-0.79, ~95 / proband before the mask); *Tier 2* = rf_q >= 0.95 with the same gate and rules (recall 0.83-
+  0.92, exonic FDR ~26 %, ~200 / proband before the mask), reported unfiltered with score, phase class and parent of origin
+  for experimental validation. Rescue branch folded into the tiers (rescued = phased-germline rows between 0.95 and 0.99
+  move to tier 1). Mask populated and applied to both tiers before the numbers are re-cut. JS (2026-09-14): agrees with gnomAD AF < 0.001, the segdup/repeat mask and founder-panel recurrence as the rule
+  layer on top of the score — the fair comparison. Thresholds to be fixed on the masked re-cut.
 - **GIAB run: DeepVariant shards timing out, restarted with a longer task limit (2026-09-14 08:06 PDT):** at the 08:03 check
   all per-sample alignment, mosdepth, paraphase and mitorsaw were done (**coverage HG002 48.1×, HG003 46.3×, HG004 35.7×**;
   chrY 17.5 / 16.3 / 0.7, sexes as expected) and 21 of 24 DeepVariant make_examples shards had completed (34 min - 5 h 12),
