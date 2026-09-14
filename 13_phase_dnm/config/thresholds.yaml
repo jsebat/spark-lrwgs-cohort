@@ -86,7 +86,7 @@ final:                       # P15 - decision layer (M3), amended 2026-09-14 (JS
     cohort_ac_max: 0         #   leave-one-family-out cohort allele count (P26); LOFO keeps sib-shared DNMs of a quad
     mask:                    #   the lab segdup / simple-repeat mask (10 % of the genome), from the features' segdup_overlap flag;
       default: true          #   per variant class: for SVs it is a FLAG only (92 % of SV candidates are repeat-borne; the original SV set
-      SV: false              #   used founder-panel recurrence and read review, not the mask) - JS to confirm
+      SV: false              #   used founder-panel recurrence and read review, not the mask) - confirmed by JS 2026-09-14
   apply_rules: true
                              # the rf branch requires a germline-consistent review class (not inconclusive): PoO 0.46 for inconclusive rows
 

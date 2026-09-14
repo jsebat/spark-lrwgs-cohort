@@ -415,7 +415,7 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   10 cohort-wide = 0.3 / proband, paternal 0.75 (n = 4), 2 in the original set** - the literature rate for ≥ 50 bp de novo SVs is
   ~0.2-0.3 per genome (unverified figure, to cite); **0.97 → 59 = 1.7 / proband, paternal 0.72 (n = 18), 16 in the original
   set**; 0.95 → 120, 0.625; 0.90 → 280, 0.633. **Tier 1 τ_q 0.99, tier 2 0.97, mask per class `{default: true, SV: false}` -
-  JS to confirm the SV mask-as-flag decision.** Spike-in caveat recorded: planted-germline SV recall plateaus at 0.63 from τ_q
+  JS confirmed the SV mask-as-flag decision (2026-09-14).** Spike-in caveat recorded: planted-germline SV recall plateaus at 0.63 from τ_q
   0.9995 to 0.995 (37 % of planted SVs are never ranked high; type/size profile of the unrecovered set to be examined) and
   planted-inherited SVs pass the score alone at 0.64 at τ_q 0.99 - on real data the six-haplotype demotion catches these (3,782
   phase-conflict demotions in the original SV set), which the score-only spike arm does not include ("RF+P(demote)" PR-AUC
