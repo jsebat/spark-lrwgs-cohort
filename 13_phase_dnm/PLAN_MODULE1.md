@@ -399,6 +399,19 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **GIAB run: DeepVariant shards timing out, restarted with a longer task limit (2026-09-14 08:06 PDT):** at the 08:03 check
+  all per-sample alignment, mosdepth, paraphase and mitorsaw were done (**coverage HG002 48.1×, HG003 46.3×, HG004 35.7×**;
+  chrY 17.5 / 16.3 / 0.7, sexes as expected) and 21 of 24 DeepVariant make_examples shards had completed (34 min - 5 h 12),
+  but one shard per sample had failed three times with exit 143 = Slurm TIMEOUT: the cohort's global `~/.config/miniwdl.cfg`
+  gives every task `--time=06:00:00`, which 22× samples never approach and 46-48× samples exceed on their largest shard.
+  The fourth (last) attempts would have failed the same way and sunk the run by mid-afternoon. Fix: cancelled watchdog
+  (first - it relaunches a dead driver), driver and the three running attempts, and resubmitted through the same
+  `run_family.sh` with `MINIWDL__SLURM__EXTRA_ARGS` overriding the limit to 14 h **for this run only** (the global config
+  the cohort used is untouched); miniwdl's call cache resumed everything else, so within 20 s only the three shards were
+  resubmitted (driver 54293754, watchdog 54293755, shards 54293757/8/9 with Timelimit 14:00:00 confirmed). Nine timed-out
+  attempts cost ~54 core-hours × 8 threads. Lesson for the cohort README / EXPANSE notes: the 6 h default is calibrated
+  to ~22×; deeper inputs need a per-run override. ETA now: shards ~5-7 h, then call_variants, postprocess, HiPhase, sawfish,
+  TRGT and the family joint steps - completion likely 2026-09-14 evening; check 13:00 PDT.
 - **GIAB run check (2026-09-13 19:02 PDT, 1 h 38 in):** healthy. Input localisation and per-sample pbmm2 alignment passed;
   HG004 (the smallest release, 57 GB) has finished alignment, mosdepth, mitorsaw and is in DeepVariant make_examples (8
   shards running); HG002 / HG003 are still merging their two aligned SMRT cells. **HG004 mean coverage 35.7× (chr1 35.8,
