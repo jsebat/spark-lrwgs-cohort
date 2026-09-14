@@ -399,6 +399,12 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **METHODS draft assembled (2026-09-14):** `13_phase_dnm/METHODS.md` - one paragraph per decision P1-P27 in pipeline order
+  (input data, M1 orientation / transmission / QC, M2 candidates / six-haplotype matrix / rule / likelihood / mosaic floor /
+  spike-ins, M4 construction / folds / models / heuristic arms / annotation / rf_q / frozen models, M3 two-tier decision +
+  rule layer + concordance, operating points and validation incl. GIAB plan, reporting guards, software) with every cohort
+  value marked *measured* and every unchecked citation marked **unverified**; closes with a results-summary table for the
+  paper. Upstream alignment / calling is referenced to the repository-level methods (the planned `00_upstream` module).
 - **Transfer-path smoke (2026-09-14, job 54296811, `train/frozen_smoke`):** `phase-dnm score` ran the three frozen models over
   all 35 children (1.14 M / 22 k / 1.39 M rows; per-class references SNV 467 k, INDEL 672 k, SV 22 k, TR 1.39 M). Against the
   held-out fold-model `rf_q` of `harness_v2`: Spearman 0.979 / 0.966 / 0.955 (median over children; min 0.90 / 0.93 / 0.76),
