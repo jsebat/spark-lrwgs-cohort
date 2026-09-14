@@ -330,6 +330,34 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   scores with re-reviewed phase classes would give a table superseded within hours. Instead the same five-seed training is
   resubmitted on the re-reviewed tables into `harness_v2`, with rescore -> integrate -> concordance -> external arms
   chained behind it (see next entry).
+- **harness_v2 training done (2026-09-13 22:52 PDT read; 54287644/5/6 COMPLETED in 4 h 02 / 0 h 23 / 2 h 58; re-reviewed
+  real tables, five genuine seeds, identical folds):** the presence-leak guard now drops only the never-produced
+  annotation/context columns (14 / 23 / 20, all 0 % on both sides) and **keeps the read-quality block** - models carry
+  55 / 38 / 41 features incl. `c_alt_mapq0_frac`, `c_alt_supp_frac` (not in the TR group by registry), `c_alt_readlen_median`,
+  `c_alt_rq_mean`, `c_amb_frac_hapA`, `p_amb_frac_max`. ROC-AUC mean [min-max] over seeds:
+
+  | arm | SNV/indel (55) | SV (38) | TR (41) |
+  |---|---|---|---|
+  | RF (XGBoost, full) | **0.9967** [0.9965-0.9970] | **0.9945** [0.9944-0.9946] | **0.8922** [0.8901-0.8935] |
+  | RF no-phase | 0.9958 [0.9955-0.9962] | 0.9901 [0.9899-0.9902] | 0.8396 [0.8348-0.8412] |
+  | RF phase-only | 0.9526 [0.9510-0.9531] | 0.8720 [0.8690-0.8738] | 0.8810 [0.8805-0.8816] |
+  | RF + P(demote) | 0.8961 | 0.8464 | 0.8474 |
+  | sklearn RF / LR | 0.9940 / 0.9845 | 0.9939 / 0.9873 | 0.8841 / 0.8420 |
+  | H1 (slivar / genotype / family) | 0.8871 [0.8838-0.8893], op TPR 0.48 @ FPR 0.0078 | 0.6125 | 0.5841 |
+  | H2 (hiconf / cohort / cohort) | 0.8740 | 0.1977 | 0.5887 [0.5756-0.5963] |
+  | H3 cohort | 0.8739 | - | - |
+
+  **Answer to JS's 2026-09-13 question ("is the full model overly dependent on exclusively phased reads?"): with the
+  read-quality block present on both sides, the full model is >= the no-phase model in every class** (SNV/indel +0.0009,
+  SV +0.0044, TR +0.053) - no arm beats it, and the ranking of arms is the one the design predicted (phase neutral for
+  SNV/indel, additive for SV, the main signal for TR). The SNV/indel absolute values are a little lower than in
+  `harness_5seed` (0.9967 vs 0.9991; no-phase 0.9958 vs 0.9988) because the negatives changed - the re-review re-scored
+  every real candidate's D-block, so the two runs are not on identical rows; SV and TR are unchanged to the third decimal.
+  Heuristic arms are identical to `harness_5seed` (their inputs are caller fields, untouched by the re-review). Provisional
+  τ (0.1 % pass rate) 0.957 / 0.998 / 0.889, τ_rescue 0.466 / 0.983 / 0.446 - not used; integration runs on `rf_q`.
+  **This is the P22 headline table; `harness_5seed` is superseded** (kept for the record as the read-quality-blind run).
+  Downstream: rescore 54287647 RUNNING (started ~22:45), integrate / concordance / external arms PENDING behind it; check
+  00:43 PDT.
 - **harness_v2 chain submitted (2026-09-13 18:55 PDT):** five-seed training on the re-reviewed tables — 54287644
   (snv_indel) / 54287645 (sv) / 54287646 (tr), OUT_DIR `train/harness_v2` — then rescore over the five seeds' fold models
   (54287647), integrate with `rf_q` / τ_q (array 54287648), concordance (54287649), and the two external arms on seed-0
