@@ -9,6 +9,7 @@ default-resources:
   mem_mb: 4000
   runtime: 60
   cpus_per_task: 1
+  nodes: 1                        # Expanse's bank_limit plugin rejects an sbatch without --nodes (2026-09-14)
 latency-wait: 120
 retries: 1
 rerun-incomplete: true
