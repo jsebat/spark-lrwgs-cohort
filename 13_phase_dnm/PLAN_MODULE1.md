@@ -399,6 +399,13 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **Transfer-path smoke (2026-09-14, job 54296811, `train/frozen_smoke`):** `phase-dnm score` ran the three frozen models over
+  all 35 children (1.14 M / 22 k / 1.39 M rows; per-class references SNV 467 k, INDEL 672 k, SV 22 k, TR 1.39 M). Against the
+  held-out fold-model `rf_q` of `harness_v2`: Spearman 0.979 / 0.966 / 0.955 (median over children; min 0.90 / 0.93 / 0.76),
+  tier-1 pre-gate overlap Jaccard 0.73 / 0.28 / 0.69 with the frozen model passing more rows (11,386 vs 9,585 SNV/indel) -
+  expected, because scoring the training cohort with the refit model is **in-sample**. Rule recorded: the cohort's own calls
+  stay on the held-out fold `rf_q` (rescore); `score` is for cohorts the models never saw. `pytest` is absent from the Expanse
+  env, so the score test ran only locally (skipped past the xgboost part); to add to the env.
 - **P21 freeze (2026-09-14):** the three `harness_v2` models and their training manifests are in the repository under `models/`
   (9.2 MB; checksums verified against the manifests; no identifiers), with `models/FROZEN.md` (training data, features,
   hyperparameters, operating points, transfer caveat, retraining recipe). New `phase-dnm score` subcommand (`train/score.py`)
