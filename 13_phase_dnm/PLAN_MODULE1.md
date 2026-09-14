@@ -344,6 +344,15 @@ Three lessons of the day are recorded as rules: presence leak (P24 guard), sbatc
   harness stand. The CLI now finds the family by sample-id prefix (`--blood-sample-prefix`, env `BLOOD_SAMPLE_PREFIX`,
   default REACH) with the family-id prefix as an alternative, logs the count, and a regression test covers the REACH-sample /
   F0-family case.
+- **GIAB run check (2026-09-13 19:02 PDT, 1 h 38 in):** healthy. Input localisation and per-sample pbmm2 alignment passed;
+  HG004 (the smallest release, 57 GB) has finished alignment, mosdepth, mitorsaw and is in DeepVariant make_examples (8
+  shards running); HG002 / HG003 are still merging their two aligned SMRT cells. **HG004 mean coverage 35.7× (chr1 35.8,
+  chrX 37.2, chrY 0.7 - female, as expected).** HG002 / HG003 carry 78 / 76 GB of reads, so ~48× each. That is 1.5-2× the
+  cohort's ~22-24× (~10×/haplotype, on which every observability threshold in `thresholds.yaml` 0.2.0 was set), so the
+  validation needs a depth-matched arm (P16): when the full-depth run finishes, a second WDL run on the unaligned reads
+  subsampled per sample to ~23× (`samtools view -s`, fraction 23 / measured coverage, seed fixed) through the identical
+  recipe; the full-depth callset is kept as the best-case reference. Progress is ahead of the 12-24 h estimate; next check
+  08:03 PDT 2026-09-14.
 - **GIAB Ashkenazi trio submitted through the cohort WDL recipe (2026-09-13 17:24 PDT, approved by JS "Ok go"):**
   `cohort/run_family.sh HG002_trio /expanse/lustre/projects/ddp195/jsebat/giab_wdl` — driver 54287102 + watchdog 54287103
   (ind-shared, 48 h limit), inputs `config/inputs/HG002_trio.inputs.json` in the cohort's five-key format (HG002 male
