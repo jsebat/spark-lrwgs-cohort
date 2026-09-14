@@ -597,6 +597,14 @@ precision. Open: tier-2 indel threshold; profile of the 37 % of planted SVs neve
   for experimental validation. Rescue branch folded into the tiers (rescued = phased-germline rows between 0.95 and 0.99
   move to tier 1). Mask populated and applied to both tiers before the numbers are re-cut. JS (2026-09-14): agrees with gnomAD AF < 0.001, the segdup/repeat mask and founder-panel recurrence as the rule
   layer on top of the score — the fair comparison. Thresholds to be fixed on the masked re-cut.
+- **GIAB run check (2026-09-14 16:02 PDT, 8 h after the restart):** the three resubmitted make_examples shards completed in
+  4 h 12 / 4 h 15 / 0 h 40 - the same shards that had run past 6 h three times each on busier nodes, so the shard runtime at
+  46-48× is 4-6 h depending on node contention and the 6 h default is a coin toss at that depth (recorded in `00_upstream`).
+  HG003 per-sample stage complete (DeepVariant, sawfish discover, paraphase, mitorsaw, mosdepth); HG002 in sawfish discover;
+  HG004 in DeepVariant call_variants. Family-level steps (GLnexus, HiPhase, sawfish joint-call, TRGT, methylation,
+  tertiary) still to come; ETA ~20:00-22:00 PDT. The depth-matched run is being prepared in parallel: unaligned reads
+  subsampled to ~23× (fractions 23/48.1, 23/46.3, 23/35.7; fixed seed) into `giab_wdl/downsampled/`, to be submitted through
+  the same recipe once the full-depth driver finishes.
 - **GIAB run: DeepVariant shards timing out, restarted with a longer task limit (2026-09-14 08:06 PDT):** at the 08:03 check
   all per-sample alignment, mosdepth, paraphase and mitorsaw were done (**coverage HG002 48.1×, HG003 46.3×, HG004 35.7×**;
   chrY 17.5 / 16.3 / 0.7, sexes as expected) and 21 of 24 DeepVariant make_examples shards had completed (34 min - 5 h 12),
