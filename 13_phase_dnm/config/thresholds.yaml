@@ -88,6 +88,10 @@ final:                       # P15 - decision layer (M3), amended 2026-09-14 (JS
       default: true          #   per variant class: for SVs it is a FLAG only (92 % of SV candidates are repeat-borne; the original SV set
       SV: false              #   used founder-panel recurrence and read review, not the mask) - confirmed by JS 2026-09-14
   apply_rules: true
+  sv_depth_rule_tier1: true   # an SV whose class was decided by the interval evidence (P8 amendment) with every germline
+  sv_depth_min_rule_score: 6  #   criterion met is called on that evidence: the classifier has 43 positives between 10 and 50 kb
+                              #   and 13 above it, so its score is uninformative there (it ranked the pathogenic MECP2 deletion
+                              #   at 0.66 while the deterministic evidence scored it 6 of 6).
                              # the rf branch requires a germline-consistent review class (not inconclusive): PoO 0.46 for inconclusive rows
 
 sv_interval:                 # P8 amendment 2026-09-14 (JS): a DELETION is classified on depth across the interval, not on

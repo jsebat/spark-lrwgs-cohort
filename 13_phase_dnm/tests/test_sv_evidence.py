@@ -68,3 +68,27 @@ def test_depth_loss_with_persisting_hets_is_not_constitutional():
     # and a deletion without junction reads at both ends is not called on depth alone
     sv2 = dict(sv, sv_het_snv_persistence=0.0, c_sv_junc_both_ends=0)
     assert H.classify_sv_interval(sv2, {}, cp)[0] == "inconclusive"
+
+
+def test_rule_led_tier1_for_deletions_the_classifier_cannot_score():
+    """P15 amendment 2026-09-15: the SV classifier has 43 positives between 10 and 50 kb, so its score is uninformative
+    for large deletions — it ranked the pathogenic MECP2 deletion at 0.66 while the deterministic evidence scored 6 of 6."""
+    from phase_dnm import integrate as I
+    P = I.FinalParams(tau={"SV": 0.99}, tau_tier2={"SV": 0.97})
+    mecp2 = dict(phase_class="germline_DNM_unphased", variant_class="SV", rule_score="6",
+                 flags="LOW_HAP_DEPTH;AMBIGUOUS_READS;CHILD_BLOCK_UNORIENTED;SV_DEPTH_EVIDENCE",
+                 gnomad_af="-1", cohort_AC_loo="0", pon_founder_recurrence_loo="0", segdup_overlap="0")
+    d = I.decide(mecp2, P, 0.66)
+    assert d["dnm_call"] == "YES" and d["dnm_tier"] == 1 and d["decision_reason"] == "TIER1_SV_DEPTH"
+    # the path is gated: the rule layer still applies, the evidence must be complete, and it must BE depth evidence
+    assert I.decide(dict(mecp2, cohort_AC_loo="9"), P, 0.66)["decision_reason"] == "RULES:cohort"
+    assert I.decide(dict(mecp2, rule_score="3"), P, 0.66)["decision_reason"] == "BELOW_TAU"
+    assert I.decide(dict(mecp2, flags="LOW_HAP_DEPTH"), P, 0.66)["decision_reason"] == "BELOW_TAU"
+    assert I.decide(dict(mecp2, phase_class="inconclusive"), P, 0.66)["dnm_call"] == "NO"
+    # it does not apply to the other classes, and a high-scoring SV is still called on its score
+    assert I.decide(dict(mecp2, variant_class="SNV"), I.FinalParams(tau={"SNV": 0.99}), 0.66)["decision_reason"] == "BELOW_TAU"
+    dnmt3a = dict(phase_class="germline_DNM_phased", variant_class="SV", rule_score="6", flags="NEAR_CHILD_SWITCH",
+                  gnomad_af="-1", cohort_AC_loo="0", pon_founder_recurrence_loo="0", segdup_overlap="0")
+    assert I.decide(dnmt3a, P, 0.998)["decision_reason"] == "TIER1"
+    # and it can be switched off
+    assert I.decide(mecp2, I.FinalParams(tau={"SV": 0.99}, sv_depth_rule_tier1=False), 0.66)["decision_reason"] == "BELOW_TAU"

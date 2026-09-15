@@ -52,6 +52,8 @@ class FinalParams:
                                          # < 3 units vs 0.75 at >= 3, cohort 2026-09-13); tier 1 keeps 1-unit calls (0.73)
     rules: Dict[str, object] = field(default_factory=lambda: dict(DEFAULT_RULES))
     apply_rules: bool = True
+    sv_depth_rule_tier1: bool = True       # SV deletions decided by the interval evidence are called on it, not on the score
+    sv_depth_min_rule_score: float = 6.0   # every germline criterion of the deletion path met (P8 amendment)
 
 
 def _f(x) -> Optional[float]:
@@ -111,6 +113,21 @@ def decide(row: Dict[str, object], p: FinalParams, rf_prob: Optional[float]) -> 
         return _no("DEMOTED:%s" % cls, mode, int(cls in MOSAIC))
     if cls in MOSAIC:
         return _no("MOSAIC:%s" % cls, mode, 1)
+    # P15 amendment 2026-09-15: a rule-led tier 1 for structural variants whose class was decided by the INTERVAL
+    # evidence. The classifier cannot score these: after the rarity gate the SV positives hold 43 examples between
+    # 10 and 50 kb and 13 above it, and they are dominated by small insertions, so depth depletion is unlike anything
+    # in the positive class. Measured consequence: adding the depth features moved the cohort's 35 kb pathogenic MECP2
+    # deletion DOWN from rf_q 0.967 to 0.66, with the phase block contributing -1.18 to its score, while the same
+    # evidence gives it a perfect rule score. Where the deterministic evidence is complete — depth halved across the
+    # interval, junction reads at both breakpoints, loss of heterozygosity inside, neither parent depleted — the call
+    # rests on that evidence and not on a score the training set cannot support.
+    if (vclass == "SV" and p.sv_depth_rule_tier1 and cls in RF_BRANCH_CLASSES
+            and "SV_DEPTH_EVIDENCE" in str(row.get("flags") or "")
+            and (_f(row.get("rule_score")) or 0) >= p.sv_depth_min_rule_score):
+        fails = rules_fail(row, p) if p.apply_rules else []
+        if fails:
+            return _no("RULES:%s" % "+".join(fails), mode)
+        return dict(dnm_call="YES", dnm_tier=1, call_mode=mode, decision_reason="TIER1_SV_DEPTH", mosaic_flag=0)
     tau1 = p.tau.get(vclass)
     tau2 = p.tau_tier2.get(vclass, p.tau_rescue.get(vclass))
     if rf_prob is not None and tau1 is not None:

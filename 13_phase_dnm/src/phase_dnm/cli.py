@@ -289,7 +289,9 @@ def _final_params(thr: dict):
     rules = dict(DEFAULT_RULES); rules.update(f.get("rules") or {})
     return FinalParams(tau=dict(f.get("tau", {}) or {}), tau_rescue=dict(f.get("tau_rescue", {}) or {}), tau_tier2=dict(f.get("tau_tier2", {}) or {}),
                        phase_only_min_score=f.get("phase_only_min_score", 0.9), require_hap_obs=f.get("require_hap_obs", 6),
-                       tr_rescue_min_units=float(f.get("tr_rescue_min_units", 3)), rules=rules, apply_rules=bool(f.get("apply_rules", True)))
+                       tr_rescue_min_units=float(f.get("tr_rescue_min_units", 3)), rules=rules, apply_rules=bool(f.get("apply_rules", True)),
+                       sv_depth_rule_tier1=bool(f.get("sv_depth_rule_tier1", True)),
+                       sv_depth_min_rule_score=float(f.get("sv_depth_min_rule_score", 6)))
 
 
 def cmd_integrate(a: argparse.Namespace) -> int:
