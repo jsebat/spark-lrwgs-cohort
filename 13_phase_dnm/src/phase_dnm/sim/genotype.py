@@ -37,6 +37,10 @@ ROLE_COLS = {"child": ("caller_gt", "caller_gq", "caller_dp", "child_ad", "child
              "father": ("father_gt", "father_gq", "father_dp", "father_ad", "father_pl"),
              "mother": ("mother_gt", "mother_gq", "mother_dp", "mother_ad", "mother_pl")}
 ERR = 0.02          # per-read error rate of the binomial genotype model (HiFi; the same order sawfish assumes)
+# apply_plan keys its BAM dictionary (and so the ledger) by the single-letter role the slice files use, not by the
+# long names the candidate columns use. Looking the ledger up by the long name silently found nothing and left the
+# SV and TR genotype block empty -- the exact failure this module exists to fix.
+LEDGER_ROLE = {"child": "C", "father": "F", "mother": "M"}
 
 
 # ----------------------------------------------------------------------------------------------
@@ -171,7 +175,7 @@ def fill_candidates(candidates_path: str, out_path: str, bams: Dict[str, str], r
         else:
             filled = False
             for role, (c_gt, c_gq, c_dp, c_ad, c_pl) in ROLE_COLS.items():
-                led = ledger.get((r["variant_id"], role))
+                led = ledger.get((r["variant_id"], LEDGER_ROLE[role])) or ledger.get((r["variant_id"], role))
                 if not led:
                     continue
                 n_alt, n_ref = led["alt"], led["ref"]
