@@ -434,6 +434,24 @@ precision. Open: tier-2 indel threshold; profile of the 37 % of planted SVs neve
   applies a frozen model to a cohort - rf_prob from the model, rf_q against that cohort's own candidates per variant class,
   tau json with `score_column rf_q` - so `integrate` runs unchanged; the model checksum is verified and a tampered file is
   refused. Tests: manifests match models in the repo; score path end-to-end (skipped where xgboost is unavailable).
+- **THIRD DEFECT, same class, found 2026-09-15: every population and cohort feature is empty for TANDEM REPEATS, so
+  neither the P24 rarity fix nor the P15 rule layer has ever applied to TR.** Measured over 406,565 real TR rows:
+  `trgt_pop_p99_distance`, `cohort_AC_loo`, `pon_founder_recurrence_loo`, `sib_shared` and `strchive_locus` are populated
+  in **0.0 %**; only the caller and read-level blocks are filled. The cause is that the P26 annotation step was only ever
+  run for two of the three classes — `annot/real/` holds 35 `snv_indel.annot.tsv` and 35 `sv.annot.tsv` files and no TR
+  files at all, and the Snakefile's `m4_train` input hardcodes `cls=["snv_indel", "sv"]`. `annotate.py` has no TR path.
+  Consequences, all of which invalidate TR statements made so far: (1) the rarity gate is a **no-op** for TR — the
+  2026-09-14 run logged "105,000 -> 105,000 synthetic rows kept (100.0 %)" because the column it reads is blank, so the
+  TR model is still trained on the uncorrected positives and its 0.892 ROC-AUC carries the original construction error;
+  (2) the rule layer's population filters are **vacuous** for TR at decision time (`cohort_AC_loo == 0` and
+  `pon_founder_recurrence_loo == 0` are trivially true when both are empty), so every TR call ever reported has had no
+  frequency or recurrence filtering, only the mask and the review gate; (3) `strchive_locus` empty means known pathogenic
+  repeat loci are not flagged, which is exactly what JS's step 2 needs. The `--require-all-features` gate added on
+  2026-09-14 does not catch this because these are `rf_safe: false` columns and so never enter the rf matrix. *To do
+  before any TR result stands:* extend the gate to registry features of any rf_safe status; port the TR cohort logic that
+  already exists in the repo (`02_tiering/tr_outliers.py` founder p99 and leave-one-family-out reference,
+  `02_tiering/known_repeats.py` STRchive screen) into `annotate.py`; run TR annotation for real and synthetic rows;
+  re-apply the rarity gate; retrain TR; re-derive its thresholds.
 - **SECOND DEFECT, and the one that actually blocks MECP2: the SV read-level depth evidence was never implemented
   (2026-09-14, found while answering JS's "tier 2 or adjust tier 1 for SVs?").** P1 and P17 specify reusing
   `05_denovo/sv_read_review.sh` — junction detection by `SA` tag / CIGAR `D >= MINBIG`, **per-haplotype depth inside the
