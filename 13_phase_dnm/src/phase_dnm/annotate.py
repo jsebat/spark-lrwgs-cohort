@@ -47,6 +47,10 @@ def union_sites(cand_paths: Iterable[str], class_group: str) -> Tuple[List[Tuple
                 sites.add((rec.chrom, rec.start, rec.ref, rec.alt))
             elif class_group == "sv":
                 sites.add((rec.chrom, rec.start, rec.class_payload.get("caller_id") or rec.variant_id, rec.class_payload.get("svtype") or ""))
+            else:
+                # TR: the locus, keyed by TRID. Until 2026-09-15 this branch was absent, so every TR annotation column
+                # came out empty and both the P24 rarity gate and the P15 population rules were silently vacuous for TR.
+                sites.add((rec.chrom, rec.start, rec.class_payload.get("trid") or rec.variant_id, str(rec.end)))
     return sorted(sites), {}
 
 
@@ -192,11 +196,15 @@ def sib_shared_sites(joint_vcf: str, child: str, sibs: List[str], sites: Set[Tup
 # assembly per child
 # ----------------------------------------------------------------------------------------------
 def write_annot(cand_path: str, out_path: str, class_group: str, gnomad: Dict, fgt: Dict, order: List[str], founder_family: Dict[str, str],
-                exclude_families: Set[str], sib: Set) -> Dict[str, int]:
+                exclude_families: Set[str], sib: Set, tr_table: Optional[Dict[str, List[List[int]]]] = None,
+                strchive: Optional[Set[str]] = None) -> Dict[str, int]:
     n = n_g = n_ac = 0
     with open(out_path, "w", newline="") as fh:
-        fh.write("variant_id\tgnomad_af\tcohort_AC_loo\tcohort_AN_loo\tpon_founder_recurrence_loo\tsib_shared\n")
+        fh.write("variant_id\tgnomad_af\tcohort_AC_loo\tcohort_AN_loo\tpon_founder_recurrence_loo\tsib_shared"
+                 "\ttrgt_pop_p99_distance\tstrchive_locus\n")
         for rec in read_candidates(cand_path):
+            p99 = None
+            strc = ""
             if class_group == "snv_indel":
                 key = (rec.chrom,) + norm_allele(rec.start, rec.ref, rec.alt)
             elif class_group == "sv":
@@ -208,12 +216,136 @@ def write_annot(cand_path: str, out_path: str, class_group: str, gnomad: Dict, f
             if key is not None and key in fgt:
                 ac, an, nf = lofo_counts(fgt[key], order, founder_family, exclude_families)
                 n_ac += 1
+            if class_group == "tr" and tr_table is not None:
+                pl = rec.class_payload or {}
+                trid = pl.get("trid") or rec.variant_id.rsplit(":a", 1)[0]
+                als = pl.get("child_AL") or []
+                idx = pl.get("outlier_allele_idx")
+                child_len = None
+                try:
+                    child_len = int(als[int(idx)]) if (als and idx is not None) else None
+                except (ValueError, IndexError, TypeError):
+                    child_len = None
+                ac, an, nf, p99 = tr_lofo_stats(child_len, int(pl.get("motif_unit_bp") or 1), tr_table.get(trid),
+                                                order, founder_family, exclude_families)
+                if ac is not None:
+                    n_ac += 1
+                strc = "1" if (strchive and trid in strchive) else ("0" if strchive is not None else "")
             if af is not None:
                 n_g += 1
-            fh.write("%s\t%s\t%s\t%s\t%s\t%d\n" % (rec.variant_id, "" if af is None else af, "" if ac is None else ac, "" if an is None else an,
-                                                  "" if nf is None else nf, int(key in sib) if key is not None else 0))
+            fh.write("%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n"
+                     % (rec.variant_id, "" if af is None else af, "" if ac is None else ac, "" if an is None else an,
+                        "" if nf is None else nf, int(key in sib) if key is not None else 0,
+                        "" if p99 is None else p99, strc))
             n += 1
     return {"rows": n, "gnomad_annotated": n_g, "founder_counts": n_ac}
+
+
+def tr_bed(sites: Iterable[Tuple[str, int, str, str]], path: str, pad: int = 50) -> int:
+    """BED of the candidate TR loci (chrom, start, trid, end), for restricting the cohort TRGT query."""
+    n = 0
+    with open(path, "w") as fh:
+        for chrom, pos, _trid, end in sorted(sites):
+            try:
+                e = int(end)
+            except (TypeError, ValueError):
+                e = pos
+            fh.write("%s\t%d\t%d\n" % (chrom, max(0, pos - pad - 1), max(e, pos) + pad))
+            n += 1
+    return n
+
+
+def tr_founder_alleles(cohort_trgt_vcf: str, sites_bed: str, founder_ids: List[str], bcftools: str, work: str,
+                       min_spanning: int = 5) -> Tuple[List[str], Dict[str, List[List[int]]]]:
+    """Per locus, the QC-passing allele lengths of every unaffected founder, in founder order.
+
+    The founder reference of `02_tiering/tr_outliers.py`, ported: an allele counts only when its spanning-read depth
+    SD is at least `min_spanning`, because allele purity is not usable on this multi-motif catalogue. Returns the
+    founder order and {TRID: [[allele lengths] per founder]}."""
+    os.makedirs(work, exist_ok=True)
+    sfile = os.path.join(work, "tr_founders.txt")
+    with open(sfile, "w") as fh:
+        fh.write("\n".join(founder_ids) + "\n")
+    out = os.path.join(work, "tr_founder_alleles.tsv")
+    if not os.path.exists(out) or os.path.getsize(out) == 0:
+        cmd = ("%s view -R %s -S %s %s | %s query -f '%%INFO/TRID[\t%%AL|%%SD]\n' > %s"
+               % (bcftools, sites_bed, sfile, cohort_trgt_vcf, bcftools, out))
+        rc = subprocess.call(cmd, shell=True)
+        if rc != 0:
+            raise RuntimeError("tr founder query failed (rc=%d)" % rc)
+    order = list(founder_ids)
+    table: Dict[str, List[List[int]]] = {}
+    with open(out) as fh:
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 2:
+                continue
+            trid = f[0]
+            per: List[List[int]] = []
+            for cell in f[1:]:
+                al_sd = cell.split("|")
+                als = (al_sd[0] if al_sd else ".").split(",")
+                sds = (al_sd[1] if len(al_sd) > 1 else ".").split(",")
+                keep: List[int] = []
+                for i, a in enumerate(als):
+                    if a in (".", ""):
+                        continue
+                    try:
+                        sd = float(sds[i]) if i < len(sds) and sds[i] not in (".", "") else 0.0
+                    except ValueError:
+                        sd = 0.0
+                    if sd >= min_spanning:
+                        try:
+                            keep.append(int(float(a)))
+                        except ValueError:
+                            pass
+                per.append(keep)
+            table[trid] = per
+    return order, table
+
+
+def _pct(sorted_vals: List[int], q: float) -> Optional[float]:
+    """Nearest-rank percentile, as in 02_tiering/tr_outliers.py."""
+    if not sorted_vals:
+        return None
+    import math
+    k = max(1, int(math.ceil(q / 100.0 * len(sorted_vals))))
+    return float(sorted_vals[min(k, len(sorted_vals)) - 1])
+
+
+def tr_lofo_stats(child_len: Optional[int], unit_bp: int, per_founder: Optional[List[List[int]]], order: List[str],
+                  founder_family: Dict[str, str], exclude_families: Set[str], tol_units: float = 1.0
+                  ) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[float]]:
+    """(cohort_AC_loo, cohort_AN_loo, pon_founder_recurrence_loo, trgt_pop_p99_distance) for one candidate allele.
+
+    Leave-one-family-out exactly as for the other classes (P26): founders of the child's family, and of the surrogate
+    parents' family for a synthetic trio, are removed from the reference before anything is counted.
+      cohort_AC_loo   founder alleles whose length matches the child's outlier allele within `tol_units` motif units
+      pon_founder_recurrence_loo   founders carrying any allele at least as long (a recurrent expansion at this locus)
+      trgt_pop_p99_distance        (child allele - founder 99th percentile) in motif units; negative = inside the range
+    """
+    if child_len is None or per_founder is None:
+        return None, None, None, None
+    pool: List[int] = []
+    n_rec = 0
+    unit = max(1, int(unit_bp or 1))
+    tol = max(unit * tol_units, 1.0)
+    for i, sample in enumerate(order):
+        if i >= len(per_founder):
+            break
+        if founder_family.get(sample) in exclude_families:
+            continue
+        als = per_founder[i]
+        pool.extend(als)
+        if any(a >= child_len for a in als):
+            n_rec += 1
+    if not pool:
+        return None, 0, None, None
+    ac = sum(1 for a in pool if abs(a - child_len) <= tol)
+    pool.sort()
+    p99 = _pct(pool, 99)
+    dist = round((child_len - p99) / unit, 2) if p99 is not None else None
+    return ac, len(pool), n_rec, dist
 
 
 def founder_genotypes_sv(cohort_sv_vcf: str, founder_ids: List[str], bcftools: str, work: str) -> Tuple[List[str], Dict[Tuple, List[str]]]:

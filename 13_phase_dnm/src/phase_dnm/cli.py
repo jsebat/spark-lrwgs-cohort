@@ -487,6 +487,28 @@ def cmd_annotate(a: argparse.Namespace) -> int:
         else:
             order, fgt = AN.founder_genotypes_sv(a.cohort_vcf, sorted(founder_family), a.bcftools, a.work) if hasattr(AN, "founder_genotypes_sv") else ([], {})
         log("founder genotypes at %d sites (%d founders)" % (len(fgt), len(order)))
+    tr_table = None
+    strchive = None
+    if a.class_group == "tr" and a.cohort_vcf:
+        # The TR branch did not exist until 2026-09-15, so every TR annotation column came out empty and both the P24
+        # rarity gate and the P15 population rules were vacuous for this class.
+        bed = os.path.join(a.work, "sites.tr.bed")
+        n_bed = AN.tr_bed(sites, bed)
+        order, tr_table = AN.tr_founder_alleles(a.cohort_vcf, bed, sorted(founder_family), a.bcftools, a.work,
+                                                min_spanning=a.tr_min_spanning)
+        log("TR founder reference: %d candidate loci, %d loci with founder alleles, %d founders" % (n_bed, len(tr_table), len(order)))
+        if a.strchive:
+            import json as _json
+            try:
+                cat = _json.load(open(a.strchive))
+                recs = cat if isinstance(cat, list) else cat.get("loci", [])
+                strchive = {str(x.get("id") or x.get("TRID") or x.get("locus") or "") for x in recs if isinstance(x, dict)}
+                strchive.discard("")
+                log("STRchive catalogue: %d known pathogenic loci" % len(strchive))
+            except (OSError, ValueError) as e:
+                log("STRchive catalogue could not be read (%s); strchive_locus stays empty" % e)
+        else:
+            log("no --strchive catalogue given: strchive_locus stays EMPTY (known pathogenic repeat loci are not flagged)")
     excl_extra = set(x for x in (a.exclude_families or "").split(",") if x)
     total = {"rows": 0, "gnomad_annotated": 0, "founder_counts": 0}
     for cp in paths:
@@ -504,7 +526,8 @@ def cmd_annotate(a: argparse.Namespace) -> int:
                 keys = {(r_.chrom,) + AN.norm_allele(r_.start, r_.ref, r_.alt) for r_ in AN.read_candidates(cp)}
                 sib = AN.sib_shared_sites(jv[0], child, sibs, keys)
         out = os.path.join(a.out_dir, "%s.%s.annot.tsv" % (child, a.class_group))
-        st = AN.write_annot(cp, out, a.class_group, gnomad, fgt, order, founder_family, excl, sib)
+        st = AN.write_annot(cp, out, a.class_group, gnomad, fgt, order, founder_family, excl, sib,
+                            tr_table=tr_table, strchive=strchive)
         for k in total:
             total[k] += st[k]
     log("annotate %s done: %s -> %s" % (a.class_group, " ".join("%s=%d" % kv for kv in total.items()), a.out_dir))
@@ -869,6 +892,8 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--cohort-vcf", help="cohort BCF (snv_indel) or cohort SV VCF (sv)"), an.add_argument("--bcftools", default="bcftools")
     an.add_argument("--slivar-cmd", help="command prefix, e.g. 'singularity exec -B /expanse:/expanse slivar.sif slivar'"), an.add_argument("--gnomad-zip")
     an.add_argument("--joint-vcf-pattern", help="family joint small-variant VCF glob with {FAMILY} (sib-shared in quads)")
+    an.add_argument("--tr-min-spanning", type=int, default=5, help="TR: minimum spanning-read depth (SD) for a founder allele to enter the reference (02_tiering/tr_outliers.py uses 5)")
+    an.add_argument("--strchive", help="TR: STRchive catalogue JSON; sets strchive_locus for known pathogenic repeat loci")
     an.set_defaults(func=cmd_annotate)
     ex = sub.add_parser("external", help="P27: external-truth arm - spike-ins scored by held-out fold models, same arms as the harness")
     ex.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), ex.add_argument("--manifest", required=True)
