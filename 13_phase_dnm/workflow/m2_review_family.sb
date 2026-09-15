@@ -28,6 +28,7 @@ bai_of() { local b; b=$(bam_of "$1"); echo "${b/merged_haplotagged_bam\//merged_
 trb_of() { ls "$O"/trgt_spanning_reads/*/"$1".*.trgt.spanning.sorted.bam 2>/dev/null | head -1; }
 tri_of() { local b; b=$(trb_of "$1"); echo "${b/trgt_spanning_reads\//trgt_spanning_reads_index/}.bai"; }
 SVJ=$(ls "$O"/sv_supporting_reads/*.json.gz 2>/dev/null | head -1)
+SMALLV=$(ls "$O"/joint_small_variants_vcf/*.vcf.gz 2>/dev/null | head -1)   # phased family VCF: SV het-SNV persistence inside the interval (P17)
 MAXARG=""; [ -n "${MAX_PER_CLASS:-}" ] && MAXARG="--max-per-class $MAX_PER_CLASS"
 
 n_done=0
@@ -47,7 +48,7 @@ while IFS=$'\t' read -r child father mother; do
         --mother-bam "$(bam_of "$mother")" --mother-bai "$(bai_of "$mother")" \
         --child-tr-bam "$(trb_of "$child")" --child-tr-bai "$(tri_of "$child")" --father-tr-bam "$(trb_of "$father")" --father-tr-bai "$(tri_of "$father")" \
         --mother-tr-bam "$(trb_of "$mother")" --mother-tr-bai "$(tri_of "$mother")" \
-        ${SVJ:+--sv-supporting-reads "$SVJ"} $MAXARG --salt "$FAMILY" --thresholds "$HERE/config/thresholds.yaml"
+        ${SVJ:+--sv-supporting-reads "$SVJ"} ${SMALLV:+--smallvar-vcf "$SMALLV" --child-sample "$child"} \n        $MAXARG --salt "$FAMILY" --thresholds "$HERE/config/thresholds.yaml"
     echo "review $cls done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
   done
   n_done=$((n_done+1))

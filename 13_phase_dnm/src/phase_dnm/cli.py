@@ -662,7 +662,7 @@ def cmd_review(a: argparse.Namespace) -> int:
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     counts = review_child(a.candidates, a.out, bams, labels, hp, cp, salt=a.salt or a.out, supporting_json=a.sv_supporting_reads,
                           reads_jsonl_gz=a.reads_out, max_per_class=a.max_per_class, thresholds_version=thr.get("version"),
-                          class_filter=a.only_class)
+                          class_filter=a.only_class, smallvar_vcf=a.smallvar_vcf, child_sample=a.child_sample)
     bams.close()
     sys.stderr.write("review %s -> %s: %s\n" % (os.path.basename(a.candidates), a.out,
                      " ".join("%s=%d" % kv for kv in sorted(counts.items()))))
@@ -688,6 +688,13 @@ def cmd_features(a: argparse.Namespace) -> int:
     summ["registry"] = reg.manifest()
     with open(a.out.replace(".tsv", ".summary.json"), "w") as fh:
         json.dump(summ, fh, indent=1, sort_keys=True)
+    never = summ.get("never_produced", [])
+    if never and a.require_all_features:
+        sys.stderr.write("ERROR: %d registry features applicable to this class were never produced: %s\n"
+                         "       A declared feature that is always empty is silently dropped by the presence-leak guard and the\n"
+                         "       classifier never sees it. Implement it or set its registry status to drop. (--no-require-all-features\n"
+                         "       to override.)\n" % (len(never), ", ".join(never)))
+        return 4
     sys.stderr.write("features %s: %d rows, %d/%d applicable features produced; never produced: %s\n"
                      % (os.path.basename(a.evidence), summ["rows"], summ.get("features_produced", 0), summ.get("features_applicable", 0),
                         ", ".join(summ.get("never_produced", [])[:12]) + (" ..." if len(summ.get("never_produced", [])) > 12 else "")))
@@ -780,6 +787,8 @@ def build_parser() -> argparse.ArgumentParser:
         rv.add_argument("--%s-bam" % role, required=True), rv.add_argument("--%s-bai" % role)
         rv.add_argument("--%s-tr-bam" % role), rv.add_argument("--%s-tr-bai" % role)
     rv.add_argument("--sv-supporting-reads", help="sawfish supporting_reads.json.gz of the family")
+    rv.add_argument("--smallvar-vcf", help="the family's PHASED small-variant VCF; SV heterozygous-SNV persistence inside the interval vs the flanks (P17)")
+    rv.add_argument("--child-sample", help="sample id of the child in --smallvar-vcf (default: the candidate's sample_id)")
     rv.add_argument("--max-per-class", type=int, help="cap rows per class (smoke tests)")
     rv.add_argument("--only-class", action="append", choices=["SNV", "INDEL", "SV", "TR"])
     rv.add_argument("--salt", help="salt for read-id hashing (default: the output path)")
@@ -797,6 +806,11 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--mask", action="append", help="BED file(s) of the lab region mask (flag, never a filter)")
     fe.add_argument("--reference", help="reference FASTA for sequence-context features (pysam)")
     fe.add_argument("--registry", help="config/features.yaml (default: the module's)")
+    fe.add_argument("--require-all-features", dest="require_all_features", action="store_true", default=True,
+                    help="fail when a registry feature applicable to the class is never produced (a declared-but-empty column is "
+                         "dropped by the presence-leak guard and never reaches the classifier; this gate would have caught the SV "
+                         "depth block, declared in 2026-09 and unimplemented until 2026-09-14)")
+    fe.add_argument("--no-require-all-features", dest="require_all_features", action="store_false")
     fe.set_defaults(func=cmd_features)
 
     sk = sub.add_parser("spike", help="spike-in harness: plan sites, edit haplotagged reads into slice BAMs, evaluate recovery")

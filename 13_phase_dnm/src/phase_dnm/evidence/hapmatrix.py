@@ -364,6 +364,38 @@ def transmission_features(m: Matrix, p: HapParams) -> Dict[str, object]:
 # ----------------------------------------------------------------------------------------------
 # rule layer (P8), in order; first match wins
 # ----------------------------------------------------------------------------------------------
+def sv_depth_features(raw: Dict[str, object]) -> Dict[str, object]:
+    """The registry's SV depth/junction features from the raw per-haplotype counts of readers.sv_interval_evidence.
+
+    Haplotypes are ordered by the evidence itself and never labelled: `_A` is the child haplotype whose depth deviates
+    most from the flanking rate (the putatively affected one for a deletion or duplication), `_O` is the other. For a
+    heterozygous deletion the expectation is _A near 0 and _O near 1. `p_sv_max_hap_depth_change` is the largest
+    deviation over the four parental haplotypes: a parent that also loses depth carries the event, so the candidate is
+    inherited rather than de novo — the comparison a single-sample read review cannot make."""
+    if not raw:
+        return {}
+    out: Dict[str, object] = {}
+    c = [raw.get("C_sv_ratio_hap1"), raw.get("C_sv_ratio_hap2")]
+    c = [x for x in c if x is not None]
+    if c:
+        dev = sorted(c, key=lambda r: -abs(1.0 - r))
+        out["c_sv_hap_depth_change_A"] = round(dev[0], 4)
+        if len(dev) > 1:
+            out["c_sv_hap_depth_change_O"] = round(dev[1], 4)
+    if raw.get("C_sv_ratio_all") is not None:
+        out["sv_depth_ratio_inside_flank"] = raw["C_sv_ratio_all"]
+    pr = [raw.get("%s_sv_ratio_hap%d" % (role, hp)) for role in ("F", "M") for hp in (1, 2)]
+    pr = [x for x in pr if x is not None]
+    if pr:
+        out["p_sv_max_hap_depth_change"] = round(max(abs(1.0 - x) for x in pr), 4)
+    j1, j2 = raw.get("C_sv_junc_hap1") or 0, raw.get("C_sv_junc_hap2") or 0
+    if j1 + j2:
+        out["c_sv_junction_hap_concentration"] = round(max(j1, j2) / (j1 + j2), 4)
+    out["c_sv_junc_untagged_frac"] = round((raw.get("C_sv_junc_hapu") or 0) / max((raw.get("C_sv_junc_hapu") or 0) + j1 + j2, 1), 4)
+    out["c_sv_junc_both_ends"] = raw.get("C_sv_junc_both_ends")
+    return out
+
+
 def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParams, cp: ClassParams,
              labels: Optional[LabelTables] = None, chrom: str = "", pos: int = 0) -> Dict[str, object]:
     flags: List[str] = []

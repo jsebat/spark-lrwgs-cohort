@@ -16,9 +16,16 @@ from typing import Dict, Iterable, List, Optional
 
 from ..records import CandidateRecord, read_candidates
 from . import hapmatrix as H
-from .readers import TrioBams, read_obs
+from .readers import TrioBams, read_obs, sv_het_persistence, sv_interval_evidence
 
 ROW_PREFIX = {("C", 1): "C1", ("C", 2): "C2", ("F", 1): "F1", ("F", 2): "F2", ("M", 1): "M1", ("M", 2): "M2"}
+SV_INTERVAL_COLS = (["sv_interval_len", "sv_interval_probes"]
+                    + ["%s_sv_%s_hap%s" % (r, w, h) for r in ("C", "F", "M") for w in ("in", "fl", "junc") for h in ("1", "2", "u")]
+                    + ["%s_sv_%s" % (r, s) for r in ("C", "F", "M") for s in ("in_bp", "fl_bp", "ratio_hap1", "ratio_hap2", "ratio_all", "junc_both_ends")]
+                    + ["sv_depth_ratio_inside_flank", "c_sv_hap_depth_change_A", "c_sv_hap_depth_change_O",
+                       "p_sv_max_hap_depth_change", "c_sv_junction_hap_concentration", "c_sv_junc_untagged_frac",
+                       "c_sv_junc_both_ends", "sv_het_sites_inside", "sv_het_sites_flank", "sv_het_frac_inside",
+                       "sv_het_frac_flank", "sv_het_snv_persistence"])
 ROW_FIELDS = ("dp", "alt", "ref", "amb", "mapq_mean", "mapq0_frac", "nm_alt_mean", "nm_ref_mean", "clip_alt_frac", "al_mean", "al_sd", "al_n")
 CORE = ["family_id", "sample_id", "variant_id", "chrom", "start", "end", "ref", "alt", "variant_class", "caller", "caller_gt",
         "caller_gq", "caller_dp", "caller_qual", "caller_filter", "source_tier", "source_list", "mask_overlap",
@@ -41,6 +48,9 @@ def evidence_columns(k: Iterable[int]) -> List[str]:
              "p_untagged_dp_max", "p_untagged_alt_max", "c_amb_frac_hapA", "p_amb_frac_max"]
     for kk in k:
         cols += ["c_both_haps_obs_k%d" % kk, "p_n_haps_obs_k%d" % kk, "hap_obs_k%d" % kk]
+    # SV interval evidence (P17, built 2026-09-14): per-haplotype depth inside vs flanks for all six haplotypes,
+    # junction reads by haplotype, and heterozygous-SNV persistence. Empty for events without an interval.
+    cols += SV_INTERVAL_COLS
     cols += ["class_payload"]
     return cols
 
@@ -48,7 +58,8 @@ def evidence_columns(k: Iterable[int]) -> List[str]:
 def review_child(candidates_tsv: str, out_tsv: str, bams: TrioBams, labels: H.LabelTables, hp: H.HapParams, cp: H.ClassParams,
                  salt: str, supporting_json: Optional[str] = None, reads_jsonl_gz: Optional[str] = None,
                  max_per_class: Optional[int] = None, thresholds_version: Optional[str] = None,
-                 class_filter: Optional[Iterable[str]] = None) -> Dict[str, int]:
+                 class_filter: Optional[Iterable[str]] = None, smallvar_vcf: Optional[str] = None,
+                 child_sample: Optional[str] = None) -> Dict[str, int]:
     cols = evidence_columns(hp.k)
     counts: Counter = Counter()
     per_class: Counter = Counter()
@@ -64,6 +75,17 @@ def review_child(candidates_tsv: str, out_tsv: str, bams: TrioBams, labels: H.La
                 continue
             per_class[rec.variant_class] += 1
             obs = read_obs(rec, bams, salt, supporting_json=supporting_json)
+            sv_raw: Dict[str, object] = {}
+            if rec.variant_class == "SV":
+                # P17: alt-read confinement is a point-variant instrument. A read crossing a large deletion is split
+                # between a primary and a supplementary alignment and has no heterozygous sites inside the deleted
+                # segment to phase against, so its HP tag is often absent or inconsistent (measured on the cohort's
+                # 35 kb MECP2 deletion: 5 junction reads per breakpoint, 3 untagged, the other 2 on OPPOSITE
+                # haplotypes). Depth across the interval, per haplotype and for all six haplotypes, is the instrument
+                # that works, and comparing the parents' haplotype depth is what says inherited rather than de novo.
+                sv_raw = sv_interval_evidence(rec, bams, supporting_json=supporting_json)
+                if sv_raw:
+                    sv_raw.update(sv_het_persistence(rec, smallvar_vcf, child_sample or rec.sample_id))
             m = H.build_matrix(obs, labels, rec.chrom, rec.start, hp)
             f = H.features(m, hp)
             t = H.transmission_features(m, hp)
@@ -71,6 +93,8 @@ def review_child(candidates_tsv: str, out_tsv: str, bams: TrioBams, labels: H.La
             row = {k: v for k, v in asdict(rec).items() if k in cols}
             row["class_payload"] = json.dumps(rec.class_payload, separators=(",", ":"), sort_keys=True)
             row.update(c); row.update(t); row.update(f)
+            if sv_raw:
+                row.update(sv_raw); row.update(H.sv_depth_features(sv_raw))
             row.update(child_hap1_is=m.child_hap1_is or ".", F_transmitted_hap=m.transmitted.get("F") or ".",
                        M_transmitted_hap=m.transmitted.get("M") or ".", n_reads_used=m.n_reads, thresholds_version=thresholds_version)
             for key, pre in ROW_PREFIX.items():

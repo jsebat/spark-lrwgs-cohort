@@ -299,6 +299,179 @@ def read_obs(rec: CandidateRecord, bams: TrioBams, salt: str, supporting_json: O
     return out
 
 
+# ----------------------------------------------------------------------------------------------
+# SV interval evidence (P17, implemented 2026-09-14 — it had been specified, declared in the registry and left unbuilt).
+#
+# A joint-caller genotype on a handful of junction reads does not establish a constitutional heterozygous SV, and the
+# six-haplotype matrix at a breakpoint is a point-variant instrument: a 35 kb heterozygous deletion does not present as
+# alt reads at a position, it presents as DEPTH LOST ACROSS THE INTERVAL ON ONE HAPLOTYPE. This is the read-level review
+# of 05_denovo/sv_read_review.sh, done per haplotype for all six haplotypes of the trio:
+#   (1) reads spanning each breakpoint that carry a junction signature, by haplotype;
+#   (2) depth inside the interval vs the flanks, by haplotype, for the child and both parents;
+#   (3) heterozygous-SNV persistence inside vs the flanks (the child's phased small-variant VCF), which separates a
+#       constitutional deletion (hets vanish on the deleted haplotype) from mosaicism or chimeric reads (hets persist).
+# Parental depth across the interval is what the original single-sample script could not see and is the point of doing
+# it here: a parent that also loses depth carries the event, and the candidate is inherited, not de novo.
+# ----------------------------------------------------------------------------------------------
+SV_INTERVAL_TYPES = ("DEL", "DUP", "CNV", "INV")
+
+
+def _hp_of(read) -> Optional[int]:
+    hp = read.get_tag("HP") if read.has_tag("HP") else None
+    return hp if hp in (1, 2) else None
+
+
+def _count_by_hap(bam, chrom: str, a: int, b: int, min_mapq: int = 5) -> Dict[Optional[int], int]:
+    """Primary reads overlapping [a, b), tallied by haplotype tag (1, 2, None = untagged)."""
+    out: Dict[Optional[int], int] = {1: 0, 2: 0, None: 0}
+    if b <= a:
+        return out
+    try:
+        it = bam.fetch(chrom, max(0, a), b)
+    except (ValueError, KeyError):
+        return out
+    for read in it:
+        if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
+            continue
+        if read.mapping_quality < min_mapq:
+            continue
+        out[_hp_of(read)] += 1
+    return out
+
+
+def _junction_by_hap(bam, rec: CandidateRecord, pos: int, bp_window: int, supporting: Set[str]) -> Dict[Optional[int], int]:
+    """Reads at one breakpoint carrying a junction signature for THIS event, tallied by haplotype."""
+    out: Dict[Optional[int], int] = {1: 0, 2: 0, None: 0}
+    try:
+        it = bam.fetch(rec.chrom, max(0, pos - bp_window - 1), pos + bp_window)
+    except (ValueError, KeyError):
+        return out
+    seen: Set[str] = set()
+    for read in it:
+        if read.is_unmapped or read.is_secondary or read.is_duplicate or read.query_name in seen:
+            continue
+        seen.add(read.query_name)
+        if read.query_name in supporting or support_sv(read, rec, supporting) == "ALT":
+            out[_hp_of(read)] += 1
+    return out
+
+
+def sv_interval_evidence(rec: CandidateRecord, bams: TrioBams, supporting_json: Optional[str] = None,
+                         flank_bp: int = 20000, bp_window: int = 300, probe_bp: int = 2000,
+                         min_interval_bp: int = 300, min_flank_reads: int = 5) -> Dict[str, object]:
+    """Per-haplotype depth inside the interval vs the flanks, and junction reads by haplotype, for all six haplotypes.
+
+    Depth is measured in probe windows (up to three inside, one either side outside) and expressed per base, so the
+    ratio is independent of how long the event is. Returns {} for events with no interval (insertions, breakends) and
+    for intervals below `min_interval_bp`, where the breakpoint matrix already carries the evidence."""
+    pl = rec.class_payload or {}
+    svtype = str(pl.get("svtype") or "")
+    start, end = int(rec.start), int(rec.end or rec.start)
+    length = end - start
+    if svtype not in SV_INTERVAL_TYPES or length < min_interval_bp:
+        return {}
+    supporting = load_supporting_reads(supporting_json, pl.get("caller_id", rec.variant_id))
+    inner_lo, inner_hi = start + bp_window, end - bp_window
+    if inner_hi - inner_lo < 200:
+        inner_lo, inner_hi = start + length // 4, end - length // 4
+    span = max(inner_hi - inner_lo, 1)
+    n_probe = 1 if span <= probe_bp else min(3, max(1, span // probe_bp))
+    inside = []
+    for i in range(n_probe):
+        c = inner_lo + int((i + 0.5) * span / n_probe)
+        w = min(probe_bp, span) // 2
+        inside.append((c - w, c + w))
+    flanks = [(max(0, start - bp_window - probe_bp), max(0, start - bp_window)),
+              (end + bp_window, end + bp_window + probe_bp)]
+    out: Dict[str, object] = {"sv_interval_len": length, "sv_interval_probes": n_probe}
+    for role, bam in bams.bam.items():
+        ins: Dict[Optional[int], int] = {1: 0, 2: 0, None: 0}
+        ins_bp = 0
+        for a, b in inside:
+            c = _count_by_hap(bam, rec.chrom, a, b)
+            for k in ins:
+                ins[k] += c[k]
+            ins_bp += max(b - a, 0)
+        fl: Dict[Optional[int], int] = {1: 0, 2: 0, None: 0}
+        fl_bp = 0
+        for a, b in flanks:
+            c = _count_by_hap(bam, rec.chrom, a, b)
+            for k in fl:
+                fl[k] += c[k]
+            fl_bp += max(b - a, 0)
+        for hp in (1, 2, None):
+            tag = "u" if hp is None else str(hp)
+            out["%s_sv_in_hap%s" % (role, tag)] = ins[hp]
+            out["%s_sv_fl_hap%s" % (role, tag)] = fl[hp]
+        out["%s_sv_in_bp" % role] = ins_bp
+        out["%s_sv_fl_bp" % role] = fl_bp
+        # per-base ratio inside / flank, per haplotype; None when the flank is too thin to be a reference
+        for hp in (1, 2):
+            f_n = fl[hp]
+            r = None
+            if f_n >= min_flank_reads and ins_bp and fl_bp:
+                r = round((ins[hp] / ins_bp) / (f_n / fl_bp), 4)
+            out["%s_sv_ratio_hap%d" % (role, hp)] = r
+        tot_in, tot_fl = sum(ins.values()), sum(fl.values())
+        out["%s_sv_ratio_all" % role] = round((tot_in / ins_bp) / (tot_fl / fl_bp), 4) if (tot_fl >= min_flank_reads and ins_bp and fl_bp) else None
+        j1 = _junction_by_hap(bam, rec, start, bp_window, supporting)
+        j2 = _junction_by_hap(bam, rec, end, bp_window, supporting) if end != start else {1: 0, 2: 0, None: 0}
+        for hp in (1, 2, None):
+            tag = "u" if hp is None else str(hp)
+            out["%s_sv_junc_hap%s" % (role, tag)] = j1[hp] + j2[hp]
+        out["%s_sv_junc_both_ends" % role] = int(sum(j1.values()) >= 2 and sum(j2.values()) >= 2)
+    return out
+
+
+def sv_het_persistence(rec: CandidateRecord, smallvar_vcf: Optional[str], child: str,
+                       flank_bp: int = 20000, bp_window: int = 300, min_interval_bp: int = 5000,
+                       min_sites: int = 20) -> Dict[str, object]:
+    """Heterozygous-SNV persistence inside the interval vs the flanks, from the child's phased small-variant VCF.
+
+    A constitutional heterozygous deletion removes one haplotype, so heterozygous sites inside it collapse to
+    hemizygous calls and the het fraction falls towards zero. Het sites persisting at the flanking rate mean both
+    haplotypes are present inside the interval, which excludes a constitutional deletion and leaves mosaicism or a
+    chimeric read as the explanation (the rule of 05_denovo/sv_read_review.sh)."""
+    pl = rec.class_payload or {}
+    if str(pl.get("svtype") or "") not in ("DEL", "CNV") or not smallvar_vcf or not os.path.exists(smallvar_vcf):
+        return {}
+    start, end = int(rec.start), int(rec.end or rec.start)
+    if end - start < min_interval_bp:
+        return {}
+    import pysam
+    def het_frac(a: int, b: int):
+        n = h = 0
+        try:
+            vf = pysam.VariantFile(smallvar_vcf)
+        except (OSError, ValueError):
+            return None, 0
+        try:
+            for v in vf.fetch(rec.chrom, max(0, a), b):
+                s = v.samples.get(child)
+                if s is None:
+                    continue
+                al = [x for x in (s.get("GT") or ()) if x is not None]
+                if len(al) < 2:
+                    continue
+                n += 1
+                h += int(al[0] != al[1])
+        except (ValueError, KeyError):
+            return None, 0
+        finally:
+            vf.close()
+        return (h / n if n else None), n
+    f_in, n_in = het_frac(start + bp_window, end - bp_window)
+    f_l, n_l = het_frac(max(0, start - flank_bp), max(0, start - bp_window))
+    f_r, n_r = het_frac(end + bp_window, end + flank_bp)
+    fl = [x for x in (f_l, f_r) if x is not None]
+    if f_in is None or not fl or n_in < min_sites:
+        return {"sv_het_sites_inside": n_in, "sv_het_sites_flank": n_l + n_r}
+    flank = sum(fl) / len(fl)
+    return {"sv_het_sites_inside": n_in, "sv_het_sites_flank": n_l + n_r,
+            "sv_het_frac_inside": round(f_in, 4), "sv_het_frac_flank": round(flank, 4),
+            "sv_het_snv_persistence": round(f_in / flank, 4) if flank > 0 else None}
+
+
 def _obs(read, role: str, support: str, salt: str, al: Optional[int] = None) -> ReadObs:
     hp = read.get_tag("HP") if read.has_tag("HP") else None
     ps = read.get_tag("PS") if read.has_tag("PS") else None
