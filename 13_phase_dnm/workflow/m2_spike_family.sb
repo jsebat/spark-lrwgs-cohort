@@ -67,7 +67,8 @@ while IFS=$'\t' read -r child father mother; do
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CA" --out "$SD/$cls.evidence.tsv" $LBL $SL $SLT --salt "spike-$FAMILY" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli likelihood --evidence "$SD/$cls.evidence.tsv" --out "$SD/$cls.evidence.lik.tsv" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$SD/$cls.evidence.tsv" --candidates "$CA" --child "$child" --manifest "$MANIFEST" \
-        --out "$SD/$cls.features.tsv" --rf-out "$SD/$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml"         --annot "$SD/$cls.annot.tsv"
+        --out "$SD/$cls.features.tsv" --rf-out "$SD/$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml" \
+        --orientation "$PD/$child.orientation.tsv" --changepoints "$PD/$child.changepoints.resolved.tsv"         --annot "$SD/$cls.annot.tsv"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike evaluate --plan "$SD/plan.tsv" --evidence "$SD/$cls.evidence.lik.tsv" --out "$SD/$cls.spike_summary.tsv"
     echo "spike review+evaluate $cls done in $(( $(date +%s) - t0 )) s"
   done

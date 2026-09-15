@@ -52,13 +52,13 @@ A_caller:
   - {name: site_filter_fail, classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, status: add, why: "FILTER != PASS as flag"}
   - {name: qd_child,        classes: [SNV, INDEL, SV, TR], source: caller, rf_safe: true, status: add, why: "QD computed by us, replacing site_qual (P24 correction 2026-09-14, JS): child PL[0] (Phred evidence against hom-ref; GQ when the caller emits no PL) divided by the child's readable six-haplotype depth (caller DP as fallback). Per-sample numerator and denominator, so it does not scale with cohort size, with the number of carriers, or with whether the row came from the family VCF (real rows) or the cohort BCF (synthetic rows) — the three ways raw QUAL leaked the label. GATK's QD itself is unavailable: DeepVariant/GLnexus, sawfish and TRGT do not emit it."}
   - {name: multiallelic,    classes: [SNV, INDEL, TR],     source: caller, rf_safe: true, status: add}
-  - {name: glnexus_rnc_child, classes: [SNV, INDEL],       source: caller, rf_safe: true, status: verify, why: "GLnexus reason-no-call code, categorical (Q8)"}
-  - {name: parent_rnc_any,  classes: [SNV, INDEL],         source: caller, rf_safe: true, symmetric: any over parents, status: verify}
+  - {name: glnexus_rnc_child, classes: [],       source: caller, rf_safe: true, status: drop, why: "GLnexus reason-no-call code, categorical (Q8)", why: "NEVER PRODUCED — dropped 2026-09-15. produced, but CONSTANT: GLnexus emits the no-reason-no-call code '..' for 20000 of 20000 candidate rows sampled, because candidates are by definition called sites. A constant carries no information."}
+  - {name: parent_rnc_any,  classes: [],         source: caller, rf_safe: true, symmetric: any over parents, status: drop, why: "NEVER PRODUCED — dropped 2026-09-15. same as glnexus_rnc_child: constant '..' across the candidate set."}
   - {name: indel_len,       classes: [INDEL],              source: caller, rf_safe: true, status: add}
   - {name: homopolymer_run, classes: [SNV, INDEL],         source: context, rf_safe: true, status: add, why: "dominant HiFi indel error mode"}
   - {name: seq_entropy_21bp, classes: [SNV, INDEL],        source: context, rf_safe: true, status: add}
   - {name: cpg_context,     classes: [SNV],                source: context, rf_safe: true, status: add, why: "CpG transitions have ~10x DNM rate; also flags deamination-like artefacts"}
-  - {name: in_str,          classes: [SNV, INDEL, SV],     source: context, rf_safe: true, status: add, why: "overlap with TRGT catalogue or simpleRepeat"}
+  - {name: in_str,          classes: [],     source: context, rf_safe: true, status: drop, why: "overlap with TRGT catalogue or simpleRepeat", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; the TR catalogue overlap it implies was never wired into the features step (segdup_overlap is the only interval flag produced)."}
   # SV-specific caller fields (sawfish)
   - {name: svtype,          classes: [SV], source: caller, rf_safe: true, status: add, why: "categorical DEL/INS/DUP/INV/BND"}
   - {name: svlen_log10,     classes: [SV], source: caller, rf_safe: true, status: add}
@@ -84,11 +84,11 @@ A_caller:
 # B. Context and cohort
 # ---------------------------------------------------------------------------------------------
 B_context:
-  - {name: mappability_k100,   classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add}
+  - {name: mappability_k100,   classes: [], source: context, rf_safe: true, status: drop, why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; needs a k-mer mappability track that is not staged for this reference."}
   - {name: segdup_overlap,     classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add, why: "METHODS 2 mask component, as a FEATURE here (DESIGN P5)"}
-  - {name: repeat_class,       classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add, why: "RepeatMasker class, categorical"}
-  - {name: gc_200bp,           classes: [SNV, INDEL, SV, TR], source: context, rf_safe: true, status: add}
-  - {name: dist_nearest_candidate_same_child, classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: true, status: add, why: "error clustering; computed within the SAME candidate set for positives and negatives"}
+  - {name: repeat_class,       classes: [], source: context, rf_safe: true, status: drop, why: "RepeatMasker class, categorical", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; needs a RepeatMasker annotation that is not staged."}
+  - {name: gc_200bp,           classes: [], source: context, rf_safe: true, status: drop, why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented: SeqContext computes homopolymer_run, seq_entropy_21bp and cpg_context only, and no GC window was ever added."}
+  - {name: dist_nearest_candidate_same_child, classes: [], source: cohort, rf_safe: true, status: drop, why: "error clustering; computed within the SAME candidate set for positives and negatives", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; it would be computable from the candidate table alone, so it can be reinstated cheaply if wanted."}
   - {name: cohort_AC_loo,      classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: false, status: add, why: "leave-one-family-out allele count in the joint callset; for synthetic positives the child's own family is left out too; NOT a classifier feature: population frequency separates synthetic positives (inherited, common) from real candidates by construction (P13/P22 2x2) - heuristic arms and final table only"}
   - {name: pon_founder_recurrence_loo, classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: false, status: add, why: "03_panel logic; SV matched by reciprocal overlap >= 0.5; NOT a classifier feature: population frequency separates synthetic positives (inherited, common) from real candidates by construction (P13/P22 2x2) - heuristic arms and final table only"}
   - {name: gnomad_af,          classes: [SNV, INDEL], source: context, rf_safe: false, status: add, why: "NOT a classifier feature: population frequency separates synthetic positives (inherited, common) from real candidates by construction (P13/P22 2x2) - heuristic arms and final table only"}
@@ -113,8 +113,8 @@ C_reads:
   - {name: child_alt_readlen_median, classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_readlen_median"}
   - {name: child_alt_readpos_frac_median, classes: [SNV, INDEL], source: bam, rf_safe: true, status: drop, why: "not computed (would need the query offset per read); dropped 2026-09-13"}
   - {name: child_alt_rq_mean,      classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, status: drop, why: "superseded by c_alt_rq_mean"}
-  - {name: parent_max_alt_reads_any, classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, symmetric: max over parents, status: add, why: "pooled (untagged) alt reads in a parent; the classic 'parent has 1-2 alt reads' DNM filter"}
-  - {name: parent_min_dp,          classes: [SNV, INDEL, SV, TR], source: bam, rf_safe: true, symmetric: min over parents, status: add}
+  - {name: parent_max_alt_reads_any, classes: [], source: bam, rf_safe: true, symmetric: max over parents, status: drop, why: "pooled (untagged) alt reads in a parent; the classic 'parent has 1-2 alt reads' DNM filter", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; p_max_alt_any_hap from the six-haplotype matrix covers the same evidence and is produced."}
+  - {name: parent_min_dp,          classes: [], source: bam, rf_safe: true, symmetric: min over parents, status: drop, why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented, and redundant: min_DP already carries the minimum of the two parents' caller depth and IS produced."}
 
 # ---------------------------------------------------------------------------------------------
 # D. Phase features — derived from the six-haplotype matrix (M1 M2 F1 F2 CM CP)
@@ -136,9 +136,9 @@ D_phase_child:   # rf_safe: the child is a real sample in both positives and neg
   - {name: c_amb_frac_hapA,       classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "fraction of reads on A that are unreadable at the site (deleted / clipped / third base) - indel-context signal"}
   - {name: c_block_len_log10,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "log10 bp of the child's phase segment containing the site (orientation.tsv; child-only geometry)"}
   - {name: c_dist_block_edge_log10, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "log10 bp to the nearest segment edge; -1 outside any segment"}
-  - {name: c_n_informative_1kb,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "informative het sites within one read length; 0 = no local phase possible"}
-  - {name: c_local_rephase_agreement, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "pofo_local.py logic - do alt reads agree with each other on flanking hets, independent of HP tags"}
-  - {name: c_hp_rephase_conflict, classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, status: add, why: "HP tag vs local rephasing disagreement count"}
+  - {name: c_n_informative_1kb,   classes: [], source: hapmatrix, rf_safe: true, status: drop, why: "informative het sites within one read length; 0 = no local phase possible", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented in the review step, which is where local informative site counts would have to be measured."}
+  - {name: c_local_rephase_agreement, classes: [], source: hapmatrix, rf_safe: true, status: drop, why: "pofo_local.py logic - do alt reads agree with each other on flanking hets, independent of HP tags", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; same as c_hp_rephase_conflict."}
+  - {name: c_hp_rephase_conflict, classes: [], source: hapmatrix, rf_safe: true, status: drop, why: "HP tag vs local rephasing disagreement count", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; local rephasing was specified but never built."}
   - {name: c_sv_hap_depth_change_A, classes: [SV], source: hapmatrix, rf_safe: true, status: add, why: "per-haplotype depth inside/flank on A (DEL drop, DUP gain); sv_read_review.sh made haplotype-explicit"}
   - {name: c_sv_hap_depth_change_O, classes: [SV], source: hapmatrix, rf_safe: true, status: add}
   - {name: c_sv_junction_hap_concentration, classes: [SV], source: hapmatrix, rf_safe: true, status: add, why: "fraction of junction reads on A"}
@@ -156,7 +156,7 @@ D_phase_parents_symmetric:   # rf_safe: functions of a parent's two haplotypes, 
   - {name: p_n_haps_with_alt,     classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: count over 4 with alt > e, status: add, why: ">= 2 haplotypes with alt = artefact pattern"}
   - {name: p_max_alt_hap_frac,    classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over 4, status: add}
   - {name: p_amb_frac_max,        classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over 4, status: add, why: "a parental haplotype with depth but few readable reads is UNOBSERVED, not clean (P7, 2026-09-13)"}
-  - {name: p_untagged_frac_max,   classes: [SNV, INDEL, SV, TR], source: hapmatrix, rf_safe: true, symmetric: max over parents, status: add}
+  - {name: p_untagged_frac_max,   classes: [], source: hapmatrix, rf_safe: true, symmetric: max over parents, status: drop, why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented; p_amb_frac_max is the produced analogue."}
   - {name: p_tr_n_haps_overlapping_child_expanded, classes: [TR], source: hapmatrix, rf_safe: true, symmetric: count over 4, status: add, why: "parental haplotypes whose length distribution overlaps the child's expanded allele; expect 0"}
   # RULE (JS, 2026-09-12): the classifier never sees parent of origin or transmission, not even as a selector.
   # Parent-of-origin inference is done in REAL trios only (M2 layer). Parent-side features here are symmetric over
@@ -178,7 +178,7 @@ D_phase_transmission:   # rf_safe: FALSE — rule/likelihood layer (M2) only; un
   - {name: dist_crossover_log10,  classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
   - {name: near_crossover_flag,   classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add}
   - {name: t_hap_resolved,        classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add, why: "transmitted haplotype known at this position in the transmitting parent"}
-  - {name: ibd_child_altpath_vs_T_window, classes: [SNV, INDEL, SV, TR], source: transmission, rf_safe: false, status: add, why: "does the child's alt haplotype match T at flanking hets across the read window (guards against local mis-orientation)"}
+  - {name: ibd_child_altpath_vs_T_window, classes: [], source: transmission, rf_safe: false, status: drop, why: "does the child's alt haplotype match T at flanking hets across the read window (guards against local mis-orientation)", why: "NEVER PRODUCED — dropped 2026-09-15. declared but never implemented in the review step."}
   - {name: t_tr_al,               classes: [TR], source: transmission, rf_safe: false, status: add, why: "transmitted parental allele length - the haplotype-aware version of tr_outliers' comparison"}
   - {name: u_tr_al,               classes: [TR], source: transmission, rf_safe: false, status: add}
   - {name: sib_shared,            classes: [SNV, INDEL, SV, TR], source: cohort, rf_safe: false, status: add, why: "shared with a sibling; parental-mosaic signature (DESIGN P6); undefined in synthetic trios"}
