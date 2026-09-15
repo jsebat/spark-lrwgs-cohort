@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_trsyn
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=24G
+#SBATCH --time=02:00:00
+# TR annotation for ONE synthetic trio (P26), so the positives carry the cohort columns the rarity gate reads.
+set -euo pipefail
+TABLE="${1:-${TABLE:?}}"; ROW="${2:-${SLURM_ARRAY_TASK_ID:?}}"
+HERE="${PHASE_DNM_HOME:-}"; [ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+export PYTHONPATH="$HERE/src"
+TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+line=$(sed -n "$((ROW + 1))p" "$TABLE"); hdr=$(head -1 "$TABLE")
+col() { echo "$hdr" | tr '\t' '\n' | grep -n -x "$1" | cut -d: -f1; }
+SID=$(echo "$line" | cut -f"$(col synthetic_id)"); CHILD=$(echo "$line" | cut -f"$(col child)")
+SF=$(echo "$line" | cut -f"$(col surrogate_father)"); SEED=$(echo "$line" | cut -f"$(col seed)")
+W="$TRAIN_DIR/seed$SEED/$SID"
+CAND="$W/candidates/$CHILD.tr.candidates.tsv"; [ -s "$CAND" ] || { echo "no TR candidates for $SID"; exit 0; }
+fam_of() { awk -F'\t' -v s="$1" 'NR>1 && $1==s {print $2; exit}' "$MANIFEST"; }
+EXCL="$(fam_of "$CHILD"),$(fam_of "$SF")"
+mkdir -p "$W/annot" "$W/work_tr"
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli annotate --class-group tr --manifest "$MANIFEST" --candidates "$CAND" \
+   --exclude-families "$EXCL" --out-dir "$W/annot" --work "$W/work_tr" \
+   --cohort-vcf "$COHORT_TRGT_VCF" --bcftools "${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}"
