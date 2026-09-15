@@ -172,6 +172,15 @@ Outer folds: PR-AUC, ROC-AUC, Brier, reliability curves; isotonic calibration fi
 HG002/HG003/HG004 HiFi (Q6) never enter folds, pairing, ε estimation, calibration or thresholds. It is the only fully external test; DeepTrio-only runs there.
 
 ### P17 — Adapter inputs come from the WDL outputs that already exist
+**DEFECT 2026-09-14: the SV half of this decision was never implemented.** The junction scan, the per-haplotype depth
+inside vs flanks, and het-SNV persistence are specified here, declared in `config/features.yaml`
+(`sv_depth_ratio_inside_flank`, `sv_het_snv_persistence`, `c_sv_hap_depth_change_*`, `c_sv_junction_hap_concentration`,
+`p_sv_max_hap_depth_change`) and emitted as EMPTY columns — no code computes them, and the presence-leak guard drops them
+as all-missing. Every SV candidate has therefore been reviewed on sawfish's junction alt-read counts alone, which is a
+point-variant instrument: 61 of the cohort's 95 SV candidates >= 10 kb are `inconclusive`, and the MECP2 35 kb deletion
+fails the germline gate for that reason rather than on its score. To build before any SV result is reported.
+
+
 - **SNV/indel**: pysam pileup at the site in the three haplotagged BAMs; `HP` from the read, cross-checked against `phase_haplotags`.
 - **SV**: alt-supporting read names from `sv_supporting_reads.json.gz` (sawfish `--report-supporting-reads`), joined to `phase_haplotags` by read name for haplotype; *plus* the `sv_read_review.sh` junction scan around both breakpoints in **all three** BAMs, because sawfish's per-sample list is at sawfish's own sensitivity and a hom-ref parent's 1–2 junction reads (the parental-mosaic evidence) must be counted independently. Per-haplotype depth inside vs flanks from `hapdepth`.
 - **TR**: per-read repeat length from `trgt_spanning_reads/*.bam` (already `HP`-tagged), so the per-haplotype allele-length distribution is a direct read of tags; no re-genotyping. *Tag semantics, measured on 4,385 reads at 300 loci (2026-09-12):* the per-read repeat length is **`query_length − FL[0] − FL[1]`** (TRGT trims each spanning read to the repeat plus the two flanks in `FL`), equal to the sample's called `AL` within ±2 bp in 98.4 % of reads; **`AL:i` on a read is the allele *index* it was assigned to (0/1), not a length**; `SO`/`EO` are the read's offsets relative to the repeat; `TR:Z` is the locus id and is used to drop reads of overlapping loci. Child reads: ALT if within tolerance of the outlier allele; parent reads: ALT if within tolerance of the *child's* outlier allele and not of the parent's own alleles (missed inheritance / parental mosaic), REF if matching the parent's own allele.

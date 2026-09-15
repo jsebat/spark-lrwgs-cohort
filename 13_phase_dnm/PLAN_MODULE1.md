@@ -434,6 +434,26 @@ precision. Open: tier-2 indel threshold; profile of the 37 % of planted SVs neve
   applies a frozen model to a cohort - rf_prob from the model, rf_q against that cohort's own candidates per variant class,
   tau json with `score_column rf_q` - so `integrate` runs unchanged; the model checksum is verified and a tampered file is
   refused. Tests: manifests match models in the repo; score path end-to-end (skipped where xgboost is unavailable).
+- **SECOND DEFECT, and the one that actually blocks MECP2: the SV read-level depth evidence was never implemented
+  (2026-09-14, found while answering JS's "tier 2 or adjust tier 1 for SVs?").** P1 and P17 specify reusing
+  `05_denovo/sv_read_review.sh` — junction detection by `SA` tag / CIGAR `D >= MINBIG`, **per-haplotype depth inside the
+  interval vs the flanks**, and het-SNV persistence — and `config/features.yaml` duly declares
+  `sv_depth_ratio_inside_flank`, `sv_het_snv_persistence`, `c_sv_hap_depth_change_A`, `c_sv_hap_depth_change_O`,
+  `c_sv_junction_hap_concentration`, `p_sv_max_hap_depth_change`. **None of them is computed anywhere in `src/phase_dnm`
+  (grep returns nothing); the extractor emits them as empty columns — 0 of 627 rows populated in every family** — and the
+  presence-leak guard silently drops them (they are most of the 23 SV features it reports dropping). So every SV candidate,
+  of any size, has been judged on junction alt-read counts alone. Consequence, measured on the cohort: of 95 SV candidates
+  >= 10 kb, **61 are `inconclusive`**; across all sizes only 5-10 % of SV candidates reach a germline review class. MECP2
+  (35 kb deletion) is `inconclusive` with 2 of 6 haplotypes observed and one junction alt read on each child haplotype —
+  the six-haplotype matrix is a point-variant instrument, and a heterozygous 35 kb deletion does not present as alt reads
+  at a point, it presents as **halved depth across the interval on one child haplotype with both parents retaining depth on
+  all four**. That evidence was specified, declared, and never built. *Why this matters for JS's question:* neither
+  lowering the SV tier-1 threshold nor routinely reading tier 2 recovers MECP2, because the binding constraint is the
+  review gate (`RF_UNSUPPORTED:inconclusive`), not the score — at rf_q 0.967 it would be refused at any threshold. DNMT3A
+  (302 bp, `germline_DNM_phased`) is recovered by the P24 fix alone. *Plan:* implement the SV depth/junction evidence as
+  P17 specified, re-review SV candidates only (22,434 cohort-wide — a small BAM pass beside the full M2), extend the P8
+  rule layer so a deletion may be classified germline on depth evidence, retrain SV, re-derive thresholds, and re-check
+  both pathogenic SVs. Separately adopt JS's reporting rule: a tier-2 call in a constrained / NDD gene is always surfaced.
 - **Family VCF vs cohort BCF: do the two inputs give the same de novo calls? (2026-09-14, JS asked; job 54300164 + the
   follow-up split, two complete trios, same candidate code on both inputs.)** Real candidates come from the per-family
   joint VCF, synthetic ones from the 105-sample cohort BCF, so this is a parity question for training as much as for calling.
