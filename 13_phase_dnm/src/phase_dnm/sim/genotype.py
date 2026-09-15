@@ -93,7 +93,7 @@ def _bcftools_call(sites: List[Tuple[str, int]], bams: Dict[str, str], reference
     vcf = os.path.join(work, "spiked.vcf")
     mp = [bcftools, "mpileup", "-f", reference, "-R", reg, "-a", "AD,DP", "-q", str(min_mapq), "-Q", str(min_bq),
           "-d", str(max_depth), "-Ou"] + [bams[r] for r in order]
-    cl = [bcftools, "call", "-m", "-A", "-Ov", "-o", vcf]
+    cl = [bcftools, "call", "-m", "-A", "-f", "GQ", "-Ov", "-o", vcf]   # -f GQ: bcftools omits GQ unless asked
     try:
         p1 = subprocess.Popen(mp, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p2 = subprocess.Popen(cl, stdin=p1.stdout, stderr=subprocess.PIPE)
