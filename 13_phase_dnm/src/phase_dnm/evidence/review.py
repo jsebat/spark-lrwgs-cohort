@@ -89,7 +89,7 @@ def review_child(candidates_tsv: str, out_tsv: str, bams: TrioBams, labels: H.La
             m = H.build_matrix(obs, labels, rec.chrom, rec.start, hp)
             f = H.features(m, hp)
             t = H.transmission_features(m, hp)
-            c = H.classify(m, f, t, hp, cp, labels, rec.chrom, rec.start)
+            c = H.classify(m, f, t, hp, cp, labels, rec.chrom, rec.start, sv=H.sv_depth_features(sv_raw) | sv_raw if sv_raw else None)
             row = {k: v for k, v in asdict(rec).items() if k in cols}
             row["class_payload"] = json.dumps(rec.class_payload, separators=(",", ":"), sort_keys=True)
             row.update(c); row.update(t); row.update(f)

@@ -32,3 +32,39 @@ def test_sv_depth_features_cope_with_missing_haplotypes():
     assert f["p_sv_max_hap_depth_change"] == 0.02
     assert "c_sv_junction_hap_concentration" not in f      # no junction read carries a haplotype tag
     assert f["c_sv_junc_untagged_frac"] == 1.0
+
+
+def test_deletion_is_classified_on_depth_not_on_alt_read_confinement():
+    """P8 amendment: the cohort's four prioritised de novo SVs, with their MEASURED interval evidence."""
+    from phase_dnm.evidence import hapmatrix as H
+    cp = H.ClassParams()
+    # MECP2, 35 kb, chrX: depth 0.59 of flank, complete loss of heterozygosity over 47 sites, neither parent depleted.
+    # Under alt-read confinement this was `inconclusive` (5 junction reads, 3 untagged, 2 on opposite haplotypes).
+    mecp2 = dict(sv_depth_ratio_inside_flank=0.5872, sv_het_snv_persistence=0.0, c_sv_junc_both_ends=1,
+                 F_sv_ratio_all=1.2, M_sv_ratio_all=1.0191, C_sv_tagged_loss=0.3089)
+    cls, flags = H.classify_sv_interval(mecp2, {"parent_of_origin": "undetermined"}, cp)
+    assert cls == "germline_DNM_unphased" and "LOSS_OF_HETEROZYGOSITY" in flags
+    assert H._rule_score_sv(mecp2, cls, cp) == 6
+    assert H.classify_sv_interval(mecp2, {"parent_of_origin": "paternal"}, cp)[0] == "germline_DNM_phased"
+    # CELSR1, 38 kb: the CHILD is not depleted and both PARENTS are -> inherited, not de novo
+    celsr = dict(sv_depth_ratio_inside_flank=0.9291, sv_het_snv_persistence=0.8231, c_sv_junc_both_ends=1,
+                 F_sv_ratio_all=0.6958, M_sv_ratio_all=0.5935)
+    assert H.classify_sv_interval(celsr, {}, cp)[0] == "inherited_missed_in_parent"
+    # FBRSL1: no depth loss, junction at one end only -> the depth evidence does not decide; alt-read rules apply
+    assert H.classify_sv_interval(dict(sv_depth_ratio_inside_flank=1.1003, sv_het_snv_persistence=0.3491,
+                                       c_sv_junc_both_ends=0, F_sv_ratio_all=1.1231, M_sv_ratio_all=0.9956), {}, cp) is None
+    # DNMT3A, 302 bp: far too small for depth to move; the junction reads carry it through the alt-read rules
+    assert H.classify_sv_interval({}, {}, cp) is None
+
+
+def test_depth_loss_with_persisting_hets_is_not_constitutional():
+    """Depth falls but heterozygous sites persist inside: both haplotypes are present, so mosaic or chimeric."""
+    from phase_dnm.evidence import hapmatrix as H
+    cp = H.ClassParams()
+    sv = dict(sv_depth_ratio_inside_flank=0.55, sv_het_snv_persistence=0.9, c_sv_junc_both_ends=1,
+              F_sv_ratio_all=1.0, M_sv_ratio_all=1.0)
+    cls, flags = H.classify_sv_interval(sv, {}, cp)
+    assert cls == "child_postzygotic_mosaic" and "HET_SNVS_PERSIST_INSIDE" in flags
+    # and a deletion without junction reads at both ends is not called on depth alone
+    sv2 = dict(sv, sv_het_snv_persistence=0.0, c_sv_junc_both_ends=0)
+    assert H.classify_sv_interval(sv2, {}, cp)[0] == "inconclusive"

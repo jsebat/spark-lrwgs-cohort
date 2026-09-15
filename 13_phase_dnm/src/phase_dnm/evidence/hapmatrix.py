@@ -62,6 +62,10 @@ class ClassParams:
     inherited_min_frac_on_T: float = 0.3
     min_alt_reads: int = 3          # evidence floor for any germline / mosaic class: alt reads on A (+ untagged for unphased)
     working_k: int = 5
+    del_max_ratio: float = 0.7             # child depth inside / flank at or below this = one haplotype lost (expect ~0.5)
+    del_parent_min_ratio: float = 0.85     # a parent at or above this is NOT depleted, so the event is not inherited from them
+    del_max_het_persistence: float = 0.35  # heterozygous sites inside / flanking rate; ~0 for a constitutional deletion
+
 
 
 # ----------------------------------------------------------------------------------------------
@@ -396,8 +400,66 @@ def sv_depth_features(raw: Dict[str, object]) -> Dict[str, object]:
     return out
 
 
+def _rule_score_sv(sv: Dict[str, object], cls: str, cp: ClassParams) -> int:
+    """Germline criteria met on the deletion path (0-6), the same scale the alt-read rules use."""
+    r = sv.get("sv_depth_ratio_inside_flank")
+    het = sv.get("sv_het_snv_persistence")
+    p = [sv.get("%s_sv_ratio_all" % role) for role in ("F", "M")]
+    p = [x for x in p if x is not None]
+    n = 0
+    n += int(r is not None and r <= cp.del_max_ratio)                       # child depth halved
+    n += int(bool(sv.get("c_sv_junc_both_ends")))                            # junction reads at both breakpoints
+    n += int(het is not None and het <= cp.del_max_het_persistence)          # loss of heterozygosity inside
+    n += int(bool(p) and all(x >= cp.del_parent_min_ratio for x in p))       # neither parent depleted
+    n += int(len(p) == 2)                                                    # both parents measurable
+    n += int((sv.get("C_sv_tagged_loss") or 0) > 0.1 or (r is not None and r <= 0.6))
+    return n
+
+
+def classify_sv_interval(sv: Dict[str, object], t: Dict[str, object], cp: ClassParams) -> Optional[Tuple[str, List[str]]]:
+    """P8 amendment 2026-09-14 (JS): classify a DELETION from depth across the interval, not from alt-read confinement.
+
+    Alt-read confinement is a point-variant instrument and it cannot work for a large deletion. A read crossing the
+    junction is split between a primary and a supplementary alignment; inside the deleted segment there is no
+    heterozygous site to phase against, so the read's HP tag is often absent or wrong. Measured on the cohort's 35 kb
+    MECP2 deletion: 5 junction reads per breakpoint, 3 untagged and the other 2 assigned to OPPOSITE haplotypes, giving
+    an alt fraction of 0.33 on the 'alt' haplotype and a verdict of `inconclusive` for a real pathogenic de novo event.
+
+    The evidence that does work for a deletion, all measured here for all six haplotypes:
+      * total depth inside the interval against the flanks — about 0.5 for a constitutional heterozygous deletion;
+      * the same ratio in each parent — a parent that is also depleted carries the event, so it is inherited;
+      * loss of heterozygosity inside the interval (het-SNV persistence towards 0), which separates a constitutional
+        deletion from mosaicism or chimeric reads, where heterozygous sites persist at the flanking rate;
+      * junction reads at BOTH breakpoints.
+    Returns (class, flags) when the depth evidence decides, otherwise None and the alt-read rules apply."""
+    r = sv.get("sv_depth_ratio_inside_flank")
+    if r is None:
+        return None
+    flags: List[str] = ["SV_DEPTH_EVIDENCE"]
+    het = sv.get("sv_het_snv_persistence")
+    both_ends = sv.get("c_sv_junc_both_ends")
+    p_ratios = [sv.get("%s_sv_ratio_all" % role) for role in ("F", "M")]
+    p_ratios = [x for x in p_ratios if x is not None]
+    parent_depleted = any(x <= cp.del_max_ratio for x in p_ratios)
+    if parent_depleted:
+        return "inherited_missed_in_parent", flags + ["PARENT_DEPTH_DEPLETED"]
+    child_depleted = r <= cp.del_max_ratio
+    if child_depleted and p_ratios and all(x >= cp.del_parent_min_ratio for x in p_ratios):
+        if not both_ends:
+            return "inconclusive", flags + ["NO_JUNCTION_BOTH_ENDS"]
+        if het is not None and het > cp.del_max_het_persistence:
+            # depth fell but heterozygous sites persist inside: both haplotypes are present, so not constitutional
+            return "child_postzygotic_mosaic", flags + ["HET_SNVS_PERSIST_INSIDE"]
+        cls = "germline_DNM_phased" if t.get("parent_of_origin") in ("paternal", "maternal") else "germline_DNM_unphased"
+        return cls, flags + (["LOSS_OF_HETEROZYGOSITY"] if (het is not None and het <= cp.del_max_het_persistence) else [])
+    if not child_depleted and het is not None and het > cp.del_max_het_persistence:
+        return "phase_conflict_artifact", flags + ["NO_DEPTH_LOSS_HETS_PERSIST"]
+    return None
+
+
 def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParams, cp: ClassParams,
-             labels: Optional[LabelTables] = None, chrom: str = "", pos: int = 0) -> Dict[str, object]:
+             labels: Optional[LabelTables] = None, chrom: str = "", pos: int = 0,
+             sv: Optional[Dict[str, object]] = None) -> Dict[str, object]:
     flags: List[str] = []
     k = cp.working_k
     c1, c2 = m.row("C", 1), m.row("C", 2)
@@ -419,6 +481,11 @@ def classify(m: Matrix, f: Dict[str, object], t: Dict[str, object], hp: HapParam
         d = labels.dist_child_switch(chrom, pos)
         if d is not None and d <= 50000:
             flags.append("NEAR_CHILD_SWITCH")
+    sv_call = classify_sv_interval(sv, t, cp) if sv else None
+    if sv_call is not None:
+        cls, sv_flags = sv_call
+        flags.extend(sv_flags)
+        return dict(phase_class=cls, rule_score=_rule_score_sv(sv, cls, cp), flags=";".join(flags))
     alt_both_child = A.alt > e(A) and O.alt > e(O)
     n_par_haps_alt = sum(1 for r in prow if r.alt > e(r))
     T = m.parent_labelled(t.get("parent_of_origin", "")[:1].upper().replace("P", "F").replace("M", "M")) if t.get("parent_of_origin") in ("paternal", "maternal") else {}
