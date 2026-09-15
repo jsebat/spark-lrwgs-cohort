@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from . import nested_cv as CV
 from .rescore import ecdf_ref, quantile
 
 
@@ -51,7 +52,11 @@ def score_class(class_group: str, model_path: str, evidence_dir: str, out_dir: s
         paths = glob.glob(os.path.join(evidence_dir, fam, "features", "%s.%s.features.rf.tsv" % (sid, class_group)))
         if not paths:
             log("score %s: no rf matrix for %s" % (class_group, sid)); continue
-        df = pd.read_csv(paths[0], sep="\t", dtype=str, keep_default_na=False)
+        # _read_matrix, not read_csv: derived features (qd_child) are computed AT LOAD from columns the matrix
+        # already holds, so a raw read leaves the column absent and the reindex below silently makes it NaN.
+        # The model was trained with it, so every production score was computed with that feature missing
+        # (train/score skew, found 2026-09-15).
+        df = CV._read_matrix(paths[0])
         if df.empty:
             continue
         X = df.reindex(columns=cols).apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)

@@ -65,7 +65,8 @@ def rescore_class(class_group: str, harness_dir: str, evidence_dir: str, folds_d
                     paths = glob.glob(os.path.join(evidence_dir, fam, "features", "%s.%s.features.rf.tsv" % (sid, class_group)))
                     if not paths:
                         continue
-                    df = pd.read_csv(paths[0], sep="\t", dtype=str, keep_default_na=False)
+                    # see score.py: derived features must be added at load or the fold model scores them as NaN
+                    df = CV._read_matrix(paths[0])
                     if df.empty:
                         continue
                     p, _ = fm.predict(df)
