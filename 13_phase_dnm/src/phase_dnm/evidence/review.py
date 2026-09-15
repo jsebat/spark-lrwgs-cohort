@@ -21,11 +21,11 @@ from .readers import TrioBams, read_obs, sv_het_persistence, sv_interval_evidenc
 ROW_PREFIX = {("C", 1): "C1", ("C", 2): "C2", ("F", 1): "F1", ("F", 2): "F2", ("M", 1): "M1", ("M", 2): "M2"}
 SV_INTERVAL_COLS = (["sv_interval_len", "sv_interval_probes"]
                     + ["%s_sv_%s_hap%s" % (r, w, h) for r in ("C", "F", "M") for w in ("in", "fl", "junc") for h in ("1", "2", "u")]
-                    + ["%s_sv_%s" % (r, s) for r in ("C", "F", "M") for s in ("in_bp", "fl_bp", "ratio_hap1", "ratio_hap2", "ratio_all", "junc_both_ends")]
+                    + ["%s_sv_%s" % (r, s) for r in ("C", "F", "M") for s in ("dp_in", "dp_fl", "ratio_hap1", "ratio_hap2", "ratio_all", "tagged_frac_in", "tagged_frac_fl", "tagged_loss", "junc_both_ends")]
                     + ["sv_depth_ratio_inside_flank", "c_sv_hap_depth_change_A", "c_sv_hap_depth_change_O",
                        "p_sv_max_hap_depth_change", "c_sv_junction_hap_concentration", "c_sv_junc_untagged_frac",
                        "c_sv_junc_both_ends", "sv_het_sites_inside", "sv_het_sites_flank", "sv_het_frac_inside",
-                       "sv_het_frac_flank", "sv_het_snv_persistence"])
+                       "sv_het_frac_flank", "sv_het_snv_persistence", "sv_het_no_sites_inside", "sv_het_index_missing"])
 ROW_FIELDS = ("dp", "alt", "ref", "amb", "mapq_mean", "mapq0_frac", "nm_alt_mean", "nm_ref_mean", "clip_alt_frac", "al_mean", "al_sd", "al_n")
 CORE = ["family_id", "sample_id", "variant_id", "chrom", "start", "end", "ref", "alt", "variant_class", "caller", "caller_gt",
         "caller_gq", "caller_dp", "caller_qual", "caller_filter", "source_tier", "source_list", "mask_overlap",

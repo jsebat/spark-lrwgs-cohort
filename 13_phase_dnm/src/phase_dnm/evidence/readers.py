@@ -321,22 +321,31 @@ def _hp_of(read) -> Optional[int]:
     return hp if hp in (1, 2) else None
 
 
-def _count_by_hap(bam, chrom: str, a: int, b: int, min_mapq: int = 5) -> Dict[Optional[int], int]:
-    """Primary reads overlapping [a, b), tallied by haplotype tag (1, 2, None = untagged)."""
-    out: Dict[Optional[int], int] = {1: 0, 2: 0, None: 0}
+def _depth_by_hap(bam, chrom: str, a: int, b: int, min_mapq: int = 5, n_points: int = 5) -> Dict[Optional[int], float]:
+    """MEAN PER-BASE DEPTH over [a, b), by haplotype tag (1, 2, None = untagged).
+
+    Depth must be measured at points, not as reads-per-window: a 15 kb HiFi read overlaps every short window it touches,
+    so counting overlapping reads and dividing by the window width inflates short windows (it returned ~26x for a 302 bp
+    event). Depth is therefore averaged over `n_points` evenly spaced positions, each counted as the reads spanning it."""
+    out: Dict[Optional[int], float] = {1: 0.0, 2: 0.0, None: 0.0}
     if b <= a:
         return out
-    try:
-        it = bam.fetch(chrom, max(0, a), b)
-    except (ValueError, KeyError):
-        return out
-    for read in it:
-        if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
+    pts = [a + int((i + 0.5) * (b - a) / n_points) for i in range(max(1, n_points))]
+    for pt in pts:
+        try:
+            it = bam.fetch(chrom, max(0, pt), pt + 1)
+        except (ValueError, KeyError):
             continue
-        if read.mapping_quality < min_mapq:
-            continue
-        out[_hp_of(read)] += 1
-    return out
+        for read in it:
+            if read.is_unmapped or read.is_secondary or read.is_supplementary or read.is_duplicate:
+                continue
+            if read.mapping_quality < min_mapq:
+                continue
+            if read.reference_start > pt or (read.reference_end or 0) <= pt:
+                continue
+            out[_hp_of(read)] += 1.0
+    n = float(len(pts))
+    return {k: v / n for k, v in out.items()}
 
 
 def _junction_by_hap(bam, rec: CandidateRecord, pos: int, bp_window: int, supporting: Set[str]) -> Dict[Optional[int], int]:
@@ -385,35 +394,34 @@ def sv_interval_evidence(rec: CandidateRecord, bams: TrioBams, supporting_json: 
               (end + bp_window, end + bp_window + probe_bp)]
     out: Dict[str, object] = {"sv_interval_len": length, "sv_interval_probes": n_probe}
     for role, bam in bams.bam.items():
-        ins: Dict[Optional[int], int] = {1: 0, 2: 0, None: 0}
-        ins_bp = 0
+        ins: Dict[Optional[int], float] = {1: 0.0, 2: 0.0, None: 0.0}
         for a, b in inside:
-            c = _count_by_hap(bam, rec.chrom, a, b)
+            c = _depth_by_hap(bam, rec.chrom, a, b)
             for k in ins:
-                ins[k] += c[k]
-            ins_bp += max(b - a, 0)
-        fl: Dict[Optional[int], int] = {1: 0, 2: 0, None: 0}
-        fl_bp = 0
+                ins[k] += c[k] / len(inside)
+        fl: Dict[Optional[int], float] = {1: 0.0, 2: 0.0, None: 0.0}
         for a, b in flanks:
-            c = _count_by_hap(bam, rec.chrom, a, b)
+            c = _depth_by_hap(bam, rec.chrom, a, b)
             for k in fl:
-                fl[k] += c[k]
-            fl_bp += max(b - a, 0)
+                fl[k] += c[k] / len(flanks)
         for hp in (1, 2, None):
             tag = "u" if hp is None else str(hp)
-            out["%s_sv_in_hap%s" % (role, tag)] = ins[hp]
-            out["%s_sv_fl_hap%s" % (role, tag)] = fl[hp]
-        out["%s_sv_in_bp" % role] = ins_bp
-        out["%s_sv_fl_bp" % role] = fl_bp
-        # per-base ratio inside / flank, per haplotype; None when the flank is too thin to be a reference
-        for hp in (1, 2):
-            f_n = fl[hp]
-            r = None
-            if f_n >= min_flank_reads and ins_bp and fl_bp:
-                r = round((ins[hp] / ins_bp) / (f_n / fl_bp), 4)
-            out["%s_sv_ratio_hap%d" % (role, hp)] = r
+            out["%s_sv_in_hap%s" % (role, tag)] = round(ins[hp], 2)
+            out["%s_sv_fl_hap%s" % (role, tag)] = round(fl[hp], 2)
         tot_in, tot_fl = sum(ins.values()), sum(fl.values())
-        out["%s_sv_ratio_all" % role] = round((tot_in / ins_bp) / (tot_fl / fl_bp), 4) if (tot_fl >= min_flank_reads and ins_bp and fl_bp) else None
+        out["%s_sv_dp_in" % role] = round(tot_in, 2)
+        out["%s_sv_dp_fl" % role] = round(tot_fl, 2)
+        for hp in (1, 2):
+            out["%s_sv_ratio_hap%d" % (role, hp)] = round(ins[hp] / fl[hp], 4) if fl[hp] >= min_flank_reads else None
+        out["%s_sv_ratio_all" % role] = round(tot_in / tot_fl, 4) if tot_fl >= min_flank_reads else None
+        # Inside a heterozygous deletion one haplotype is absent and the remaining one has no heterozygous site to be
+        # phased against, so HiPhase cannot tag reads there at all: haplotype-resolved depth is structurally undefined
+        # exactly where the event is, and the LOSS of haplotype resolution is itself the evidence (JS 2026-09-14).
+        tag_in = (ins[1] + ins[2]) / tot_in if tot_in else None
+        tag_fl = (fl[1] + fl[2]) / tot_fl if tot_fl else None
+        out["%s_sv_tagged_frac_in" % role] = round(tag_in, 4) if tag_in is not None else None
+        out["%s_sv_tagged_frac_fl" % role] = round(tag_fl, 4) if tag_fl is not None else None
+        out["%s_sv_tagged_loss" % role] = round(tag_fl - tag_in, 4) if (tag_in is not None and tag_fl is not None) else None
         j1 = _junction_by_hap(bam, rec, start, bp_window, supporting)
         j2 = _junction_by_hap(bam, rec, end, bp_window, supporting) if end != start else {1: 0, 2: 0, None: 0}
         for hp in (1, 2, None):
@@ -439,10 +447,19 @@ def sv_het_persistence(rec: CandidateRecord, smallvar_vcf: Optional[str], child:
     if end - start < min_interval_bp:
         return {}
     import pysam
+    idx = None
+    for cand in (smallvar_vcf + ".tbi", smallvar_vcf + ".csi",
+                 smallvar_vcf.replace("/joint_small_variants_vcf/", "/joint_small_variants_vcf_index/") + ".tbi",
+                 smallvar_vcf.replace("/joint_small_variants_vcf/", "/joint_small_variants_vcf_index/") + ".csi"):
+        if os.path.exists(cand):
+            idx = cand
+            break
+    if idx is None:
+        return {"sv_het_index_missing": 1}
     def het_frac(a: int, b: int):
         n = h = 0
         try:
-            vf = pysam.VariantFile(smallvar_vcf)
+            vf = pysam.VariantFile(smallvar_vcf, index_filename=idx)
         except (OSError, ValueError):
             return None, 0
         try:
@@ -464,9 +481,15 @@ def sv_het_persistence(rec: CandidateRecord, smallvar_vcf: Optional[str], child:
     f_l, n_l = het_frac(max(0, start - flank_bp), max(0, start - bp_window))
     f_r, n_r = het_frac(end + bp_window, end + flank_bp)
     fl = [x for x in (f_l, f_r) if x is not None]
-    if f_in is None or not fl or n_in < min_sites:
+    if not fl or (n_l + n_r) < min_sites:
         return {"sv_het_sites_inside": n_in, "sv_het_sites_flank": n_l + n_r}
     flank = sum(fl) / len(fl)
+    if f_in is None or n_in == 0:
+        # no called site inside at all: for a deletion that is loss of heterozygosity, i.e. the positive signal, and it
+        # must not be reported as missing data (it was, until 2026-09-14). Only meaningful when the flanks are informative.
+        return {"sv_het_sites_inside": n_in, "sv_het_sites_flank": n_l + n_r, "sv_het_frac_inside": 0.0,
+                "sv_het_frac_flank": round(flank, 4), "sv_het_snv_persistence": 0.0 if flank > 0 else None,
+                "sv_het_no_sites_inside": 1}
     return {"sv_het_sites_inside": n_in, "sv_het_sites_flank": n_l + n_r,
             "sv_het_frac_inside": round(f_in, 4), "sv_het_frac_flank": round(flank, 4),
             "sv_het_snv_persistence": round(f_in / flank, 4) if flank > 0 else None}
