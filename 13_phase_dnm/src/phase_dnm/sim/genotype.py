@@ -202,8 +202,11 @@ def write_private_annot(candidates_path: str, out_path: str, log=None) -> int:
         fh.write("variant_id\tgnomad_af\tcohort_AC_loo\tcohort_AN_loo\tpon_founder_recurrence_loo\tsib_shared"
                  "\ttrgt_pop_p99_distance\tstrchive_locus\n")
         for r in rows:
+            # gnomad_af -1: the negative sentinel the rarity gate already reads as "absent from gnomAD"
+            # (nested_cv._private_ids keeps a row when af < af_max OR af < 0). Leaving it empty would leave the
+            # column unproduced, which the presence gate correctly refuses.
             # cohort_AN_loo: the planted site was not queried, so the denominator is left empty rather than invented.
-            fh.write("%s\t\t0\t\t0\t0\t\t\n" % r["variant_id"])
+            fh.write("%s\t-1\t0\t\t0\t0\t\t\n" % r["variant_id"])
     if log:
         log("spike genotype: wrote the by-construction private annotation for %d planted candidates" % len(rows))
     return len(rows)
