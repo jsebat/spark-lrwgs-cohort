@@ -26,6 +26,8 @@ ED="$EVIDENCE_DIR/$FAMILY"; mkdir -p "$ED/features"
 PD="$PHASE_DIR/$FAMILY"          # M1 tables: crossover geometry for the features step
 MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --mask $m"; done
 REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "$REF_FA" ] && REFARG="--reference $REF_FA"
+# FEATURE_ARGS: extra flags for the features step. The usual use is --no-require-all-features on an AUDIT run,
+# where the point is to see the per-class never-produced list rather than stop at the first gap.
 n_done=0
 while IFS=$'\t' read -r child father mother; do
   [ -n "$father" ] && [ "$father" != "0" ] && [ -n "$mother" ] && [ "$mother" != "0" ] || { echo "skip duo (P19)"; continue; }
@@ -36,7 +38,7 @@ while IFS=$'\t' read -r child father mother; do
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$child" --manifest "$MANIFEST" \
         --out "$ED/features/$child.$cls.features.tsv" --rf-out "$ED/features/$child.$cls.features.rf.tsv" $MASKARGS $REFARG \
         --registry "$HERE/config/features.yaml" \
-        --orientation "$PD/$child.orientation.tsv" --changepoints "$PD/$child.changepoints.resolved.tsv"
+        --orientation "$PD/$child.orientation.tsv" --changepoints "$PD/$child.changepoints.resolved.tsv" ${FEATURE_ARGS:-}
     echo "features $cls done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
   done
   n_done=$((n_done+1))
