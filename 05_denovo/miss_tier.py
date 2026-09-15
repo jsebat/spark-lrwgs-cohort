@@ -16,7 +16,11 @@ import duckdb
 import os
 import collections
 
-T = "/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering"
+# Paths default to the cohort freeze-1 tiering directory; the three environment variables let the same tiers be
+# applied to another de novo call set (the phase-aware module's, say) without forking this script.
+T = os.environ.get("TIERING_DIR", "/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering")
+IN_TSV = os.environ.get("DENOVO_TSV", "")     # default: <TIERING_DIR>/denovo_tiered.tsv
+OUT_TSV = os.environ.get("MISS_OUT", "")      # default: <TIERING_DIR>/denovo_missense_tiered.tsv
 D = "/expanse/projects/sebat1/s3/data/sebat/resources/dbNSFP/5.3.1a/parquet_expanded_mane_select"
 GS = "/expanse/projects/sebat1/s3/data/sebat/nf_rare_spark_wes/resources/gene_sets"
 TAB, NL = chr(9), chr(10)
@@ -47,7 +51,7 @@ for ln in open(sp):
 
 # ---- de novo missense
 rows = []
-with open(os.path.join(T, "denovo_tiered.tsv")) as fh:
+with open(IN_TSV or os.path.join(T, "denovo_tiered.tsv")) as fh:
     hdr = fh.readline().rstrip(NL).split(TAB)
     ix = dict((h, i) for i, h in enumerate(hdr))
     for ln in fh:
@@ -93,7 +97,7 @@ for chrom, rs in sorted(by_chrom.items()):
 print("missense with dbNSFP scores: %d of %d" % (found, len(rows)))
 
 # ---- n_flag and tier
-out = os.path.join(T, "denovo_missense_tiered.tsv")
+out = OUT_TSV or os.path.join(T, "denovo_missense_tiered.tsv")
 cols = ["family", "proband", "chrom", "pos", "ref", "alt", "gene", "n_flag", "miss_tier",
         "ClinPred", "AlphaMissense", "popEVE", "MPC", "s_het", "gene_sets"]
 
