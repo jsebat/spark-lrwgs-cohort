@@ -158,6 +158,21 @@ requiring ≥ 3 motif units of expansion. Operating points (thresholds 0.3.0): S
 for every row of the final tables after the decision, as inferences on real trios only. Final tables and sites VCFs carry
 the score, tier, decision reason, phase class, six-haplotype counts, parent of origin and all flags per candidate.
 
+**Large deletions are called without the classifier (P28).** For a structural deletion of at least 300 bp whose class
+is decided by the interval evidence, the decision is deterministic and the classifier score is not used. The conditions,
+all recorded per row, are: depth across the interval at or below 0.7 of flanking depth in the child; neither parent's
+interval depth reduced (both at or above 0.85); junction reads at both breakpoints; heterozygous sites inside collapsed
+towards zero relative to the flanks; and the population rule layer passed. Two measurements justify the split. First,
+the pedigree swap cannot supply the training data: after the rarity gate the structural-variant positives contain 43
+deletions between 10 and 50 kb and 13 above 50 kb per seed, about eight per held-out fold in the size class of the
+cohort's pathogenic MECP2 deletion. Second, the classifier mis-ranks those events: adding the interval evidence to the
+feature matrix moved that deletion's score down from 0.967 to 0.66 while leaving overall structural-variant ROC-AUC
+unchanged at 0.922, because a depth ratio of 0.59 is unlike any positive in its training set. The same evidence scores
+it 6 of 6 deterministically. Calls made this way carry `decision_reason = TIER1_SV_DEPTH` and are counted separately
+from score-led calls throughout. Recall as a function of deletion size, for the classifier and for the deterministic
+path, is measured on planted deletions from the extended spike-in planter, which removes the deleted haplotype's reads
+inside the interval and clips crossing reads into junction reads, because no HiFi read spans a 35 kb event.
+
 **Concordance with the original pipeline (P18).** The original de novo sets (slivar trio rule + gnomAD + mask + founder
 recurrence for small variants; the unfiltered sawfish de novo list; the TRGT expansion table) are matched to the final
 tables (small variants by position and alleles with representation-independent normalisation; SVs by type with breakpoints

@@ -217,6 +217,59 @@ The pipeline ships **three** pre-trained models — SNV/indel (one model, `indel
 
 **Expectations stated in advance, and what would change them.** On synthetic labels the AUC will be near ceiling for the classifier (SynthDNM published 0.997) and may be close for the GQ sweep of the slivar arm — a small AUC gap is the expected result, not a failure. The discriminating comparisons are (a) the operating point on *real* candidates — the original pipeline calls a median of 38 SNV/indel DNMs per proband against an expected ~70 — with the parent-of-origin ratio as the guard against buying sensitivity with artefacts (R9), and (b) external truth. SV and TR positives are scarce (private inherited SVs and private long alleles, pooled cohort-wide): counts and confidence intervals are reported, and per-class thresholds for SV/TR are labelled provisional (R3). If the RF's AUC gain over the heuristic sweep is driven by `B_context` features, the 2 × 2 will show it; if it is driven by phase, the P14 attribution will.
 
+### P28 — How large deletions are called: the classifier is NOT used (JS, 2026-09-15)
+
+**Stated plainly: for structural deletions whose class is decided by the interval evidence, the call does not use the
+classifier score at all.** The decision is deterministic. This section says exactly which events take that path, what
+decides them, and the measurement that justifies treating them differently.
+
+**Which events take which path.**
+
+| | decided by | threshold |
+|---|---|---|
+| SNV / indel, any size | classifier score `rf_q`, behind the review gate and the rule layer | tier 1 / tier 2 thresholds |
+| SV without interval evidence (insertions, breakends, deletions under 300 bp) | classifier score `rf_q`, same gates | tier 1 / tier 2 thresholds |
+| **SV with interval evidence and every germline criterion met** | **the interval evidence alone** | **no score threshold; `decision_reason = TIER1_SV_DEPTH`** |
+| TR | classifier score `rf_q`, same gates | tier 1 / tier 2 thresholds |
+
+An SV takes the deterministic path only when all of the following hold, and the row records it as `SV_DEPTH_EVIDENCE`
+in `flags` with `rule_score = 6`: the event is a deletion or copy-number change of at least 300 bp; depth across the
+interval has fallen to at most 0.7 of the flanking depth in the child; neither parent's interval depth has fallen
+(both at or above 0.85), which is what says de novo rather than inherited; junction reads are present at BOTH
+breakpoints; and heterozygous sites inside the interval have collapsed towards zero relative to the flanking
+heterozygosity, which is what separates a constitutional deletion from mosaicism or a chimeric read. The population
+rule layer still applies: an event common in the long-read SV catalogue, recurrent in the founder panel, or present
+elsewhere in the cohort is rejected on the same terms as any other call. Setting `final.sv_depth_rule_tier1: false`
+in `thresholds.yaml` disables the path and returns those events to the score.
+
+**Why the classifier is not used there — the measurement.** Two independent lines, both on this cohort.
+
+*The training set cannot teach it.* Positives come from the pedigree swap and are therefore the child's own inherited
+variants, restricted to private ones by the P24 rarity gate. After that gate the SV positive set holds **43 deletions
+between 10 and 50 kb and 13 above 50 kb per seed**, against 95 and zero negatives in the same range — roughly eight
+positives per held-out fold in the size class of the cohort's pathogenic MECP2 deletion. The positives are also
+dominated by small insertions, so depth depletion is unlike anything in the positive class.
+
+*The classifier demonstrably mis-ranks the events we care about.* The MECP2 35 kb deletion, a validated pathogenic de
+novo event, scored `rf_q` 0.938 under the leaked models, 0.967 after the P24 correction, and **0.66 after the interval
+evidence was added to the matrix** — adding the correct evidence made the ranking worse, with the phase block
+contributing −1.18 to its score, because a depth ratio of 0.59 is unlike any positive the model has seen. Overall SV
+ROC-AUC was unchanged at 0.922, so the features gave the model nothing it could use. The same deterministic evidence
+scores that event 6 of 6.
+
+**What the deterministic path is worth, measured on planted truth.** The pedigree swap cannot supply large deletions,
+so the spike-in planter was extended to create them (`sim/edit.apply_breakpoint`, subtype `BIGDEL` at 5, 20 and 50 kb):
+reads of the deleted haplotype that lie inside the interval are removed and reads crossing a breakpoint are clipped
+into junction reads with a supplementary alignment, which is what the genome actually looks like — no HiFi read spans a
+35 kb event, so it cannot be planted by editing one alignment's CIGAR. Recall as a function of event size, classifier
+against deterministic evidence, is reported from those planted events and is the justification for the split. Planted
+events used for training are disjoint from those used as external truth (P27).
+
+**How it is reported.** Every final table and sites VCF carries `decision_reason`, so a call made on the deterministic
+path is identifiable as `TIER1_SV_DEPTH` and never silently mixed with score-led calls. The per-class counts in the
+paper are broken out the same way, and the classifier's headline metrics describe the population it was trained on:
+small and mid-size events. The rule layer's domain is large copy-number events. GIAB is the external check on both.
+
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
 
