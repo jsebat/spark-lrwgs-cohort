@@ -173,6 +173,14 @@ from score-led calls throughout. Recall as a function of deletion size, for the 
 path, is measured on planted deletions from the extended spike-in planter, which removes the deleted haplotype's reads
 inside the interval and clips crossing reads into junction reads, because no HiFi read spans a 35 kb event.
 
+**Planted-truth genotyping (P29).** Spike-in candidates are genotyped rather than left caller-less: small variants by
+`bcftools mpileup`/`call` over the spiked slice alignments at the planted positions, structural and repeat variants from
+the planter's per-read ledger of edited and spanning reads with genotype likelihoods from a binomial model at a 2 %
+per-read error rate. Population annotation for planted variants is set by construction (private to the child: zero
+leave-one-family-out cohort allele count, zero founder-panel recurrence, not sibling-shared). Before this the planted
+candidates carried no caller or annotation fields at all, leaving 42 of the 72 small-variant classifier columns empty on
+the external-truth arm.
+
 **Concordance with the original pipeline (P18).** The original de novo sets (slivar trio rule + gnomAD + mask + founder
 recurrence for small variants; the unfiltered sawfish de novo list; the TRGT expansion table) are matched to the final
 tables (small variants by position and alleles with representation-independent normalisation; SVs by type with breakpoints

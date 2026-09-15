@@ -270,6 +270,46 @@ path is identifiable as `TIER1_SV_DEPTH` and never silently mixed with score-led
 paper are broken out the same way, and the classifier's headline metrics describe the population it was trained on:
 small and mid-size events. The rule layer's domain is large copy-number events. GIAB is the external check on both.
 
+### P29 — The planted-truth arm was scoring a half-empty matrix (2026-09-15)
+
+**What was wrong.** A planted variant never goes through a variant caller. `spike plan` invented the site, edited the
+reads, and wrote the candidate row with the entire caller block empty: `caller_gt`, `caller_gq`, `caller_dp`,
+`caller_qual`, `child_ad`, `child_pl` and both parents' equivalents. No annotation join was ever run on the spike arm
+either. Eighteen registry features read the caller block and four read the annotation, so the planted-truth matrix was
+empty in **42 of 72 columns for SNV/indel, 49 for SV and 39 for TR**. The presence-leak guard drops an all-empty column
+at training time, so nothing complained; at scoring time a frozen model still expects the column and reads whatever the
+imputer supplies. Every planted-truth number produced before this date was therefore measured with more than half the
+classifier's evidence removed — on the arm whose whole purpose is to validate the classifier (P27).
+
+This is the fourth defect of one family, and the family is worth naming: **a declared feature that is never produced
+looks exactly like a feature that is uninformative.** The same shape caused the missing SV interval evidence (P17), the
+empty TR population columns, and this. The `--require-all-features` gate added with the TR fix is what caught it — the
+spike array failed with exit 4 rather than quietly producing another degraded number.
+
+**The fix.**
+
+| class | where the caller block now comes from |
+|---|---|
+| SNV / INDEL | `bcftools mpileup` + `bcftools call -m -A -f GQ` over the three spiked slice BAMs at the planted sites. A real caller, run on the edited reads, so DP / AD / PL / GQ mean what they mean in the real arm. |
+| SV, TR | the planter's own ledger: `apply_plan` records per site and per role how many reads it edited or removed (the alt reads) and how many it left spanning the site (the ref reads). Genotype likelihoods from the standard binomial model over those counts (`_pl_from_counts`, error 0.02). |
+
+bcftools has no model for a 35 kb deletion or a repeat expansion, and the real arm takes those fields from sawfish and
+TRGT, neither of which can be re-run on a slice — hence the ledger for those two classes. Ledger counts are exact where
+a caller's carry error, so the SV and TR genotype block is an **optimistic** bound on what the classifier could see.
+That direction is deliberate: the classifier is the arm on trial in P28, and an optimistic bound cannot manufacture the
+conclusion that the classifier does worse.
+
+Population annotation is written by construction rather than looked up. A planted variant is private to the child by
+definition, so `cohort_AC_loo` and `pon_founder_recurrence_loo` are 0 and `sib_shared` is 0, and `gnomad_af` is absent.
+Leaving them empty told the model *unknown* where the truth is *private* — the single most informative state a de novo
+candidate can be in.
+
+**A second, smaller correction in the same pass.** `qd_child`'s denominator (P24) read `c_dp_hapA` / `c_dp_hapO` out of
+the dictionary `caller_features` was building, where they are never set, so it always fell through to the caller's DP
+instead of the readable six-haplotype depth the design specifies. The evidence row is now passed in. QD was still
+frequency-independent and still not QUAL, so the P24 conclusion is unaffected; the denominator is now the one the
+design documents.
+
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
 
