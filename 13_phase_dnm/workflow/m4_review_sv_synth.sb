@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_svsyn
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --time=04:00:00
+# SV-only re-review of a SYNTHETIC trio with the P17 interval evidence, so the positives carry the same depth block as
+# the real rows. Without this the six features exist on one side of the label only, the presence-leak guard drops them
+# (P24), and the classifier never sees the evidence that was just built.
+# Usage: sbatch --array=1-N m4_review_sv_synth.sb  with TABLE=<synthetic_trios.seedK.tsv>
+set -euo pipefail
+TABLE="${1:-${TABLE:?}}"; ROW="${2:-${SLURM_ARRAY_TASK_ID:?}}"
+HERE="${PHASE_DNM_HOME:-}"; [ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
+line=$(sed -n "$((ROW + 1))p" "$TABLE"); [ -n "$line" ] || { echo "no row $ROW"; exit 2; }
+hdr=$(head -1 "$TABLE"); col() { echo "$hdr" | tr '\t' '\n' | grep -n -x "$1" | cut -d: -f1; }
+SID=$(echo "$line" | cut -f"$(col synthetic_id)"); CHILD=$(echo "$line" | cut -f"$(col child)")
+SF=$(echo "$line" | cut -f"$(col surrogate_father)"); SM=$(echo "$line" | cut -f"$(col surrogate_mother)")
+SEED=$(echo "$line" | cut -f"$(col seed)")
+W="$TRAIN_DIR/seed$SEED/$SID"
+CAND="$W/candidates/$CHILD.sv.candidates.tsv"; [ -s "$CAND" ] || { echo "no SV candidates for $SID"; exit 0; }
+fam_of() { awk -F'\t' -v s="$1" 'NR>1 && $1==s {print $2; exit}' "$MANIFEST"; }
+bam_of() { local o="$CALLSET_ROOT/$(fam_of "$1")/out"; ls "$o"/merged_haplotagged_bam/*/"$1".*.haplotagged.bam 2>/dev/null | head -1; }
+bai_of() { local b; b=$(bam_of "$1"); echo "${b/merged_haplotagged_bam\//merged_haplotagged_bam_index/}.bai"; }
+CFAM=$(fam_of "$CHILD"); PD="$PHASE_DIR/$CFAM"
+O="$CALLSET_ROOT/$CFAM/out"
+SVJ=$(ls "$O"/sv_supporting_reads/*.json.gz 2>/dev/null | head -1)
+SMALLV=$(ls "$O"/joint_small_variants_vcf/*.vcf.gz 2>/dev/null | head -1)   # the CHILD's own family VCF: het-SNV persistence is a child property
+MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --mask $m"; done
+REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "${REF_FA}" ] && REFARG="--ref $REF_FA"
+t0=$(date +%s)
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CAND" --out "$W/evidence/$CHILD.sv.evidence.tsv.tmp" \
+    --orientation "$PD/$CHILD.orientation.tsv" --transmission "$PD/$CHILD.transmission.tsv" --changepoints "$PD/$CHILD.changepoints.resolved.tsv" \
+    --child-bam "$(bam_of "$CHILD")" --child-bai "$(bai_of "$CHILD")" --father-bam "$(bam_of "$SF")" --father-bai "$(bai_of "$SF")" \
+    --mother-bam "$(bam_of "$SM")" --mother-bai "$(bai_of "$SM")" \
+    ${SVJ:+--sv-supporting-reads "$SVJ"} ${SMALLV:+--smallvar-vcf "$SMALLV" --child-sample "$CHILD"} \
+    --only-class SV --salt "$SID" --thresholds "$HERE/config/thresholds.yaml"
+mv "$W/evidence/$CHILD.sv.evidence.tsv.tmp" "$W/evidence/$CHILD.sv.evidence.tsv"
+ANNOT=""; A="$W/annot/$CHILD.sv.annot.tsv"; [ -s "$A" ] && ANNOT="--annot $A"
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$W/evidence/$CHILD.sv.evidence.tsv" --candidates "$CAND" \
+    --manifest "$MANIFEST" --child "$CHILD" --registry "$HERE/config/features.yaml" \
+    --out "$W/features/$CHILD.sv.features.tsv" --rf-out "$W/features/$CHILD.sv.features.rf.tsv" \
+    $ANNOT $MASKARGS $REFARG --no-require-all-features
+echo "synthetic SV re-review $SID in $(( $(date +%s) - t0 )) s"
