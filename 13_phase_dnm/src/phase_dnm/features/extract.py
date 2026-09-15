@@ -113,7 +113,7 @@ class Geometry:
         if changepoints_tsv and os.path.exists(changepoints_tsv):
             with open(changepoints_tsv, newline="") as fh:
                 for r in csv.DictReader(fh, delimiter="\t"):
-                    if str(r.get("read_class", r.get("class", ""))).upper().startswith("CROSSOVER"):
+                    if str(r.get("status") or r.get("read_class") or r.get("class") or "").upper().startswith("CROSSOVER"):
                         try:
                             self.xo.setdefault(r["chrom"], []).append((int(r["left_pos"]) + int(r["right_pos"])) // 2)
                         except (KeyError, ValueError):

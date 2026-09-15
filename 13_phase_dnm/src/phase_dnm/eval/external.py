@@ -194,7 +194,10 @@ def evaluate_labelled(evidence_dir: str, harness_dir: str, class_group: str, see
         cpath = os.path.join(evidence_dir, fam, "candidates", "%s.%s.candidates.tsv" % (child, class_group))
         cand = HZ._read_cols(cpath, HZ.CAND_COLS).drop_duplicates("variant_id") if os.path.exists(cpath) else pd.DataFrame(columns=HZ.CAND_COLS)
         rp = os.path.join(harness_dir, "rf_probs", "%s.%s.rf_probs.tsv" % (child, class_group))
-        rq = pd.read_csv(rp, sep="\t", dtype=str, keep_default_na=False)[["variant_id", "rf_q"]] if os.path.exists(rp) else pd.DataFrame(columns=["variant_id", "rf_q"])
+        rq = pd.DataFrame(columns=["variant_id", "rf_q"])
+        if os.path.exists(rp):
+            _q = pd.read_csv(rp, sep="\t", dtype=str, keep_default_na=False)
+            rq = _q[["variant_id", "rf_q"]] if "rf_q" in _q.columns else _q[["variant_id"]].assign(rf_q="")
         side = (X[["variant_id"]].merge(lab[["variant_id", "label"]], on="variant_id", how="left").merge(ev, on="variant_id", how="left")
                 .merge(cand, on="variant_id", how="left").merge(rq, on="variant_id", how="left").fillna(""))
         fm = fms[fold_of_family[fam]]

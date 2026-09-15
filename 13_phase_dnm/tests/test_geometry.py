@@ -11,7 +11,7 @@ def test_geometry_features(tmp_path):
                    "chr1\t1000\t1000\t101000\tHAP1_PAT\t0\n"
                    "chr1\t200000\t200000\t210000\tHAP1_MAT\t0\n")
     cp = tmp_path / "c.tsv"
-    cp.write_text("parent\tchrom\tleft_pos\tright_pos\tread_class\n"
+    cp.write_text("parent\tchrom\tleft_pos\tright_pos\tstatus\n"
                   "F\tchr1\t150000\t150100\tCROSSOVER\n"
                   "M\tchr1\t900000\t900200\tSWITCH_ERROR\n")
     g = X.Geometry(str(ori), str(cp))
