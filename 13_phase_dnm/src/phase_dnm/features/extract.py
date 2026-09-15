@@ -219,7 +219,7 @@ class SeqContext:
 # ----------------------------------------------------------------------------------------------
 # extraction
 # ----------------------------------------------------------------------------------------------
-def caller_features(rec: CandidateRecord, sex: str) -> Dict[str, object]:
+def caller_features(rec: CandidateRecord, sex: str, ev: Optional[Dict[str, object]] = None) -> Dict[str, object]:
     pl = rec.class_payload
     a = int(pl.get("allele_index", 1)) if rec.variant_class in ("SNV", "INDEL") else 1
     c_ad, f_ad, m_ad = _ints(rec.child_ad), _ints(rec.father_ad), _ints(rec.mother_ad)
@@ -248,7 +248,10 @@ def caller_features(rec: CandidateRecord, sex: str) -> Dict[str, object]:
     _num = _f(f.get("child_PL0"))
     if _num is None:
         _num = _f(f.get("child_GQ"))
-    _den = (_f(f.get("c_dp_hapA")) or 0.0) + (_f(f.get("c_dp_hapO")) or 0.0)
+    # the readable six-haplotype depth lives in the EVIDENCE row, not in this dict: reading it from `f` (as this did
+    # until 2026-09-15) always found nothing and silently fell through to the caller's DP, which is not what P24 says.
+    _ev = ev or {}
+    _den = (_f(_ev.get("c_dp_hapA")) or 0.0) + (_f(_ev.get("c_dp_hapO")) or 0.0)
     if not _den:
         _den = _f(f.get("child_DP")) or 0.0
     f["qd_child"] = round(_num / _den, 4) if (_num is not None and _den) else None
@@ -325,7 +328,7 @@ def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, se
                     if k in registry.features and v not in (None, ""):
                         row[k] = v
             if rec is not None:
-                for k, v in caller_features(rec, sex).items():
+                for k, v in caller_features(rec, sex, ev=r).items():
                     if k in registry.features:
                         row[k] = v
                 if mask is not None:

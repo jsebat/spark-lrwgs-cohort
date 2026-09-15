@@ -53,6 +53,13 @@ while IFS=$'\t' read -r child father mother; do
   # review on the spiked slices (the same code path as the cohort review; sawfish supporting reads deliberately absent)
   SL="--child-bam $SD/C.spiked.bam --child-bai $SD/C.spiked.bam.bai --father-bam $SD/F.spiked.bam --father-bai $SD/F.spiked.bam.bai --mother-bam $SD/M.spiked.bam --mother-bai $SD/M.spiked.bam.bai"
   SLT=""; [ -s "$SD/C.spiked.tr.bam" ] && SLT="--child-tr-bam $SD/C.spiked.tr.bam --child-tr-bai $SD/C.spiked.tr.bam.bai --father-tr-bam $SD/F.spiked.tr.bam --father-tr-bai $SD/F.spiked.tr.bam.bai --mother-tr-bam $SD/M.spiked.tr.bam --mother-tr-bai $SD/M.spiked.tr.bam.bai"
+  # P29: a planted variant never met a variant caller, so `spike plan` leaves its whole genotype block empty and the
+  # planted-truth arm ends up scoring the classifier on a matrix in which 42 of 72 SNV/indel columns are blank.
+  # Genotype the spiked slices with bcftools (small variants), fill SV/TR allelic depths from the planter ledger, and
+  # write the by-construction private population annotation.
+  t0=$(date +%s)
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike genotype --out-dir "$SD" $SL ${REF_FA:+--reference "$REF_FA"}       --bcftools "${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}" --thresholds "$THR"
+  echo "spike genotype done in $(( $(date +%s) - t0 )) s"
   for cls in snv_indel sv tr; do
     CA="$SD/$cls.candidates.tsv"; [ -s "$CA" ] || { echo "no $cls spike candidates"; continue; }
     [ "$(wc -l < "$CA")" -gt 1 ] || { echo "no $cls spike candidates"; continue; }
@@ -60,7 +67,7 @@ while IFS=$'\t' read -r child father mother; do
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CA" --out "$SD/$cls.evidence.tsv" $LBL $SL $SLT --salt "spike-$FAMILY" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli likelihood --evidence "$SD/$cls.evidence.tsv" --out "$SD/$cls.evidence.lik.tsv" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$SD/$cls.evidence.tsv" --candidates "$CA" --child "$child" --manifest "$MANIFEST" \
-        --out "$SD/$cls.features.tsv" --rf-out "$SD/$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml"
+        --out "$SD/$cls.features.tsv" --rf-out "$SD/$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml"         --annot "$SD/$cls.annot.tsv"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike evaluate --plan "$SD/plan.tsv" --evidence "$SD/$cls.evidence.lik.tsv" --out "$SD/$cls.spike_summary.tsv"
     echo "spike review+evaluate $cls done in $(( $(date +%s) - t0 )) s"
   done

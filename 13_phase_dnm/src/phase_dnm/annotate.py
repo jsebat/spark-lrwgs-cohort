@@ -195,9 +195,23 @@ def sib_shared_sites(joint_vcf: str, child: str, sibs: List[str], sites: Set[Tup
 # ----------------------------------------------------------------------------------------------
 # assembly per child
 # ----------------------------------------------------------------------------------------------
+def strchive_hit(chrom: str, start: int, end: int, index: Optional[Dict[str, list]], slop: int = 50):
+    """The STRchive locus overlapping this repeat, or None.
+
+    The join is by coordinate, not by name: our TRIDs are the lab TRGT catalogue's `chrom_start_end_motif`, while
+    STRchive names loci by disease and gene (`HD_HTT`), so the two identifier spaces never meet. `slop` absorbs the
+    small boundary differences between the two catalogue builds."""
+    if not index:
+        return None
+    for a, b, rec in index.get(chrom, ()):
+        if a - slop < end and start < b + slop:
+            return rec
+    return None
+
+
 def write_annot(cand_path: str, out_path: str, class_group: str, gnomad: Dict, fgt: Dict, order: List[str], founder_family: Dict[str, str],
                 exclude_families: Set[str], sib: Set, tr_table: Optional[Dict[str, List[List[int]]]] = None,
-                strchive: Optional[Set[str]] = None) -> Dict[str, int]:
+                strchive: Optional[Dict[str, list]] = None) -> Dict[str, int]:
     n = n_g = n_ac = 0
     with open(out_path, "w", newline="") as fh:
         fh.write("variant_id\tgnomad_af\tcohort_AC_loo\tcohort_AN_loo\tpon_founder_recurrence_loo\tsib_shared"
@@ -230,7 +244,8 @@ def write_annot(cand_path: str, out_path: str, class_group: str, gnomad: Dict, f
                                                 order, founder_family, exclude_families)
                 if ac is not None:
                     n_ac += 1
-                strc = "1" if (strchive and trid in strchive) else ("0" if strchive is not None else "")
+                hit = strchive_hit(rec.chrom, rec.start, rec.end or rec.start, strchive)
+                strc = hit["id"] if hit else ("" if strchive is None else ".")
             if af is not None:
                 n_g += 1
             fh.write("%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n"

@@ -236,6 +236,27 @@ def cmd_spike(a: argparse.Namespace) -> int:
     """Spike-in harness: plan | apply | evaluate (sim/spike.py)."""
     from .sim import spike as SP
     log = lambda m: sys.stderr.write(m + "\n")
+    if a.step == "genotype":
+        # P29: fill the caller-derived block of the planted candidates. Without this the planted-truth arm scores the
+        # classifier on a matrix whose genotype and annotation columns are empty -- 42 of 72 for SNV/indel.
+        from .sim import genotype as GT
+        bams = {"child": a.child_bam, "father": a.father_bam, "mother": a.mother_bam}
+        bams = {k: v for k, v in bams.items() if v}
+        led = os.path.join(a.out_dir, "apply.ledger.tsv")
+        n_any = 0
+        for cls_group in ("snv_indel", "sv", "tr"):
+            cand = os.path.join(a.out_dir, "%s.candidates.tsv" % cls_group)
+            if not os.path.exists(cand) or os.path.getsize(cand) == 0:
+                continue
+            st = GT.fill_candidates(cand, cand + ".tmp", bams, a.reference, led, bcftools=a.bcftools, log=log)
+            if st.get("rows"):
+                os.replace(cand + ".tmp", cand)
+                GT.write_private_annot(cand, os.path.join(a.out_dir, "%s.annot.tsv" % cls_group), log=log)
+                n_any += st["rows"]
+            elif os.path.exists(cand + ".tmp"):
+                os.remove(cand + ".tmp")
+        log("spike genotype: %d planted candidate rows now carry the caller and annotation blocks" % n_any)
+        return 0
     if a.step == "evaluate":
         import csv
         plan = SP.read_plan(a.plan)
@@ -273,8 +294,11 @@ def cmd_spike(a: argparse.Namespace) -> int:
         log("spike plan: %d sites planted of %d planned; %s" % (len(plan), stats.get("planned", 0), " ".join("%s=%d" % kv for kv in sorted(stats.items()))))
     elif a.step == "apply":
         plan = SP.read_plan(a.plan)
-        st1 = SP.apply_plan(plan, bams, a.out_dir, "spiked", qc, a.seed, tr=False, log=log)
-        st2 = SP.apply_plan(plan, tr_bams, a.out_dir, "spiked.tr", qc, a.seed, tr=True, log=log) if tr_bams else {}
+        led = os.path.join(a.out_dir, "apply.ledger.tsv")
+        if os.path.exists(led):
+            os.remove(led)                                          # the ledger is appended to, once per class group
+        st1 = SP.apply_plan(plan, bams, a.out_dir, "spiked", qc, a.seed, tr=False, log=log, ledger_path=led)
+        st2 = SP.apply_plan(plan, tr_bams, a.out_dir, "spiked.tr", qc, a.seed, tr=True, log=log, ledger_path=led) if tr_bams else {}
         with open(os.path.join(a.out_dir, "apply.stats.json"), "w") as fh:
             json.dump({"genome": st1, "tr": st2}, fh, indent=1, sort_keys=True)
     for b in list(bams.values()) + list(tr_bams.values()):
@@ -504,9 +528,22 @@ def cmd_annotate(a: argparse.Namespace) -> int:
             try:
                 cat = _json.load(open(a.strchive))
                 recs = cat if isinstance(cat, list) else cat.get("loci", [])
-                strchive = {str(x.get("id") or x.get("TRID") or x.get("locus") or "") for x in recs if isinstance(x, dict)}
-                strchive.discard("")
-                log("STRchive catalogue: %d known pathogenic loci" % len(strchive))
+                strchive = {}
+                for x in recs:
+                    if not isinstance(x, dict):
+                        continue
+                    ch, s0, e0 = x.get("chrom"), x.get("start_hg38"), x.get("stop_hg38")
+                    if not ch or s0 is None or e0 is None:
+                        continue
+                    strchive.setdefault(ch, []).append((int(s0), int(e0), {
+                        "id": str(x.get("id") or ""), "gene": str(x.get("gene") or ""),
+                        "disease": str(x.get("disease") or ""), "inheritance": ",".join(x.get("inheritance") or []),
+                        "pathogenic_min": x.get("pathogenic_min"), "benign_max": x.get("benign_max"),
+                        "motif_len": x.get("motif_len")}))
+                for ch in strchive:
+                    strchive[ch].sort()
+                log("STRchive catalogue: %d known pathogenic loci over %d contigs"
+                    % (sum(len(v) for v in strchive.values()), len(strchive)))
             except (OSError, ValueError) as e:
                 log("STRchive catalogue could not be read (%s); strchive_locus stays empty" % e)
         else:
@@ -839,7 +876,7 @@ def build_parser() -> argparse.ArgumentParser:
     fe.set_defaults(func=cmd_features)
 
     sk = sub.add_parser("spike", help="spike-in harness: plan sites, edit haplotagged reads into slice BAMs, evaluate recovery")
-    sk.add_argument("step", choices=["plan", "apply", "evaluate"])
+    sk.add_argument("step", choices=["plan", "apply", "genotype", "evaluate"])
     sk.add_argument("--out-dir", help="plan/apply: directory for plan.tsv, candidates, slice BAMs")
     sk.add_argument("--family"), sk.add_argument("--child")
     sk.add_argument("--regions", help="plan: chrom:start-end[,...] to sample sites from")
@@ -855,6 +892,8 @@ def build_parser() -> argparse.ArgumentParser:
     sk.add_argument("--evidence", help="evaluate: the reviewed (+likelihood) evidence table of the spiked candidates")
     sk.add_argument("--out", help="evaluate: summary TSV (per-site table written next to it)")
     sk.add_argument("--k", type=int, default=5), sk.add_argument("--thresholds")
+    sk.add_argument("--reference", help="genotype: reference FASTA for bcftools mpileup over the spiked slices")
+    sk.add_argument("--bcftools", default="bcftools", help="genotype: bcftools executable")
     sk.set_defaults(func=cmd_spike)
     ig = sub.add_parser("integrate", help="M3: final unfiltered table per child and class group (P15 decision, class columns, feature vector)")
     ig.add_argument("--evidence", required=True, help="<child>.<class>.evidence.lik.tsv"), ig.add_argument("--features", help="<child>.<class>.features.tsv")

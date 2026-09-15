@@ -453,13 +453,19 @@ def _decide(read, role: str, row: PlanRow, rng: random.Random) -> bool:
 
 
 def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: str, qc: SiteQC, seed: int,
-               tr: bool = False, log=None) -> Dict[str, int]:
+               tr: bool = False, log=None, ledger_path: Optional[str] = None) -> Dict[str, int]:
     """Write <out_dir>/<role>.<tag>.bam with every primary/secondary/supplementary read in +-pad of each planted site of
     the matching class group (tr=False: SNV/INDEL/SV from the genome BAMs; tr=True: TR from the TRGT spanning BAMs),
-    edited where the plan says. Sites are >= spacing apart so no read is written twice."""
+    edited where the plan says. Sites are >= spacing apart so no read is written twice.
+
+    `ledger_path` additionally records, per site and per role, how many reads carry the planted allele (edited, plus
+    the ones removed because they fell inside a large deletion) and how many carry the reference. Those are the exact
+    allelic depths of the planted genotype, and sim/genotype.py turns them into the caller block for the SV and TR
+    classes, which no caller can be re-run on for a slice (P29)."""
     import pysam
     rows = [r for r in plan if (r.variant_class == "TR") == tr]
     stats: Dict[str, int] = defaultdict(int)
+    ledger: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(lambda: {"alt": 0, "ref": 0, "dropped": 0})
     rng = random.Random(seed + (1 if tr else 0))
     os.makedirs(out_dir, exist_ok=True)
     for role, bam in bams.items():
@@ -474,12 +480,16 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
                     stats["reads_%s" % role] += 1
                     if tr and (not read.has_tag("TR") or read.get_tag("TR") != row.trid):
                         out.write(read); continue
+                    spanning = read.reference_start <= row.pos - 1 and (read.reference_end or 0) >= row.pos
                     if _primary(read, 0) and _decide(read, role, row, rng):
                         a = _edit_one(aln_of(read), row, rng)
                         if a is DROP:
                             stats["dropped_%s" % role] += 1
+                            ledger[(row.variant_id, role)]["alt"] += 1
+                            ledger[(row.variant_id, role)]["dropped"] += 1
                             continue                                # the read is not written: that haplotype is deleted here
                         if a is not None:
+                            ledger[(row.variant_id, role)]["alt"] += 1
                             write_back(read, a)
                             if row.subtype == "BIGDEL":
                                 # a clipped junction read carries a supplementary alignment at the other breakpoint;
@@ -490,10 +500,21 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
                             stats["edited_%s" % role] += 1
                         else:
                             stats["edit_refused_%s" % role] += 1
+                            if spanning:
+                                ledger[(row.variant_id, role)]["ref"] += 1
+                    elif spanning and _primary(read, 0):
+                        ledger[(row.variant_id, role)]["ref"] += 1
                     out.write(read)
         pysam.index(out_path)
         if log:
             log("spike apply: %s -> %s (%d reads, %d edited)" % (role, os.path.basename(out_path), stats["reads_%s" % role], stats["edited_%s" % role]))
+    if ledger_path:
+        new = not os.path.exists(ledger_path)
+        with open(ledger_path, "a", newline="\n") as fh:
+            if new:
+                fh.write("variant_id\trole\talt\tref\tdropped\n")
+            for (vid, role), d in sorted(ledger.items()):
+                fh.write("%s\t%s\t%d\t%d\t%d\n" % (vid, role, d["alt"], d["ref"], d["dropped"]))
     return dict(stats)
 
 
