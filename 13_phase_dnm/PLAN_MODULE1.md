@@ -434,6 +434,25 @@ precision. Open: tier-2 indel threshold; profile of the 37 % of planted SVs neve
   applies a frozen model to a cohort - rf_prob from the model, rf_q against that cohort's own candidates per variant class,
   tau json with `score_column rf_q` - so `integrate` runs unchanged; the model checksum is verified and a tampered file is
   refused. Tests: manifests match models in the repo; score path end-to-end (skipped where xgboost is unavailable).
+- **Family VCF vs cohort BCF: do the two inputs give the same de novo calls? (2026-09-14, JS asked; job 54300164 + the
+  follow-up split, two complete trios, same candidate code on both inputs.)** Real candidates come from the per-family
+  joint VCF, synthetic ones from the 105-sample cohort BCF, so this is a parity question for training as much as for calling.
+  **Loci: yes — Jaccard 0.954 / 0.942** (chrom:pos, and unchanged when allele size is added to the key). The apparent
+  disagreement on exact `variant_id` (Jaccard 0.632 / 0.578) is **allele representation**: 87-92 % of each source's
+  "exclusive" candidates are the same locus with the alleles written differently, because GLnexus unifies alleles over 105
+  samples differently than over 3. Genuinely source-specific loci are few and are almost all low-quality indels: 876 and
+  1,519 family-only (88 % INDEL, child GQ median 5-6), 526 and 948 cohort-only (100 % INDEL). **Per-sample evidence is
+  bit-identical** on shared candidates — child PL[0], GQ and DP all agree at 1.000, and therefore so does the QD we now
+  compute (mean absolute difference 0.0000). **Site QUAL does not**: identical in only 0.28 / 0.29 of shared candidates,
+  cohort median 25-29 against family median 10-11, i.e. inflated ~2.5x by the larger joint call — an independent reason
+  beyond frequency for dropping it (it was a PROVENANCE proxy: every positive came from the cohort BCF, every negative
+  from a family VCF). Genotype strings agree raw at only 0.26-0.41 because the family VCF carries HiPhase phasing (57-69 %
+  of child genotypes use `|`) and the cohort BCF does not; after unphasing and sorting, child genotypes agree at
+  0.755-0.831, the residual concentrated in indels where the allele spelling differs. *Consequences:* (i) `variant_id` is
+  not a stable key across the two sources — any join needs the normalisation the concordance module already applies;
+  (ii) no site-level caller field may be a feature (done); (iii) a residual asymmetry remains in the low-GQ indel tail, to
+  be watched in the retrained SNV/indel model. *Open:* the REACH trio could not be extracted from the cohort BCF in this
+  test ("candidates failed for cohort") — sample naming to check.
 - **TRAINING-SET ERROR FOUND (2026-09-14, JS): synthetic positives were not restricted to rare variants, and `site_qual`
   should never have been a feature. Everything trained on those positives is provisional.** Trigger: JS asked where the
   cohort's two pathogenic de novo SVs (MECP2, DNMT3A) land in the new call set. Answer: **both rejected, `BELOW_TAU`** —
