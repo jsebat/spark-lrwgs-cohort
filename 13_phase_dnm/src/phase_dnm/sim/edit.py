@@ -142,6 +142,90 @@ def apply_deletion(a: Aln, start: int, length: int, margin: int = 20) -> Optiona
                [x for part in qual_parts for x in part] if a.qual is not None else None)
 
 
+def apply_breakpoint(a: Aln, pos: int, keep: str, margin: int = 20) -> Optional[Aln]:
+    """Clip an alignment at a deletion breakpoint, which is what a junction read looks like.
+
+    A large deletion cannot be planted by editing one read's CIGAR: no 15 kb HiFi read spans a 35 kb event, so there is
+    no single alignment to carry a `D` operation of that length. A read from the deleted haplotype instead either
+    disappears (it lay inside the interval) or survives as a clipped alignment ending at one breakpoint with a
+    supplementary alignment at the other. `keep="left"` retains the alignment up to `pos` and soft-clips the remainder;
+    `keep="right"` retains it from `pos` onward and moves the start. Returns None when the clip would leave less than
+    `margin` aligned bases, i.e. when the read barely touches the breakpoint."""
+    if keep not in ("left", "right"):
+        raise ValueError("keep must be left or right")
+    if not (a.reference_start + margin <= pos <= a.reference_end - margin):
+        return None
+    cig: Cigar = []
+    seq_parts: List[str] = []
+    qual_parts: List[List[int]] = []
+    clipped_q = 0
+    new_start = a.reference_start
+    ref, q = a.reference_start, 0
+    started = False
+    for op, L in normalise(a.cigar):
+        ref_len = L if op in _REF_OPS else 0
+        qry_len = L if op in _QRY_OPS else 0
+        if keep == "left":
+            if ref >= pos:                                   # entirely past the breakpoint: becomes soft clip
+                clipped_q += qry_len
+            elif ref + ref_len > pos and op in (M, EQ, X):    # straddles it: split the match
+                left = pos - ref
+                cig.append((M, left)); seq_parts.append(a.seq[q:q + left])
+                if a.qual is not None:
+                    qual_parts.append(a.qual[q:q + left])
+                clipped_q += qry_len - left
+            else:
+                if op in (S, H):
+                    if op == S:
+                        clipped_q += L
+                    continue
+                cig.append((op, L))
+                if qry_len:
+                    seq_parts.append(a.seq[q:q + qry_len])
+                    if a.qual is not None:
+                        qual_parts.append(a.qual[q:q + qry_len])
+        else:                                                # keep == "right"
+            if ref + ref_len <= pos:
+                clipped_q += qry_len
+                if op in (S, H):
+                    continue
+            elif ref < pos and op in (M, EQ, X):
+                take = ref + L - pos
+                clipped_q += L - take
+                if not started:
+                    new_start = pos; started = True
+                cig.append((M, take)); seq_parts.append(a.seq[q + (L - take):q + L])
+                if a.qual is not None:
+                    qual_parts.append(a.qual[q + (L - take):q + L])
+            else:
+                if op in (S, H):
+                    if op == S:
+                        clipped_q += L
+                    ref += ref_len; q += qry_len
+                    continue
+                if not started:
+                    new_start = max(ref, pos); started = True
+                cig.append((op, L))
+                if qry_len:
+                    seq_parts.append(a.seq[q:q + qry_len])
+                    if a.qual is not None:
+                        qual_parts.append(a.qual[q:q + qry_len])
+        ref += ref_len; q += qry_len
+    aligned = sum(L for op, L in cig if op in (M, EQ, X))
+    if aligned < margin:
+        return None
+    cig = (cig + [(S, clipped_q)]) if keep == "left" else ([(S, clipped_q)] + cig)
+    seq = "".join(seq_parts)
+    tail = a.seq[len(seq):] if keep == "left" else a.seq[:clipped_q]
+    seq = (seq + tail[:clipped_q]) if keep == "left" else (tail[:clipped_q] + seq)
+    qual = None
+    if a.qual is not None:
+        kept = [x for part in qual_parts for x in part]
+        pad = [30] * clipped_q
+        qual = (kept + pad) if keep == "left" else (pad + kept)
+    return Aln(new_start, normalise(cig), seq, qual)
+
+
 def apply_insertion(a: Aln, pos: int, ins: str, margin: int = 20, ins_qual: int = 40) -> Optional[Aln]:
     """Insert `ins` between the base aligned to `pos` and the one aligned to `pos + 1`."""
     if not covers(a, pos + 1, pos + 1, margin):

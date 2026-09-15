@@ -36,9 +36,15 @@ from . import edit as E
 SCENARIOS = ("G", "CM", "PM", "IM")
 EXPECTED_CLASS = {"G": "germline_DNM_phased", "CM": "child_postzygotic_mosaic",
                   "PM": "parental_mosaic_transmitted", "IM": "inherited_missed_in_parent"}
-SUBTYPES = {"SNV": ("SNV",), "INDEL": ("DEL", "INS"), "SV": ("DEL", "INS"), "TR": ("EXP",)}
+SUBTYPES = {"SNV": ("SNV",), "INDEL": ("DEL", "INS"), "SV": ("DEL", "INS", "BIGDEL"), "TR": ("EXP",)}
+DROP = "DROP"   # a read of the deleted haplotype that lies inside a large deletion: it does not exist in that genome
 LENGTHS = {("INDEL", "DEL"): (1, 2, 4, 8), ("INDEL", "INS"): (1, 3, 6, 12),
-           ("SV", "DEL"): (200, 500, 1500), ("SV", "INS"): (100, 250, 400), ("TR", "EXP"): (3, 5, 8)}   # TR in motif units
+           ("SV", "DEL"): (200, 500, 1500), ("SV", "INS"): (100, 250, 400), ("TR", "EXP"): (3, 5, 8),
+           # BIGDEL spans the size range the pedigree swap cannot supply: after the rarity gate the synthetic positives
+           # hold 43 deletions between 10 and 50 kb and 13 above, so the classifier has no way to learn this class from
+           # them. These are planted by removing the deleted haplotype's reads and clipping the ones that cross a
+           # breakpoint, which is what the genome actually looks like (no read spans the event).
+           ("SV", "BIGDEL"): (5000, 20000, 50000)}
 FRACTIONS = {"CM": (0.15, 0.3), "PM": (0.1, 0.25)}
 BASES = "ACGT"
 
@@ -411,6 +417,18 @@ def _edit_one(a: E.Aln, row: PlanRow, rng: random.Random) -> Optional[E.Aln]:
         ins = (motif * (row.length // len(motif) + 1))[:row.length]
         mid = (row.pos + max(row.pos, row.locus_end)) // 2
         return E.apply_insertion(a, mid - 1, ins, margin=10)
+    if row.subtype == "BIGDEL":
+        start, end = row.pos, row.pos + row.length
+        r_s, r_e = a.reference_start, a.reference_end
+        if r_s >= start and r_e <= end:
+            return DROP                                             # wholly inside the deletion: this read does not exist
+        if r_s < start and r_e > end:
+            return E.apply_deletion(a, start, row.length)           # a read long enough to span it keeps a D operation
+        if r_s < start < r_e:
+            return E.apply_breakpoint(a, start, "left")             # crosses the left breakpoint -> clipped junction read
+        if r_s < end < r_e:
+            return E.apply_breakpoint(a, end, "right")
+        return None
     if row.subtype == "DEL":
         return E.apply_deletion(a, row.pos, row.length)             # deleted bases are 0-based [pos, pos+L): right after the anchor
     ins = row.alt[1:] if row.variant_class == "INDEL" else row.alt
@@ -458,8 +476,17 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
                         out.write(read); continue
                     if _primary(read, 0) and _decide(read, role, row, rng):
                         a = _edit_one(aln_of(read), row, rng)
+                        if a is DROP:
+                            stats["dropped_%s" % role] += 1
+                            continue                                # the read is not written: that haplotype is deleted here
                         if a is not None:
                             write_back(read, a)
+                            if row.subtype == "BIGDEL":
+                                # a clipped junction read carries a supplementary alignment at the other breakpoint;
+                                # the SA tag is what the SV adapter and sawfish both read as junction evidence
+                                other = row.pos + row.length if read.reference_start < row.pos else row.pos
+                                read.set_tag("SA", "%s,%d,%s,%dM,60,0;" % (row.chrom, other + 1, "-" if read.is_reverse else "+",
+                                                                           max(1, read.query_length // 2)))
                             stats["edited_%s" % role] += 1
                         else:
                             stats["edit_refused_%s" % role] += 1
