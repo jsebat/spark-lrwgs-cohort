@@ -250,7 +250,9 @@ between 10 and 50 kb and 13 above 50 kb per seed**, against 95 and zero negative
 positives per held-out fold in the size class of the cohort's pathogenic MECP2 deletion. The positives are also
 dominated by small insertions, so depth depletion is unlike anything in the positive class.
 
-*The classifier demonstrably mis-ranks the events we care about.* The MECP2 35 kb deletion, a validated pathogenic de
+*The classifier demonstrably mis-ranks the events we care about.* (WITHDRAWN as justification 2026-09-16, see P31:
+the rule's constants were fitted to these two events, so they cannot validate it. Retained only as a description of
+how the score behaves.) The MECP2 35 kb deletion, a validated pathogenic de
 novo event, scored `rf_q` 0.938 under the leaked models, 0.967 after the P24 correction, and **0.66 after the interval
 evidence was added to the matrix** — adding the correct evidence made the ranking worse, with the phase block
 contributing −1.18 to its score, because a depth ratio of 0.59 is unlike any positive the model has seen. Overall SV
@@ -309,6 +311,55 @@ the dictionary `caller_features` was building, where they are never set, so it a
 instead of the readable six-haplotype depth the design specifies. The evidence row is now passed in. QD was still
 frequency-independent and still not QUAL, so the P24 conclusion is unaffected; the denominator is now the one the
 design documents.
+
+### P31 — The targeted clinical arm is part of the pipeline, and MECP2 is not validation (JS, 2026-09-16)
+
+**The correction.** P28 cited the MECP2 deletion scoring 6 of 6 on the deterministic depth rule as evidence that the
+rule works on large deletions. That is circular and the claim is withdrawn. MECP2 was found by a targeted,
+clinically-focused review that was deliberately flexible in how it weighed the evidence, and the rule's constants
+(`del_max_ratio` 0.7, `del_parent_min_ratio` 0.85, `del_max_het_persistence` 0.35) were then chosen so that this event
+and DNMT3A would clear it. A threshold fitted to a case cannot then be validated by that case. Neither event is
+independent evidence for anything, and neither may be counted in a recall or FDR estimate.
+
+**What this leaves as actual evidence about large deletions.** Only the planted truth, and only where the planter is
+faithful:
+
+| size | classifier recall | deterministic recall | n | status |
+|---|---|---|---|---|
+| 5 kb | 0.136 | **0.492** | 59 | the deterministic path is 3.6x the classifier |
+| 20 kb | 0.085 | 0.064 | 47 | capped by the planter, not informative |
+| 50 kb | 0.043 | 0.064 | 47 | capped by the planter, not informative |
+
+At 20 kb and above the planter under-represents junction evidence: depth (0.61) and heterozygosity collapse (0.000)
+are both correct, but junction reads are seen at both breakpoints in only 12 of 47 events, and `rule_score` holds at
+5 of 6 with `NO_JUNCTION_BOTH_ENDS` as the single missing criterion. A 15 kb read spans a 5 kb event and is a junction
+read at both ends at once; nothing spans a 20 kb event, so the two ends need separate clipped reads and the planter
+drops the interior reads before clipping the crossers. So the honest statement is that the deterministic path beats
+the classifier at 5 kb on 59 planted events, and that **above 5 kb neither path has been validated by this module.**
+
+**The design consequence, which is JS's call (2026-09-16).** If a biased, flexible, clinically-focused analysis is what
+it takes to find the pathogenic events, that is acceptable — but then it is a STAGE OF THE PIPELINE and is documented
+as one, not an informal step whose results are quietly attributed to the automated caller. The module therefore has
+two arms with different purposes and different rules of evidence:
+
+| | genome-wide arm | targeted clinical arm |
+|---|---|---|
+| question | what is the de novo mutation rate, and which calls survive a uniform threshold | is there a reportable variant in this child |
+| input | every candidate | candidates in a clinical gene panel, INCLUDING below-threshold ones |
+| evidence | fixed feature set, fixed thresholds, identical for every row | whatever the variant demands: read-level inspection, depth, phasing, parental evidence, catalogue and literature context |
+| operator | none | an analyst or agent, whose reasoning is recorded per variant |
+| bias | none by construction | deliberate, towards clinical yield |
+| may be used for | recall, FDR, classifier comparison, the rate | clinical reporting only |
+| may NOT be used for | — | any performance number, any threshold fit, any claim about the classifier |
+
+The separation is the whole point: the targeted arm is allowed to be biased precisely because its output never enters
+a performance estimate. Every variant it reports carries `discovery_mode = targeted_clinical` alongside the automated
+`decision_reason`, so a reader can always tell which arm produced a call, and any table that mixes them must report
+the split. GIAB stays held out of both.
+
+**What this does not change.** The genome-wide arm's numbers stand: they were measured on held-out folds and planted
+truth, and no clinical case was used to fit them. What changes is that the module no longer claims the automated path
+recovers the cohort's two known pathogenic large deletions on its own merits.
 
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
