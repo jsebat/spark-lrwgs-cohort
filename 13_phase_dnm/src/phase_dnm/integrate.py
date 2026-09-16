@@ -65,6 +65,23 @@ class FinalParams:
     # -- and recall of 0.149 and 0.064, because 36 of 47 land as inconclusive. No threshold can recover that; the gate
     # is what rejects them, and it encodes a small-variant notion of evidence.
     rf_branch_classes: Tuple[str, ...] = RF_BRANCH_CLASSES
+    # LARGE-SV ROUTING (JS approved 2026-09-16). Structural variants at or above sv_large_min_svlen are decided with
+    # their own threshold and their own review-class gate; everything smaller keeps the genome-wide settings exactly.
+    # The measurement behind it, on planted deletions with the genome-wide MODEL in both arms:
+    #
+    #                                     5 kb    20 kb   50 kb
+    #   production (gate, tau_q 0.99)     0.644   0.149   0.064
+    #   tau 0.95 alone                    0.763   0.149   0.064     <- tau changes nothing above 5 kb
+    #   tau 0.95 + widened gate           0.881   0.915   0.936     <- the gate is the whole effect
+    #
+    # A size-specific classifier was also trained (harness_sv5kb, >=5 kb, rarity gate off, parental depth floor) and
+    # was WORSE: 0.681 and 0.660 at 20 and 50 kb, because restricting to >=5 kb left only 263 negatives against the
+    # genome-wide model's 22434. The gain is entirely in not discarding these events at the gate, so no new model is
+    # used. `inconclusive` is admitted because a large deletion's signal is the ABSENCE of reads on the deleted
+    # haplotype, which the six-haplotype matrix cannot express as germline_DNM_phased.
+    sv_large_min_svlen: int = 5000
+    sv_large_tau_q: Optional[float] = None                    # None = no large-SV routing (genome-wide behaviour)
+    sv_large_rf_branch_classes: Tuple[str, ...] = RF_BRANCH_CLASSES + ("inconclusive",)
 
 
 def _f(x) -> Optional[float]:
@@ -141,11 +158,16 @@ def decide(row: Dict[str, object], p: FinalParams, rf_prob: Optional[float]) -> 
         return dict(dnm_call="YES", dnm_tier=1, call_mode=mode, decision_reason="TIER1_SV_DEPTH", mosaic_flag=0)
     tau1 = p.tau.get(vclass)
     tau2 = p.tau_tier2.get(vclass, p.tau_rescue.get(vclass))
+    branch = p.rf_branch_classes
+    if vclass == "SV" and p.sv_large_tau_q is not None:
+        _svlen = _f(_payload(row).get("svlen")) or _f(row.get("svlen"))
+        if _svlen is not None and abs(_svlen) >= p.sv_large_min_svlen:
+            tau1, branch = p.sv_large_tau_q, p.sv_large_rf_branch_classes
     if rf_prob is not None and tau1 is not None:
         tier = 1 if rf_prob >= tau1 else (2 if tau2 is not None and rf_prob >= tau2 else 0)
         if tier == 0:
             return _no("BELOW_TAU", mode)
-        if cls not in p.rf_branch_classes:
+        if cls not in branch:
             return _no("RF_UNSUPPORTED:%s" % (cls or "none"), mode)
         if tier == 2 and vclass == "TR":
             du = _f(_payload(row).get("delta_units"))

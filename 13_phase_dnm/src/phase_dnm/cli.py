@@ -336,7 +336,11 @@ def _final_params(thr: dict):
                        phase_only_min_score=f.get("phase_only_min_score", 0.9), require_hap_obs=f.get("require_hap_obs", 6),
                        tr_rescue_min_units=float(f.get("tr_rescue_min_units", 3)), rules=rules, apply_rules=bool(f.get("apply_rules", True)),
                        sv_depth_rule_tier1=bool(f.get("sv_depth_rule_tier1", True)),
-                       sv_depth_min_rule_score=float(f.get("sv_depth_min_rule_score", 6)))
+                       sv_depth_min_rule_score=float(f.get("sv_depth_min_rule_score", 6)),
+                       sv_large_min_svlen=int(f.get("sv_large_min_svlen", 5000)),
+                       sv_large_tau_q=(None if f.get("sv_large_tau_q") is None else float(f["sv_large_tau_q"])),
+                       sv_large_rf_branch_classes=tuple(f.get("sv_large_rf_branch_classes")
+                                                        or ("germline_DNM_phased", "germline_DNM_unphased", "inconclusive")))
 
 
 def cmd_integrate(a: argparse.Namespace) -> int:

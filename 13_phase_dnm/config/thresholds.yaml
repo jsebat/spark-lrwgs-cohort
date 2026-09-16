@@ -77,6 +77,19 @@ final:                       # P15 - decision layer (M3), amended 2026-09-14 (JS
     snv_indel: 0.95          #   107 per proband outside the mask (77 SNV + 30 indel), exonic recall 0.86, exonic FDR 0.08 (JS: "maybe ok for a 2nd tier")
     sv: 0.97                 #   59 cohort-wide = 1.7 / proband, paternal 0.72 (planted recall 0.81)
     tr: 0.997                #   37 / proband cumulative, paternal 0.69 (0.99 would be 106 / proband at 0.59 = noise)
+  # LARGE-SV ROUTING (JS approved 2026-09-16). SVs at or above sv_large_min_svlen use their own threshold and their
+  # own review-class gate; every SV below it keeps the genome-wide tau_q.sv of 0.99 and the genome-wide gate, unchanged.
+  # Planted-deletion recall, genome-wide MODEL throughout -- no new classifier is used:
+  #                                   5 kb    20 kb   50 kb
+  #   production (gate, tau_q 0.99)   0.644   0.149   0.064
+  #   tau 0.95 alone                  0.763   0.149   0.064    tau changes nothing above 5 kb
+  #   tau 0.95 + widened gate         0.881   0.915   0.936    the gate is the whole effect
+  # A dedicated >=5 kb classifier was trained and was WORSE (0.681 / 0.660 at 20 and 50 kb): restricting to >=5 kb
+  # left 263 negatives against the genome-wide model's 22434. `inconclusive` is admitted because a large deletion's
+  # signal is the ABSENCE of reads on the deleted haplotype, which the six-haplotype matrix cannot call phased-germline.
+  sv_large_min_svlen: 5000
+  sv_large_tau_q: 0.95
+  sv_large_rf_branch_classes: [germline_DNM_phased, germline_DNM_unphased, inconclusive]
   tau_q_rescue: 0.99         # legacy name of the pre-0.3.0 rescue branch; used as tier 2 only when tau_q_tier2 is absent
   tr_rescue_min_units: 3     # a TIER-2 TR call needs >= 3 motif units (one-haplotype stutter mimics a phased 1-unit change; cohort PoO 0.56 vs 0.75)
   rules:                     # rule layer, applied after the score to both tiers (JS 2026-09-14). These are rf_safe: false features (P24) -
