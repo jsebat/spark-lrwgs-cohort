@@ -398,9 +398,36 @@ regime where per-variant review is cheapest. The targeted arm may look below the
 depth, junctions, heterozygosity and parental coverage as the variant demands, and records its reasoning per variant
 (P31). For large SVs its scope is SIZE, not the gene panel, so nothing is missed for being outside a gene list.
 
+**Two verdicts, recorded independently (JS, 2026-09-16).** The route does not hand a variant straight to clinical
+interpretation. It opens a small set of RARE AND LARGE candidates that are evaluated for QUALITY first, and only then
+for clinical significance, and **the quality verdict is recorded independently of clinical relevance**. A variant can
+be quality-PASS and clinically uninteresting; that is a complete and useful result, not a null one.
+
+The separation matters for more than tidiness. A quality verdict is a technical judgement about whether the variant is
+real — depth, junctions, heterozygosity, parental coverage, mapping context — and is not biased towards clinical
+yield, so unlike a clinical call it is reusable. Adjudicating these candidates therefore builds the one thing this
+cohort has never had: real large-SV labels. P32 says a large-SV threshold cannot be calibrated because there are no
+real large de novo SVs to calibrate against; a quality-adjudicated set is exactly that missing truth. It may be used
+to validate the EVIDENCE (do the depth and junction criteria agree with a careful reader?) but not to re-fit the
+selector that chose the set, which would be circular.
+
+**The review set, measured.** Rare (leave-one-family-out cohort AC 0 and founder recurrence 0) and at least 5 kb:
+
+| | count |
+|---|---|
+| SV candidates, all | 22,434 |
+| ≥ 5 kb | 366 |
+| **≥ 5 kb AND rare — the review set** | **63** |
+
+63 across 35 children: 1.8 per child, a median of 2 in the 27 children that have any, and at most 6. By type the set
+is **50 insertions, 10 deletions, 3 duplications** — worth stating plainly, because insertions have no interval depth
+evidence at all, so their quality verdict rests on junction and assembly evidence rather than on the depth criteria
+that dominate the deletion discussion above.
+
 **What this does not change.** The genome-wide arm's thresholds, gates and reported metrics are exactly as they were;
 nothing in this section alters a number the classifier produces. And the P31 rule still holds: anything the targeted
-arm reports carries `discovery_mode = targeted_clinical` and never enters a recall, FDR or rate estimate.
+arm reports carries `discovery_mode = targeted_clinical` and never enters a recall, FDR or rate estimate. The quality
+verdict is recorded in its own field, separate from clinical significance, so neither is inferred from the other.
 
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
