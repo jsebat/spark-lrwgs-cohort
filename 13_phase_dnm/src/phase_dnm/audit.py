@@ -195,13 +195,19 @@ def audit_annot(evidence_dir: str, class_groups=("snv_indel", "sv", "tr"),
             out.append(Finding("WARN", "annot:%s" % cls, "no annot tables found"))
             continue
         filled: collections.Counter = collections.Counter()
+        sentinel: collections.Counter = collections.Counter()
         rows = 0
         for p in apaths:
             _, counts, n = _cols_and_counts(p)
             rows += n
             for c, ctr in counts.items():
                 filled[c] += sum(k for v, k in ctr.items() if v not in EMPTYISH)
-        detail = ", ".join("%s %.0f%%" % (c, 100.0 * filled[c] / max(rows, 1))
+                sentinel[c] += sum(k for v, k in ctr.items() if v == ".")
+        # "." is a SENTINEL, not a blank: annotate writes it for "catalogue consulted, no hit", which is the correct
+        # answer almost everywhere -- strchive_locus is "." in 1388832 of 1388873 TR rows and carries a real locus id
+        # (HD_HTT, SCA2_ATXN2, CANVAS_RFC1 ...) in the rest. Counting it as unfilled reported a working join as 0%.
+        detail = ", ".join("%s %.0f%%%s" % (c, 100.0 * filled[c] / max(rows, 1),
+                                            "" if not sentinel[c] else " (+%.0f%% no-hit)" % (100.0 * sentinel[c] / max(rows, 1)))
                            for c in sorted(filled) if c != "variant_id")
         out.append(Finding("INFO", "annot:%s" % cls, "%d tables, %d rows: %s" % (len(apaths), rows, detail)))
     return out
