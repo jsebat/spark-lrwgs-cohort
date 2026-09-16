@@ -42,4 +42,9 @@ while IFS=$'\t' read -r child father mother; do
   n_done=$((n_done+1))
 done < <(awk -F'\t' -v f="$FAMILY" 'NR>1 && $2==f && $7=="offspring" {print $1"\t"$3"\t"$4}' "$MANIFEST")
 [ "$n_done" -gt 0 ] || { echo "ERROR: no child processed for $FAMILY" >&2; exit 3; }
-printf 'OK\t%s\t%d children\tthresholds=%s\n' "$(date -Is)" "$n_done" "$(grep -m1 '^version' "$THR" | cut -d'"' -f2)" > "$ED/.int.status.tmp" && mv "$ED/.int.status.tmp" "$ED/m3_integrate.status"
+# The status file is a breadcrumb, not a result: every class group has already been integrated and written by
+# the time this runs. Under set -euo pipefail a grep that matches nothing makes the whole printf fail, so the
+# tmp file is never created and the mv then fails, marking the task FAILED even though its outputs are
+# complete -- which is what happened to 2 of 33 families and would have stalled anything waiting on the array.
+THRV=$(grep -m1 '^version' "$THR" 2>/dev/null | cut -d'"' -f2 || true)
+printf 'OK\t%s\t%d children\tthresholds=%s\n' "$(date -Is)" "$n_done" "${THRV:-unknown}" > "$ED/.int.status.tmp" && mv "$ED/.int.status.tmp" "$ED/m3_integrate.status" || echo "WARNING: status breadcrumb not written for $FAMILY (outputs are complete)" >&2
