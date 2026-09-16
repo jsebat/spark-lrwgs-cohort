@@ -169,6 +169,10 @@ class SiteQC:
     margin: int = 30
     min_mapq: int = 20
     pad: int = 2500               # slice half-width around a site (>= review windows + read overhang)
+    # A large deletion needs a much wider slice than a small variant: sv_interval_evidence measures flanking depth in
+    # a probe window at start - 22000 .. start - 20000, so a 2.5 kb slice contains no reads where the evidence layer
+    # looks and every depth and junction feature comes back empty.
+    big_pad: int = 25000          # slice half-width for BIGDEL sites (> the 22 kb flank probe of sv_interval_evidence)
     spacing: int = 60000          # min distance between planted sites (no read spans two)
     max_tries_per_site: int = 400
 
@@ -238,8 +242,16 @@ def plan_sites(bams: Dict[str, object], tr_bams: Dict[str, object], labels, regi
                 site = _try_tr_site(locus, tr_bams, labels, rng, qc, sc, L, cf, pf, family, child, n_item, seed)
             else:
                 chrom, rs, re_ = regions[rng.randrange(len(regions))]
-                pos1 = rng.randrange(rs + qc.pad, re_ - qc.pad)
-                if any(abs(pos1 - u) < qc.spacing for u in used[chrom]):
+                # the anchor must leave room for the event AND its slice at both ends
+                lo_pad = qc.big_pad if sub == "BIGDEL" else qc.pad
+                hi = re_ - lo_pad - (L if sub == "BIGDEL" else 0)
+                if hi <= rs + lo_pad:
+                    stats["skip_window"] += 1
+                    continue
+                pos1 = rng.randrange(rs + lo_pad, hi)
+                # a planted event must clear its neighbours by the spacing AND by its own length, or two large
+                # deletions can overlap even while their anchors are far enough apart
+                if any(abs(pos1 - u) < qc.spacing + (L if sub == "BIGDEL" else 0) for u in used[chrom]):
                     stats["skip_spacing"] += 1
                     continue
                 if mask is not None and mask.overlap_bp(chrom, pos1, pos1 + max(1, L)) > 0:
@@ -259,12 +271,11 @@ def plan_sites(bams: Dict[str, object], tr_bams: Dict[str, object], labels, regi
     return plan, cands, dict(stats)
 
 
-def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, family, child, n_item, seed, stats):
-    pos0 = pos1 - 1
-    s0, e0 = pos0 - qc.margin, pos0 + max(1, L) + qc.margin + 1
-    reads = {role: _reads_at(b, chrom, s0, e0, qc) for role, b in bams.items()}
+def _window_qc(chrom, w0, w1, anchor0, bams, qc, stats, check_clean):
+    """QC one window: every haplotype of every sample readable and unanimous at `anchor0`, and optionally a clean
+    indel-free alignment across [w0, w1). Returns (reads, alns, allr) or None."""
+    reads = {role: _reads_at(b, chrom, w0, w1, qc) for role, b in bams.items()}
     alns = {role: [aln_of(r) for r in rs] for role, rs in reads.items()}
-    # every haplotype of every sample: >= k readable reads, unanimous base at the anchor
     for role in ("C", "F", "M"):
         by_hp: Dict[int, List[E.Aln]] = defaultdict(list)
         for r, a in zip(reads[role], alns[role]):
@@ -272,16 +283,40 @@ def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, famil
             if h:
                 by_hp[h].append(a)
         for h in (1, 2):
-            b, n, f = consensus_base(by_hp[h], pos0)
+            b, n, f = consensus_base(by_hp[h], anchor0)
             if n < qc.k or f < qc.unanimity or b is None or b == "N":
                 stats["skip_hap_qc"] += 1
                 return None
     allr = [a for role in alns for a in alns[role]]
-    if cls != "SNV":
-        clean = sum(1 for a in allr if clean_window(a, s0, e0))
+    if check_clean:
+        clean = sum(1 for a in allr if clean_window(a, w0, w1))
         if not allr or clean / len(allr) < qc.clean_frac:
             stats["skip_window"] += 1
             return None
+    return reads, alns, allr
+
+
+def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, family, child, n_item, seed, stats):
+    pos0 = pos1 - 1
+    if sub == "BIGDEL":
+        # A deletion longer than a read cannot be validated across its whole span. _reads_at keeps only reads that
+        # cover the window end to end and clean_window then demands that span be indel-free, so for a 5-50 kb event
+        # both are unsatisfiable: no HiFi read is that long. That is the same fact P28 rests on, and it silently
+        # rejected every large deletion this planter was written for -- four runs, 448 planned items each, zero
+        # BIGDEL placed, all of them counted as skip_window or skip_hap_qc. A large event is validated at its two
+        # BREAKPOINTS instead, which is what the planter edits and what the evidence layer measures.
+        left = _window_qc(chrom, pos0 - qc.margin, pos0 + qc.margin + 1, pos0, bams, qc, stats, True)
+        if left is None:
+            return None
+        if _window_qc(chrom, pos0 + L - qc.margin, pos0 + L + qc.margin + 1, pos0 + L, bams, qc, stats, True) is None:
+            return None
+        reads, alns, allr = left
+    else:
+        s0, e0 = pos0 - qc.margin, pos0 + max(1, L) + qc.margin + 1
+        got = _window_qc(chrom, s0, e0, pos0, bams, qc, stats, cls != "SNV")
+        if got is None:
+            return None
+        reads, alns, allr = got
     h1, cps, par = _labels_at(labels, chrom, pos1, reads["C"], {"F": reads["F"], "M": reads["M"]})
     if h1 is None or cps is None:
         stats["skip_unoriented"] += 1
@@ -473,7 +508,8 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
         rows.sort(key=lambda r: (bam.get_tid(r.chrom), r.pos))
         with pysam.AlignmentFile(out_path, "wb", template=bam) as out:
             for row in rows:
-                s0, e0 = row.pos - 1 - qc.pad, row.pos - 1 + row.length + qc.pad
+                pad = qc.big_pad if row.subtype == "BIGDEL" else qc.pad
+                s0, e0 = row.pos - 1 - pad, row.pos - 1 + row.length + pad
                 for read in bam.fetch(row.chrom, max(0, s0), e0):
                     if read.is_unmapped:
                         continue
