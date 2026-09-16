@@ -429,6 +429,33 @@ nothing in this section alters a number the classifier produces. And the P31 rul
 arm reports carries `discovery_mode = targeted_clinical` and never enters a recall, FDR or rate estimate. The quality
 verdict is recorded in its own field, separate from clinical significance, so neither is inferred from the other.
 
+### P33 — The clinical workflow has two arms that run in OPPOSITE order (JS, 2026-09-16)
+
+Both arms evaluate quality and clinical significance. They differ in which comes first, and that difference decides
+what their quality verdicts may later be used for.
+
+| | arm A: rare + large | arm B: clinically led |
+|---|---|---|
+| what selects the candidate | SIZE and rarity (≥ 5 kb, cohort AC 0, founder recurrence 0) | gene panel, predicted impact, phenotype |
+| order | **quality first**, then clinical significance | **clinical relevance first**, then quality |
+| set size in this cohort | 63, about 1.8 per child | as large as the panel and the phenotype make it |
+| how MECP2 was actually found | — | this arm |
+
+**Both orders are correct for their arm**, and JS has accepted the asymmetry. Arm A starts from a set nobody chose for
+being interesting, so quality is the only question that can be asked first. Arm B starts from a variant that matters
+if real, so it is rational to ask whether it matters before spending effort on whether it is real.
+
+**The consequence, which must not be lost.** Arm A's candidate set is selected by size and rarity — criteria
+independent of the classifier's score and of clinical interest — so its quality verdicts are an UNBIASED sample and
+may serve as validation truth for the evidence (P32). Arm B's set is selected by clinical relevance, so its quality
+verdicts are conditioned on the variant already being interesting. They are entirely valid for reporting that variant
+and NOT valid as a general truth set: a precision computed over arm B's adjudicated variants describes the panel, not
+the caller.
+
+So the two arms' quality verdicts are recorded with the arm that produced them and are never pooled into one
+"validated set". Both carry `discovery_mode = targeted_clinical` (P31) and neither enters a recall, FDR or rate
+estimate for the genome-wide caller.
+
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
 
