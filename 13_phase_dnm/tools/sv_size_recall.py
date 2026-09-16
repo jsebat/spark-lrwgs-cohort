@@ -115,7 +115,10 @@ def main():
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--thresholds")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out"
+    ap.add_argument("--per-site-out")
+    ap.add_argument("--tau-override", type=float, help="use this tau instead of the production one (a size-specific arm has its own)")
+    ap.add_argument("--rf-branch-classes", help="comma-separated review classes the score branch accepts; a size-specific arm may widen this"), required=True)
     ap.add_argument("--per-site-out", help="also write the per-row table behind the curve")
     a = ap.parse_args()
 
@@ -168,8 +171,16 @@ def main():
     sys.stderr.write("scoring with %s, tau=%.6g (%d spike rows, %d real rows for the ecdf)\n"
                      % ("rf_q" if use_q else "rf_prob", tau, len(df), len(rdf)))
 
+    if a.tau_override is not None:
+        tau, use_q = float(a.tau_override), True
+        sys.stderr.write("tau OVERRIDDEN to %.6g (size-specific arm)%s" % (tau, chr(10)))
     p_on = _params(a.thresholds, True, tau, float(tau2) if tau2 is not None else None)
     p_off = _params(a.thresholds, False, tau, float(tau2) if tau2 is not None else None)
+    if a.rf_branch_classes:
+        br = tuple(x.strip() for x in a.rf_branch_classes.split(",") if x.strip())
+        p_on.rf_branch_classes = br
+        p_off.rf_branch_classes = br
+        sys.stderr.write("review-class gate widened for this arm: %s%s" % (", ".join(br), chr(10)))
     recs = df.to_dict("records")
     dec_on = [I.decide(r, p_on, float(score[i])) for i, r in enumerate(recs)]
     dec_off = [I.decide(r, p_off, float(score[i])) for i, r in enumerate(recs)]
