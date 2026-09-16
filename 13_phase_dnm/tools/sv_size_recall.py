@@ -58,7 +58,10 @@ def _read_some(path, cols):
 
 
 def _params(thresholds_path, rule_on, tau_value, tau_tier2):
-    thr = json.load(open(thresholds_path)) if thresholds_path and os.path.exists(thresholds_path) else {}
+    # the module ships config/thresholds.yaml, not JSON; use its own loader so this tool cannot drift from the
+    # thresholds the pipeline actually applies
+    from phase_dnm.cli import load_thresholds
+    thr = load_thresholds(thresholds_path) if thresholds_path else {}
     f = thr.get("final", {}) or {}
     rules = dict(I.DEFAULT_RULES)
     rules.update(f.get("rules") or {})
