@@ -490,8 +490,12 @@ fraction of **0.5000 exactly** (36 of 72) against 0.786 unflagged, p = 1.1e-8 â€
    of rows (99.6% of SNVs). It measures the purity of the CHILD's read partition, not confidence in the parent.
    Filtering on it removes almost nothing and keeps all 72 worthless change-point calls. Redefining it would change
    the meaning of a published column, so it is documented in place and left for an explicit decision.
-3. **Change-point calls are emitted as `poo_reason = OK`** with `poo_confidence` 1.0; the warning survives only in the
-   free-text `flags`. Setting them `undetermined` would cost 120 of 3,853 calls (3.1%) and is the obvious next step.
+3. **Change-point calls were emitted as `poo_reason = OK`** with `poo_confidence` 1.0, the warning surviving only in
+   the free-text `flags`, so anything reading `parent_of_origin` took a coin toss at face value. **FIXED (JS,
+   2026-09-16: "state undetermined/changepoint clearly").** A row carrying any of `NEAR_CHANGE_POINT_F`,
+   `NEAR_CHANGE_POINT_M` or `NEAR_CHILD_SWITCH` now reports `parent_of_origin = undetermined`,
+   `poo_reason = PHASE_SWITCH_RISK:<flags>` and a null confidence, in both the review path and the reclassify path
+   (`hapmatrix.poo_clear_near_switch`). Cost: 120 of 3,853 calls, 3.1%.
 
 **What could not be measured.** There is no ground-truth PoO in this cohort, so no per-call accuracy is stated. The
 quad sibling test has essentially no power: 2 shared called loci in the entire cohort, both agreeing. Extending it to

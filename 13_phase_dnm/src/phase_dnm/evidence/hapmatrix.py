@@ -559,6 +559,30 @@ READ_QUALITY_KEYS = ("c_alt_mapq_mean", "c_alt_nm_rate", "c_ref_nm_rate", "c_alt
 POSITIONAL_FLAGS = ("NEAR_CHANGE_POINT_F", "NEAR_CHANGE_POINT_M", "NEAR_CHILD_SWITCH")
 
 
+def poo_clear_near_switch(t: Dict[str, object], flags: object) -> Dict[str, object]:
+    """Blank the parent of origin where the phase geometry says it cannot be believed.
+
+    Within 50 kb of a parental change point or a child haplotype switch, the child's haplotype labels may be the wrong
+    way round, so the parent the alt reads point to may be the wrong parent. Measured on the cohort's SNV calls, rows
+    flagged NEAR_CHANGE_POINT have a paternal fraction of 0.5000 EXACTLY (36 of 72) against 0.786 for unflagged rows,
+    p = 1.1e-8 -- a coin toss, which is what an assignment with no information looks like. NEAR_CHILD_SWITCH gives
+    0.623 vs 0.781 (p = 0.0036). Negative controls do not behave this way (LOW_HAP_DEPTH p = 0.59, AMBIGUOUS_READS
+    p = 0.43), so this is specific to phase geometry rather than to flags in general.
+
+    Until now those rows were emitted as `poo_reason = OK` with `poo_confidence` 1.0 and the warning visible only in
+    free-text flags, so anything reading the parent_of_origin column took a coin toss at face value. They are now
+    `undetermined` and say why. Cost: 120 of 3853 calls, 3.1%."""
+    fl = {x for x in str(flags or "").split(";") if x}
+    hit = sorted(fl & set(POSITIONAL_FLAGS))
+    if not hit or t.get("parent_of_origin") in (None, "", "undetermined"):
+        return t
+    out = dict(t)
+    out["parent_of_origin"] = "undetermined"
+    out["poo_reason"] = "PHASE_SWITCH_RISK:" + ",".join(hit)
+    out["poo_confidence"] = None
+    return out
+
+
 def reclassify_row(row: Dict[str, object], hp: HapParams, cp: ClassParams, thresholds_version: Optional[str] = None) -> Dict[str, object]:
     """Recompute the count-derived features, the transmission block and the P8 class from an evidence row.
     Read-quality summaries and the M1 positional flags (which need the label tables) are carried over."""
@@ -568,6 +592,7 @@ def reclassify_row(row: Dict[str, object], hp: HapParams, cp: ClassParams, thres
     c = classify(m, f, t, hp, cp)
     old_flags = [x for x in str(row.get("flags") or "").split(";") if x in POSITIONAL_FLAGS]
     c["flags"] = ";".join([x for x in c["flags"].split(";") if x] + old_flags)
+    t = poo_clear_near_switch(t, c["flags"])
     out = dict(row)
     out.update({k: v for k, v in f.items() if k not in READ_QUALITY_KEYS})
     out.update(t)

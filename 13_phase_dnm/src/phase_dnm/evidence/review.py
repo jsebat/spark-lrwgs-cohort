@@ -92,6 +92,8 @@ def review_child(candidates_tsv: str, out_tsv: str, bams: TrioBams, labels: H.La
             c = H.classify(m, f, t, hp, cp, labels, rec.chrom, rec.start, sv=H.sv_depth_features(sv_raw) | sv_raw if sv_raw else None)
             row = {k: v for k, v in asdict(rec).items() if k in cols}
             row["class_payload"] = json.dumps(rec.class_payload, separators=(",", ":"), sort_keys=True)
+            # a parent of origin inside a phase-switch window is a coin toss (P34); say undetermined, not OK
+            t = H.poo_clear_near_switch(t, c.get("flags"))
             row.update(c); row.update(t); row.update(f)
             if sv_raw:
                 row.update(sv_raw); row.update(H.sv_depth_features(sv_raw))
