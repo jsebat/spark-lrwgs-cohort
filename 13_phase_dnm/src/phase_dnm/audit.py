@@ -73,7 +73,9 @@ def audit_features(evidence_dir: str, registry, class_groups=("snv_indel", "sv",
     narrowed. Both end up discarded by the presence-leak guard, so neither is visible in a model's metrics."""
     out: List[Finding] = []
     for cls in class_groups:
-        paths = sorted(glob.glob(os.path.join(evidence_dir, "*", "features", "*.%s.features.rf.tsv" % cls)))
+        # the FULL table, not *.features.rf.tsv: features marked rf_safe:false are kept out of the classifier matrix
+        # by design (P13/P22), so auditing the rf subset would report every one of them as missing
+        paths = sorted(glob.glob(os.path.join(evidence_dir, "*", "features", "*.%s.features.tsv" % cls)))
         if max_children:
             paths = paths[:max_children]
         if not paths:
@@ -181,11 +183,14 @@ def audit_spike_plan(evidence_dir: str) -> List[Finding]:
     return out
 
 
-def audit_annot(evidence_dir: str, class_groups=("snv_indel", "sv", "tr")) -> List[Finding]:
+def audit_annot(evidence_dir: str, class_groups=("snv_indel", "sv", "tr"),
+                annot_dir: Optional[str] = None) -> List[Finding]:
     """An annot table that is full while the matching feature matrix column is empty means the join never happened."""
     out: List[Finding] = []
     for cls in class_groups:
-        apaths = sorted(glob.glob(os.path.join(evidence_dir, "*", "annot", "*.%s.annot.tsv" % cls)))
+        apaths = sorted(glob.glob(os.path.join(evidence_dir, "*", "annot", "*.%s.annot.tsv" % cls))
+                        or (glob.glob(os.path.join(annot_dir, "**", "*.%s.annot.tsv" % cls), recursive=True)
+                            if annot_dir else []))
         if not apaths:
             out.append(Finding("WARN", "annot:%s" % cls, "no annot tables found"))
             continue
@@ -203,10 +208,10 @@ def audit_annot(evidence_dir: str, class_groups=("snv_indel", "sv", "tr")) -> Li
 
 
 def run(evidence_dir: str, registry, harness_dir: Optional[str] = None, spike: bool = True,
-        class_groups=("snv_indel", "sv", "tr"), log=print) -> int:
+        class_groups=("snv_indel", "sv", "tr"), annot_dir: Optional[str] = None, log=print) -> int:
     findings: List[Finding] = []
     findings += audit_features(evidence_dir, registry, class_groups)
-    findings += audit_annot(evidence_dir, class_groups)
+    findings += audit_annot(evidence_dir, class_groups, annot_dir=annot_dir)
     if harness_dir:
         findings += audit_model_vs_matrix(harness_dir, evidence_dir, class_groups)
     if spike:

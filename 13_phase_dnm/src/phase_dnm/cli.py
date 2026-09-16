@@ -313,6 +313,7 @@ def cmd_audit(a: argparse.Namespace) -> int:
     reg = Registry(a.registry)
     groups = tuple(a.class_group) if a.class_group else ("snv_indel", "sv", "tr")
     return AU.run(a.evidence_dir, reg, harness_dir=a.harness_dir, spike=a.spike, class_groups=groups,
+                  annot_dir=a.annot_dir,
                   log=lambda m: sys.stderr.write(m + chr(10)))
 
 
@@ -908,6 +909,7 @@ def build_parser() -> argparse.ArgumentParser:
     au = sub.add_parser("audit", help="P30: assert that what the config declares is what the data contains")
     au.add_argument("--evidence-dir", required=True)
     au.add_argument("--harness-dir", help="a harness output dir; enables the train/score column check")
+    au.add_argument("--annot-dir", help="cohort annot directory (default: look under <evidence>/<family>/annot)")
     au.add_argument("--registry", help="config/features.yaml (default: the module's)")
     au.add_argument("--class-group", action="append", choices=["snv_indel", "sv", "tr"],
                     help="restrict to these class groups (repeatable; default all three)")
