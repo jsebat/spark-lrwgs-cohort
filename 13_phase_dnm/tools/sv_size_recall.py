@@ -144,14 +144,27 @@ def main():
     tj = os.path.join(a.harness_dir, "tau.sv.json")
     t = json.load(open(tj)) if os.path.exists(tj) else {}
     use_q = t.get("score_column") == "rf_q"
-    if use_q and t.get("tau_q") is not None:
+    # PRODUCTION FIRST: config/thresholds.yaml final.tau_q is what integrate applies; the harness tau.sv.json holds the
+    # generic 0.1%-pass-rate default (0.999) that nothing downstream uses. Reading the harness value measured a
+    # threshold the pipeline does not run at -- SV is set to 0.99 by a deliberate 2026-09-14 sweep.
+    from phase_dnm.cli import load_thresholds
+    _thr = load_thresholds(a.thresholds) if a.thresholds else {}
+    _fin = (_thr.get("final") or {})
+    _tq = (_fin.get("tau_q") or {}).get("sv")
+    if _tq is not None:
+        tau, use_q = float(_tq), True
+        sys.stderr.write("tau from thresholds final.tau_q.sv = %.6g (production)
+" % tau)
+    elif use_q and t.get("tau_q") is not None:
         tau = float(t["tau_q"])
     elif t.get("tau") is not None:
         tau = float(t["tau"])
     else:
         sys.stderr.write("no tau in %s; refusing to invent one\n" % tj)
         return 2
-    tau2 = t.get("tau_q_rescue") if use_q else t.get("tau_tier2")
+    tau2 = (_fin.get("tau_q_tier2") or {}).get("sv")
+    if tau2 is None:
+        tau2 = t.get("tau_q_rescue") if use_q else t.get("tau_tier2")
     score = df["rf_q"].to_numpy() if use_q else df["prob"].to_numpy()
     sys.stderr.write("scoring with %s, tau=%.6g (%d spike rows, %d real rows for the ecdf)\n"
                      % ("rf_q" if use_q else "rf_prob", tau, len(df), len(rdf)))
