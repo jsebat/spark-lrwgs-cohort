@@ -15,12 +15,13 @@ set -euo pipefail
 FAMILY="${1:-}"
 if [ -z "$FAMILY" ] && [ -n "${LIST:-}" ] && [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then FAMILY=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST"); fi
 [ -n "$FAMILY" ] || { echo "usage: $0 <FAMILY_ID>  (or LIST + array)" >&2; exit 2; }
-HERE="${PHASE_DNM_HOME:-}"
-[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+HERE="${PHASING_HOME:-${PHASE_DNM_HOME:-}}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/trio_phase" ] && HERE="$SLURM_SUBMIT_DIR"; }
 [ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -d "$HERE/src/phase_dnm" ] || { echo "ERROR: cannot locate the 13_phase_dnm directory; got '$HERE'" >&2; exit 2; }
-source "$HERE/config/phase_dnm.env"
-: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+[ -d "$HERE/src/trio_phase" ] || { echo "ERROR: cannot locate the 01_phasing directory; got '$HERE'" >&2; exit 2; }
+source "$HERE/config/phasing.env"
+: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}"
+PY="${PHASING_PYTHON:-${PHASE_DNM_PYTHON:-}}"; : "${PY:?set PHASING_PYTHON (or PHASE_DNM_PYTHON) to a Python >= 3.10}"
 export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 OUT="$PHASE_DIR/$FAMILY"
 
@@ -39,7 +40,7 @@ while IFS=$'\t' read -r child father mother; do
     [ -s "$f" ] || { echo "ERROR: a parent BAM/VCF or its index was not found for $FAMILY" >&2; exit 3; }
   done
   t0=$(date +%s)
-  "$PHASE_DNM_PYTHON" -m phase_dnm.cli xo-reads --changepoints "$CP" --out "$OUT/$child.changepoints.resolved.tsv" \
+  "$PY" -m trio_phase.cli xo-reads --changepoints "$CP" --out "$OUT/$child.changepoints.resolved.tsv" \
       --father "$father" --father-bam "$(bam_of "$father")" --father-bai "$(bai_of "$father")" \
       --father-vcf "$(vcf_of "$father")" --father-vcf-index "$(tbi_of "$father")" \
       --mother "$mother" --mother-bam "$(bam_of "$mother")" --mother-bai "$(bai_of "$mother")" \

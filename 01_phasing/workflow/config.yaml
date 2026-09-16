@@ -1,0 +1,2 @@
+# Snakemake configuration for 01_phasing. Paths come from the (gitignored) environment file; nothing identifying lives here.
+env: config/phasing.env

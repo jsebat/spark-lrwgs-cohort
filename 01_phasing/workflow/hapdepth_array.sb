@@ -9,7 +9,7 @@
 #SBATCH --mem=2G
 #SBATCH --time=01:00:00
 # M1 hapdepth over the cohort as a job array: one task per SAMPLE, per-haplotype depth in 1 kb bins (DESIGN P7).
-# Usage (from the 13_phase_dnm directory):
+# Usage (from the 01_phasing directory):
 #   sbatch --array=1-$(wc -l < "$LIST")%25 --export=ALL,LIST="$LIST" workflow/hapdepth_array.sb
 # LIST: one sample id per line, built from the manifest at submission time (data; *.samples.txt is gitignored).
 # The BAM path is the manifest's lr_haplotagged_bam column; its index is the same name in the sibling
@@ -17,10 +17,11 @@
 # ~4,200 primary reads/s, 56 MB RSS -> ~17 min and well under 1 GB for a ~22x genome.
 set -euo pipefail
 : "${LIST:?LIST=/path/to/hapdepth.samples.txt must be exported}" "${SLURM_ARRAY_TASK_ID:?run as an array}"
-HERE="${PHASE_DNM_HOME:-${SLURM_SUBMIT_DIR:?}}"
-[ -f "$HERE/src/phase_dnm/phasing/hapdepth.py" ] || { echo "ERROR: $HERE is not the 13_phase_dnm directory" >&2; exit 2; }
-source "$HERE/config/phase_dnm.env"
-: "${MANIFEST:?}" "${PHASE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+HERE="${PHASING_HOME:-${PHASE_DNM_HOME:-${SLURM_SUBMIT_DIR:?}}}"
+[ -f "$HERE/src/trio_phase/phasing/hapdepth.py" ] || { echo "ERROR: $HERE is not the 01_phasing directory" >&2; exit 2; }
+source "$HERE/config/phasing.env"
+: "${MANIFEST:?}" "${PHASE_DIR:?}"
+PY="${PHASING_PYTHON:-${PHASE_DNM_PYTHON:-}}"; : "${PY:?set PHASING_PYTHON (or PHASE_DNM_PYTHON) to a Python >= 3.10}"
 export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST")
 [ -n "$SAMPLE" ] || { echo "ERROR: no sample on line $SLURM_ARRAY_TASK_ID of $LIST" >&2; exit 2; }
@@ -39,7 +40,7 @@ BAI="${BAM/merged_haplotagged_bam\//merged_haplotagged_bam_index/}.bai"
 [ -s "$BAI" ] || { echo "ERROR: BAM index not found (tried sibling *_index dir and .bai beside the BAM)" >&2; exit 3; }
 OUT="$PHASE_DIR/hapdepth"; mkdir -p "$OUT"
 t0=$(date +%s)
-"$PHASE_DNM_PYTHON" -m phase_dnm.cli hapdepth --bam "$BAM" --bai "$BAI" \
+"$PY" -m trio_phase.cli hapdepth --bam "$BAM" --bai "$BAI" \
     --out "$OUT/$SAMPLE.hapdepth.tsv.gz" --summary "$OUT/$SAMPLE.hapdepth.summary.json" \
     --bin-size 1000 --min-mapq 20
 echo "hapdepth done for one sample in $(( $(date +%s) - t0 )) s"

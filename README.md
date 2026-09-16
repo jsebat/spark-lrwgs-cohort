@@ -23,7 +23,7 @@ identifiers as arguments and never embed them. **Run `scripts/phi_scan.sh` befor
 push.** This repository is distinct from the earlier per-family clinical-interpretation
 workflow, which is not included.
 
-Directory order is execution order: `00_upstream` (alignment and variant calling: how the per-family PacBio WDL was run) → `01_qc` → `02_tiering` → `03_panel` → `04_burden`,
+Directory order is execution order: `00_upstream` (alignment and variant calling: how the per-family PacBio WDL was run) → `01_qc`, `01_phasing` → `02_tiering` → `03_panel` → `04_burden`,
 `05_denovo`, `06_inheritance`, `07_ascertainment`, `08_phenotype`.
 
 ## Relationship to the per-family workflow
@@ -91,10 +91,22 @@ breakpoint-spanning reads, which is what connects a de novo SV to the direction 
 screens de novo and rare X-linked variants against skew with a synonymous-variant control for ancestry. Note that
 skewing is acquired with age, so generations should not be pooled when defining outliers.
 
+### Trio and physical phasing (01_phasing)
+Turns a family's read-based (HiPhase) phase blocks into biological phase, without re-phasing: every block in the
+child is oriented to parent of origin by Mendelian vote at sites where exactly one assignment is consistent with
+the parents' genotypes, and a transmitted/untransmitted map is derived for each parent. Where the transmitted
+haplotype changes inside a parent's block, the VCF level cannot say whether that is a crossover or a switch error
+in the parent's own phasing — the two are indistinguishable there and switch errors outnumber crossovers roughly
+ten to one — so every change point is emitted as a candidate and then resolved against the parent's haplotagged
+reads by allele concordance across each gap between consecutive phased heterozygous sites. Outputs are
+per-segment orientation, per-parent transmission, typed change points (`CROSSOVER` / `SWITCH_ERROR` /
+`AMBIGUOUS`), per-haplotype binned depth and a gated per-child QC table. The tables stand on their own — parent of
+origin for inherited variants, imprinting, recombination maps — and are consumed **by path** by `13_phase_dnm`,
+which is where this code was built and lived until it was extracted unchanged. See `01_phasing/README.md`.
+
 ### Phase-aware de novo calling (13_phase_dnm) — design stage
-Turns trio phase into primary evidence for de novo calling, uniformly for SNV/indel, SV and TR. Module 1 orients
-every HiPhase block in the child to parent of origin by Mendelian vote and derives a transmitted/untransmitted map
-per parent with typed crossover boundaries, without re-phasing. Module 2 builds a six-haplotype evidence matrix
+Turns trio phase into primary evidence for de novo calling, uniformly for SNV/indel, SV and TR. It consumes the
+phasing tables of `01_phasing` by path and adds nothing to them. Module 2 builds a six-haplotype evidence matrix
 (M1 M2 F1 F2 C-mat C-pat) per candidate from the WDL outputs that already exist (HiPhase haplotag tables, sawfish
 supporting reads, TRGT per-read allele lengths), classifies each candidate (germline phased/unphased, child
 postzygotic mosaic, parental mosaic transmitted, inherited-missed-in-parent, phase-conflict artefact, inconclusive)
@@ -104,4 +116,4 @@ de novo set). Module 4 retrains the classifier with phase features under swap-cl
 every feature is registered in `config/features.yaml` with an `rf_safe` flag saying whether it is computable
 identically for SynthDNM's pedigree-swapped positives. Design decisions with rationale, the SynthDNM one-pager, the
 CV design and an overclaim register are in `13_phase_dnm/DESIGN.md`; interfaces and file formats in its `README.md`;
-the Module 1 build plan in `PLAN_MODULE1.md`. No code yet.
+the running build log in `PLAN_MODULE1.md`.

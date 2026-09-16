@@ -21,9 +21,11 @@ DECISIONS.md
 *report*.pdf
 __pycache__/
 13_phase_dnm/config/phase_dnm.env
+01_phasing/config/phasing.env
+01_phasing/.pytest_cache/
 13_phase_dnm/.pytest_cache/
 
-# snakemake runtime state (13_phase_dnm workflow)
+# snakemake runtime state (01_phasing and 13_phase_dnm workflows)
 .snakemake/
 
 # 00_upstream site configuration (paths, account)

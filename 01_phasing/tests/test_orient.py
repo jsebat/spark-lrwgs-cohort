@@ -4,8 +4,8 @@ import subprocess
 import sys
 
 from conftest import read_tsv
-from phase_dnm.io.vcf import VcfReader, iter_trio
-from phase_dnm.phasing import orient as O
+from trio_phase.io.vcf import VcfReader, iter_trio
+from trio_phase.phasing import orient as O
 
 
 def test_assign_rule():
@@ -176,7 +176,7 @@ def test_cli_end_to_end(minitrio, tmp_path):
     out = tmp_path / "phase"
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(os.path.dirname(__file__), "..", "src")
-    cmd = [sys.executable, "-m", "phase_dnm.cli", "orient", "--child", c, "--manifest", p["manifest"],
+    cmd = [sys.executable, "-m", "trio_phase.cli", "orient", "--child", c, "--manifest", p["manifest"],
            "--child-vcf", p["child"], "--father-vcf", p["father"], "--mother-vcf", p["mother"],
            "--out-dir", str(out)]
     r = subprocess.run(cmd, capture_output=True, text=True, env=env)
@@ -187,5 +187,5 @@ def test_cli_end_to_end(minitrio, tmp_path):
     assert summ["child"] == c and summ["father"] == f and summ["mother"] == m
     assert os.path.exists(out / ("%s.orientation.dissent.tsv" % c))
     # planned sub-commands refuse cleanly
-    r2 = subprocess.run([sys.executable, "-m", "phase_dnm.cli", "haplotag"], capture_output=True, text=True, env=env)
+    r2 = subprocess.run([sys.executable, "-m", "trio_phase.cli", "haplotag"], capture_output=True, text=True, env=env)
     assert r2.returncode != 0 and "not implemented" in (r2.stderr + r2.stdout)

@@ -1,0 +1,96 @@
+# 01_phasing — Snakemake orchestration.
+#
+# The four M1 rules of 13_phase_dnm/workflow/Snakefile, moved here unchanged apart from the module name,
+# the package name and the environment file. Thin layer over the family scripts in this directory:
+# every rule runs one proven `*.sb` with the same environment file (config/phasing.env) and the same
+# resources the sbatch headers used.
+#
+#   orient+transmission -> xo-reads -> hapdepth (per sample) -> phase-qc (cohort) -> audit
+#
+# Usage on Expanse:   snakemake all --profile workflow/profiles/expanse -j 40
+# Dry run:            snakemake all -n -s workflow/Snakefile --configfile workflow/config.yaml
+# Families = the complete-trio families of the manifest (duos excluded). Identifiers stay in the manifest.
+import csv, os
+
+configfile: "workflow/config.yaml"
+
+ENV = config["env"]                      # config/phasing.env (gitignored; the example is config/phasing.env.example)
+HERE = os.path.abspath(os.path.dirname(workflow.snakefile) + "/..")
+
+
+def env_value(key):
+    """Read one KEY=... line from the env file (paths only; no shell expansion beyond $LRC/$HOME)."""
+    vals = {}
+    with open(ENV) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            v = v.split("#")[0].strip().strip('"')
+            vals[k.strip()] = v
+    v = vals.get(key, "")
+    for k2 in ("LRC", "HOME"):
+        v = v.replace("$" + k2, vals.get(k2, os.environ.get(k2, "")))
+    return v
+
+
+MANIFEST = env_value("MANIFEST")
+PHASE_DIR = env_value("PHASE_DIR")
+
+
+def complete_trio_families():
+    fams, kids = set(), []
+    with open(MANIFEST, newline="") as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    ids = {r["sample_id"] for r in rows}
+    for r in rows:
+        if r["role"] == "offspring" and r["father_id"] in ids and r["mother_id"] in ids:
+            fams.add(r["family_id"]); kids.append((r["family_id"], r["sample_id"]))
+    return sorted(fams), kids
+
+
+FAMILIES, CHILDREN = complete_trio_families()
+SAMPLES = sorted({r["sample_id"] for r in csv.DictReader(open(MANIFEST, newline=""), delimiter="\t")
+                  if r["family_id"] in FAMILIES})
+SB = lambda name: os.path.join(HERE, "workflow", name)
+COMMON = "export PHASING_HOME=%s; " % HERE
+
+
+rule all:
+    input:
+        os.path.join(PHASE_DIR, "cohort_phase_qc.tsv"),
+        os.path.join(PHASE_DIR, "audit.status"),
+
+
+rule orient:
+    output: os.path.join(PHASE_DIR, "{family}", "m1.status")
+    resources: mem_mb=4000, runtime=120, cpus_per_task=1
+    shell: COMMON + "bash " + SB("m1_orient_family.sb") + " {wildcards.family} && printf 'OK\\n' > {output}"
+
+rule xoreads:
+    input: rules.orient.output
+    output: os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status")
+    resources: mem_mb=4000, runtime=120, cpus_per_task=1
+    shell: COMMON + "bash " + SB("m1_xoreads_family.sb") + " {wildcards.family} && printf 'OK\\n' > {output}"
+
+rule hapdepth:
+    # hapdepth_array.sb is written for a sample array (LIST + SLURM_ARRAY_TASK_ID); one sample per rule instance
+    output: os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz")
+    resources: mem_mb=4000, runtime=240, cpus_per_task=1
+    shell:
+        COMMON + "mkdir -p %s/hapdepth/lists && echo {wildcards.sample} > %s/hapdepth/lists/{wildcards.sample}.txt && "
+        "LIST=%s/hapdepth/lists/{wildcards.sample}.txt SLURM_ARRAY_TASK_ID=1 bash " % (PHASE_DIR, PHASE_DIR, PHASE_DIR) + SB("hapdepth_array.sb")
+
+rule phase_qc:
+    input: expand(os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status"), family=FAMILIES), expand(os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz"), sample=SAMPLES)
+    output: os.path.join(PHASE_DIR, "cohort_phase_qc.tsv")
+    resources: mem_mb=4000, runtime=30, cpus_per_task=1
+    shell: COMMON + "source %s; PY=${{PHASING_PYTHON:-$PHASE_DNM_PYTHON}}; PYTHONPATH=%s/src $PY -m trio_phase.cli phase-qc --manifest $MANIFEST --phase-dir $PHASE_DIR --hapdepth-dir $PHASE_DIR/hapdepth --thresholds %s/config/thresholds.yaml" % (ENV, HERE, HERE)
+
+rule audit:
+    # the declaration-vs-artefact check; non-zero exit fails the DAG, which is the point
+    input: rules.phase_qc.output
+    output: os.path.join(PHASE_DIR, "audit.status")
+    resources: mem_mb=4000, runtime=30, cpus_per_task=1
+    shell: COMMON + "source %s; PY=${{PHASING_PYTHON:-$PHASE_DNM_PYTHON}}; PYTHONPATH=%s/src $PY -m trio_phase.cli audit --manifest $MANIFEST --phase-dir $PHASE_DIR --hapdepth-dir $PHASE_DIR/hapdepth && printf 'OK\\n' > {output}" % (ENV, HERE)

@@ -11,21 +11,22 @@
 # M1a+M1b for one family: orient every complete-trio child's phase blocks to parent of origin (DESIGN P2), then
 # build the per-parent transmission map and change-point candidates (P3). Both are VCF-level.
 # Usage: sbatch workflow/m1_orient_family.sb <FAMILY_ID>
-# Reads config/cohort.env then config/phase_dnm.env (both gitignored). Family and sample identifiers come
+# Reads config/cohort.env then config/phasing.env (both gitignored). Family and sample identifiers come
 # from the manifest at run time; nothing is embedded. Duos (a parent missing) are skipped with a note (P19).
 # Measured on the two quads (2026-09-12): 146-152 s and MaxRSS 240-300 MB per child; 1 GB / 30 min covers a quad twice.
 set -euo pipefail
 FAMILY="${1:?family id}"
 # sbatch runs a COPY of this script from the Slurm spool directory, so BASH_SOURCE does not point at the
-# module. Resolve the module directory from (1) PHASE_DNM_HOME, (2) the directory sbatch was invoked
+# module. Resolve the module directory from (1) PHASING_HOME (or the older PHASE_DNM_HOME), (2) the directory sbatch was invoked
 # from, (3) this file's location - the last only works for interactive runs. (First run failed on this.)
-HERE="${PHASE_DNM_HOME:-}"
-[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+HERE="${PHASING_HOME:-${PHASE_DNM_HOME:-}}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/trio_phase" ] && HERE="$SLURM_SUBMIT_DIR"; }
 [ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -d "$HERE/src/phase_dnm" ] || { echo "ERROR: cannot locate the 13_phase_dnm directory (set PHASE_DNM_HOME or sbatch from it); got '$HERE'" >&2; exit 2; }
+[ -d "$HERE/src/trio_phase" ] || { echo "ERROR: cannot locate the 01_phasing directory (set PHASING_HOME or sbatch from it); got '$HERE'" >&2; exit 2; }
 [ -f "$HERE/../config/cohort.env" ] && source "$HERE/../config/cohort.env"
-source "$HERE/config/phase_dnm.env"
-: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+source "$HERE/config/phasing.env"
+: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}"
+PY="${PHASING_PYTHON:-${PHASE_DNM_PYTHON:-}}"; : "${PY:?set PHASING_PYTHON (or PHASE_DNM_PYTHON) to a Python >= 3.10}"
 export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 OUT="$PHASE_DIR/$FAMILY"; mkdir -p "$OUT"
 
@@ -41,12 +42,12 @@ while IFS=$'\t' read -r child father mother; do
   CV=$(vcf_of "$child"); FV=$(vcf_of "$father"); MV=$(vcf_of "$mother")
   for v in "$CV" "$FV" "$MV"; do [ -s "$v" ] || { echo "ERROR: phased VCF not found for a member of $FAMILY" >&2; exit 2; }; done
   t0=$(date +%s)
-  "$PHASE_DNM_PYTHON" -m phase_dnm.cli orient --child "$child" --manifest "$MANIFEST" \
+  "$PY" -m trio_phase.cli orient --child "$child" --manifest "$MANIFEST" \
       --child-vcf "$CV" --father-vcf "$FV" --mother-vcf "$MV" --out-dir "$OUT" \
       --thresholds "$HERE/config/thresholds.yaml"
   echo "orient done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
   t1=$(date +%s)
-  "$PHASE_DNM_PYTHON" -m phase_dnm.cli transmission --child "$child" --manifest "$MANIFEST" \
+  "$PY" -m trio_phase.cli transmission --child "$child" --manifest "$MANIFEST" \
       --child-vcf "$CV" --father-vcf "$FV" --mother-vcf "$MV" --out-dir "$OUT" \
       --thresholds "$HERE/config/thresholds.yaml"
   echo "transmission done for one child of $FAMILY in $(( $(date +%s) - t1 )) s"

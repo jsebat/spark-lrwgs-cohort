@@ -1,9 +1,16 @@
 # 13_phase_dnm — phase-aware de novo mutation calling for long-read trios
 
 Module of `spark-lrwgs-cohort`. Turns trio phase from a by-product into primary evidence for
-de novo mutation (DNM) calling, uniformly for SNV/indel, SV and TR. Four sub-modules, built in
-this order: **M1 phasing + transmission map → M2 six-haplotype review (all classes) → feature
-registry / likelihood / spike-in → M3 integration → M4 SynthDNM retraining (nested CV).**
+de novo mutation (DNM) calling, uniformly for SNV/indel, SV and TR. Sub-modules, built in
+this order: **M2 six-haplotype review (all classes) → feature registry / likelihood / spike-in →
+M3 integration → M4 SynthDNM retraining (nested CV).**
+
+**M1 — phasing, orientation and the transmission map — is no longer part of this module.** It is
+`../01_phasing` (package `trio_phase`, CLI `trio-phase`), which has no dependency on de novo calling
+and is useful on its own. This module CONSUMES its tables **by path** under `$PHASE_DIR` (§2.1) and
+imports nothing from it. Run `01_phasing` first; `workflow/Snakefile` has
+`$PHASE_DIR/<family>/m1_xoreads.status` as an input of `m2_review`, so a family whose phasing has not
+been run fails the DAG at build time.
 
 Conventions inherited from the repo: scripts take family / sample identifiers as **arguments**
 and never embed them; configuration in `config/cohort.env` (this module adds
@@ -23,7 +30,7 @@ assumptions made in their absence are marked `ASSUMED`.
 ├── README.md                  this file: layout, interfaces, file formats
 ├── DESIGN.md                  open questions, decisions P1…, SynthDNM one-pager, CV design,
 │                              overclaim register
-├── PLAN_MODULE1.md            week-by-week build plan for M1
+├── PLAN_MODULE1.md            running build/results log (M1 origins, then M2-M4)
 ├── config/
 │   ├── phase_dnm.env.example  module config (sourced after config/cohort.env)
 │   ├── features.yaml          FEATURE REGISTRY — every feature: classes, source, rf_safe
@@ -35,11 +42,6 @@ assumptions made in their absence are marked `ASSUMED`.
 │   │   ├── snv_indel.py       base / indel at position from aligned pairs
 │   │   ├── sv.py              junction (SA / large CIGAR D,I) + per-hap depth in interval
 │   │   └── tr.py              per-read allele length in the TRGT locus (spanning reads)
-│   ├── phasing/
-│   │   ├── orient.py          M1a  orient child HiPhase blocks pat/mat by Mendelian vote
-│   │   ├── transmission.py    M1b  transmitted/untransmitted map per parent + crossovers
-│   │   ├── haplotag.py        M1c  write XP (child) / XT (parent) tags into BAMs
-│   │   └── qc.py              M1d  phase_qc.json
 │   ├── classify/
 │   │   ├── rules.py           phase_class + transparent rule score
 │   │   └── likelihood.py      per-haplotype read-count likelihood, posterior over hypotheses
@@ -67,46 +69,32 @@ used for this module; run inside `containers/phase_dnm.def` or with the lab micr
 so the same code runs unchanged on a laptop, the login node's env and inside a job.
 
 CLI surface — one command per sub-module. Every command takes `--family --proband --father
---mother` (or `--ped`) and resolves paths from the env, never from embedded identifiers:
+--mother` (or `--ped`) and resolves paths from the env, never from embedded identifiers. The phasing
+commands (`orient`, `transmission`, `xo-reads`, `hapdepth`, `phase-qc`) are now `trio-phase <cmd>` in
+`../01_phasing`:
 
 ```
-phase-dnm orient        phase-dnm transmission   phase-dnm haplotag    phase-dnm phase-qc
 phase-dnm candidates    phase-dnm review         phase-dnm reclassify  phase-dnm likelihood   phase-dnm features
 phase-dnm spike         phase-dnm integrate      phase-dnm concordance   phase-dnm train       phase-dnm classify
 ```
 
 ## 2. Interfaces
 
-### 2.1 Module 1 — phasing, orientation, transmission map
+### 2.1 Phasing inputs — produced by `../01_phasing`
 
-**Inputs** (all already produced by HiFi-human-WGS-WDL v3.3.1 for every family; paths and
-globs in `config/phase_dnm.env.example`, confirmed on the filer 2026-09-12):
-- per-sample haplotagged BAMs (`HP:i`, `PS:i`, `MM/ML`, `rq` verified on reads)
-- HiPhase 1.6.0 outputs per sample: `phase_haplotags` (read_name → haplotag per block, ~2.8 M
-  rows), `phase_blocks`, `phase_stats` (per-chromosome NG50 etc.)
-- family joint small-variant VCF (all members) and HiPhase-phased small-variant, **SV (sawfish,
-  phased — `PS` present)** and TRGT VCFs
-- for the M2 adapters: `sv_supporting_reads/*.json.gz` (sawfish id → sample → read names) and
-  `trgt_spanning_reads/*.bam` (per-read `AL:i`, `HP`, `PS`)
-- the cohort manifest (`sample_id family_id father_id mother_id sex affected role …`) — the
-  pedigree source; the two mother–child duos are excluded (DESIGN P19)
-- reference FASTA (GRCh38 no-alt)
+Not this module. `01_phasing/README.md` documents the inputs (per-sample HiPhase-phased VCFs,
+haplotagged BAMs, the cohort manifest) and the full schema of every table it writes to
+`$PHASE_DIR/<FAMILY>/`. What this module reads from there, by path:
 
-**Outputs** → `$PHASE_DIR/<FAMILY>/`
+| file | read by |
+|---|---|
+| `<CHILD>.orientation.tsv` | `review`, `reclassify`, `features`, `spike`, `annotate` — `LabelTables` (child HP → parent of origin) and `Geometry` (block length, distance to a block edge) |
+| `<CHILD>.transmission.tsv` | `review`, `spike` — `LabelTables` (parent HP → transmitted / untransmitted) |
+| `<CHILD>.changepoints.resolved.tsv` | `review`, `reclassify`, `features`, `spike`, `annotate` — distance to a crossover, `NEAR_CHILD_SWITCH` |
+| `$PHASE_DIR/hapdepth/<SAMPLE>.hapdepth.tsv.gz` | the SV adapter's per-haplotype interval depth |
 
-| file | format | content |
-|---|---|---|
-| `<SAMPLE>.phased.blocks.bed` | BED | one row per HiPhase block: `chrom start end PS n_het_phased block_len` |
-| `<CHILD>.orientation.tsv` | TSV | one row per **child block segment** (implemented, `phase-dnm orient`): `chrom phase_block_id segment n_segments start end switch_pos n_het_phased n_inf_pat n_inf_mat n_informative vote_frac orientation{HAP1_PAT,HAP1_MAT,AMBIGUOUS} reason{OK,SPLIT_AT_SWITCH,LOW_SITES,MIXED_VOTES,NO_INFORMATIVE_SITES} n_dissent`. A HiPhase block whose votes run one sign then the other is a phase-switch error; it is split at the located change point into segments oriented separately (P2), so a read's label is looked up by `(phase_block_id, pos)`, not by `phase_block_id` alone. |
-| `<CHILD>.orientation.dissent.tsv` | TSV | positions voting against their block's orientation (switch-error / genotype-error candidates): `chrom pos phase_block_id block_orientation` |
-| `<CHILD>.orientation.summary.json` | JSON | per-chromosome and total counters (`n_het`, `n_het_phased`, `n_informative`, `n_uninformative`, `n_mendel_inconsistent`, `n_low_gq`, `n_parent_missing`, `n_skipped_sex_chrom`), block counts, `frac_bp_ambiguous`, `mendel_inconsistent_per_informative`, the parameters and `thresholds_version` used |
-| `<CHILD>.transmission.tsv` | TSV | (implemented, `phase-dnm transmission`) one row per segment of a **parent** phase block: `chrom start end parent{F,M} transmitted{HAP1,HAP2,UNRESOLVED} parent_phase_block_id segment n_segments n_het_phased n_hap1 n_hap2 vote_frac reason left_boundary right_boundary{BLOCK_EDGE,CHANGE_POINT} change_pos` |
-| `<CHILD>.changepoints.tsv` | TSV | (implemented) one row per within-block change of transmitted haplotype: `chrom parent parent_phase_block_id left_pos right_pos resolution_bp n_left n_right left_hap right_hap status=CANDIDATE` — crossover **or** parental switch error, undecidable at the VCF level (P3) |
-| `<CHILD>.changepoints.resolved.tsv` | TSV | (implemented, `phase-dnm xo-reads`, pysam) the same rows with `status{CROSSOVER,SWITCH_ERROR,AMBIGUOUS,UNTESTABLE}`, `n_parent_hets_in_interval n_gaps weakest_gap_start weakest_gap_end weakest_gap_spanning_reads` from the parent's haplotagged reads spanning consecutive phased hets |
-| `<CHILD>.transmission.summary.json` | JSON | per parent: blocks, resolved/unresolved segments and hets, change points, informative and Mendelian-inconsistent counts, `frac_het_resolved` |
-| `<SAMPLE>.hapdepth.tsv.gz` | TSV | (implemented, `phase-dnm hapdepth`, pysam) per-haplotype depth in fixed bins (default 1 kb) over each primary read's reference span: `chrom start end dp_hap1 dp_hap2 dp_untagged dp_lowmapq` (+ `<SAMPLE>.hapdepth.summary.json`) — feeds `hap_obs` and the SV adapter without re-reading BAMs |
-| `<SAMPLE>.tagged.bam` (+.bai) | BAM | HiPhase tags preserved. **Child** reads gain `XP:A:{P,M,U}` (parent of origin; U = block unresolved). **Parent** reads gain `XT:A:{T,U,N}` (transmitted / untransmitted / not resolved). Both tags are in the SAM range reserved for local use. |
-| `<FAMILY>.phase_qc.json` | JSON | §3.1 |
+`config/phase_dnm.env` must name the same `PHASE_DIR` as `01_phasing/config/phasing.env`; on the
+cluster the two env files may simply be the same file. There is no Python import in either direction.
 
 ### 2.2 Module 2 — six-haplotype review
 
@@ -187,13 +175,9 @@ ROC-AUC, Brier, reliability bins; per class, per coverage stratum, per ablation)
 
 ## 3. QC and acceptance
 
-### 3.1 `phase_qc.json` (M1)
-Per sample: block NG50, fraction of het SNVs phased, fraction of reads haplotagged,
-per-haplotype mean depth. Per trio: Mendelian-error rate at informative sites, block
-orientation ambiguity rate (fraction of child blocks `AMBIGUOUS`), switch/flip rate estimated
-from trio consistency, crossovers per parent (expect roughly 25–45; far outside is a QC
-failure, not a discovery), fraction of the autosomal genome with the transmitted haplotype
-resolved in both parents, fraction of the genome with all six haplotypes at ≥k reads (k=3,5).
+### 3.1 `phase_qc.json`
+Written by `../01_phasing` (`trio-phase phase-qc`); see `01_phasing/README.md`. Its gates are the
+entry condition for everything below: a child that fails them should not be reviewed.
 
 ### 3.2 Definition of done (per sub-module)
 Nothing is done for one class until the other two have a working path **and** a passing test on

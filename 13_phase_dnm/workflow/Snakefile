@@ -4,7 +4,6 @@
 # same environment file (config/phase_dnm.env) and the same resources the sbatch headers used, so the DAG reproduces the
 # per-family chain that was run by hand on the cohort:
 #
-#   M1  orient+transmission -> xo-reads -> hapdepth (per sample) -> phase-qc (cohort)
 #   M2  candidates -> review -> reclassify (+likelihood, annotate, features)
 #   M3  integrate -> concordance (cohort)
 #   M4  swap -> synthetic trios (per seed) -> annotate_synthetic -> train -> rescore -> external truth
@@ -13,6 +12,11 @@
 #                     snakemake m4 --profile workflow/profiles/expanse            (after `all`)
 # Dry run:            snakemake all -n -s workflow/Snakefile --configfile workflow/config.yaml   (target BEFORE --configfile: it takes several files)
 # Dry run 2026-09-13 against the cohort layout: all = 101 jobs, m4 = 81 (M1, hapdepth and candidates recognised as up to date).
+#
+# The phasing stage is NOT in this DAG any more: it is module ../01_phasing, run first and separately
+# (`snakemake all -s ../01_phasing/workflow/Snakefile`). Its per-family `m1_xoreads.status` under
+# $PHASE_DIR is an input of rule m2_review, so a family whose phasing has not been run fails the DAG
+# at build time with "missing input files" instead of silently reviewing against absent labels.
 # Families = the complete-trio families of the manifest (duos excluded, DESIGN P19). Identifiers stay in the manifest.
 import csv, os
 
@@ -66,38 +70,8 @@ COMMON = "export PHASE_DNM_HOME=%s; " % HERE
 
 rule all:
     input:
-        os.path.join(PHASE_DIR, "cohort_phase_qc.tsv"),
         expand(os.path.join(EVIDENCE_DIR, "{family}", "m3_integrate.status"), family=FAMILIES),
         expand(os.path.join(FINAL_DIR, "concordance.{cls}.summary.json"), cls=CLASS_GROUPS),
-
-
-# ------------------------------------------------------------------ M1
-rule m1_orient:
-    output: os.path.join(PHASE_DIR, "{family}", "m1.status")
-    resources: mem_mb=4000, runtime=120, cpus_per_task=1
-    shell: COMMON + "bash " + SB("m1_orient_family.sb") + " {wildcards.family} && printf 'OK\\n' > {output}"
-
-rule m1_xoreads:
-    input: rules.m1_orient.output
-    output: os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status")
-    resources: mem_mb=4000, runtime=120, cpus_per_task=1
-    shell: COMMON + "bash " + SB("m1_xoreads_family.sb") + " {wildcards.family} && printf 'OK\\n' > {output}"
-
-SAMPLES = sorted({r["sample_id"] for r in csv.DictReader(open(MANIFEST, newline=""), delimiter="\t") if r["family_id"] in FAMILIES})
-
-rule m1_hapdepth:
-    # hapdepth_array.sb is written for a sample array (LIST + SLURM_ARRAY_TASK_ID); one sample per rule instance
-    output: os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz")
-    resources: mem_mb=4000, runtime=240, cpus_per_task=1
-    shell:
-        COMMON + "mkdir -p %s/hapdepth/lists && echo {wildcards.sample} > %s/hapdepth/lists/{wildcards.sample}.txt && "
-        "LIST=%s/hapdepth/lists/{wildcards.sample}.txt SLURM_ARRAY_TASK_ID=1 bash " % (PHASE_DIR, PHASE_DIR, PHASE_DIR) + SB("hapdepth_array.sb")
-
-rule phase_qc:
-    input: expand(os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status"), family=FAMILIES), expand(os.path.join(PHASE_DIR, "hapdepth", "{sample}.hapdepth.tsv.gz"), sample=SAMPLES)
-    output: os.path.join(PHASE_DIR, "cohort_phase_qc.tsv")
-    resources: mem_mb=4000, runtime=30, cpus_per_task=1
-    shell: COMMON + "source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli phase-qc --manifest $MANIFEST --phase-dir $PHASE_DIR --hapdepth-dir $PHASE_DIR/hapdepth --thresholds %s/config/thresholds.yaml" % (ENV, HERE)
 
 
 # ------------------------------------------------------------------ M2
@@ -107,7 +81,8 @@ rule m2_candidates:
     shell: COMMON + "bash " + SB("m2_candidates_family.sb") + " {wildcards.family}"
 
 rule m2_review:
-    input: rules.m2_candidates.output, rules.m1_xoreads.output
+    # the second input is produced by ../01_phasing and consumed here BY PATH
+    input: rules.m2_candidates.output, os.path.join(PHASE_DIR, "{family}", "m1_xoreads.status")
     output: os.path.join(EVIDENCE_DIR, "{family}", "m2_review.status")
     resources: mem_mb=4000, runtime=240, cpus_per_task=1
     shell: COMMON + "bash " + SB("m2_review_family.sb") + " {wildcards.family}"

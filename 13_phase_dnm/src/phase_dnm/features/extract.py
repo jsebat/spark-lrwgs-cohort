@@ -27,9 +27,14 @@ from collections import Counter
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from ..io.vcf import normalise_sex
-from ..phasing.orient import PAR_GRCH38
 from ..records import CandidateRecord, read_candidates
 from .registry import Registry
+
+# GRCh38 pseudoautosomal regions, for haploid_flag. Same values as 12_x_inactivation/03_trio_phase_x.py
+# and as ../../01_phasing/src/trio_phase/phasing/orient.py, which is where this used to be imported
+# from; it is restated here rather than imported so that this module has no import dependency on the
+# phasing module, whose tables it consumes by path.
+PAR_GRCH38 = ((10001, 2781479), (155701383, 156030895))
 
 ID_COLUMNS = ["family_id", "sample_id", "variant_id", "chrom", "start", "end", "ref", "alt", "variant_class", "caller",
               "source_tier", "source_list", "phase_class", "rule_score", "flags", "parent_of_origin", "poo_reason", "poo_confidence"]

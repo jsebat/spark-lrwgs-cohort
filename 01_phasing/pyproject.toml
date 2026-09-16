@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trio-phase"
+version = "0.1.0"
+description = "Trio-resolved and physical long-read phasing for families (spark-lrwgs-cohort module 01_phasing)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+# orient / transmission / phase-qc / audit are deliberately pure Python, so they run on a laptop,
+# on the login node's env and inside a job without a compiled dependency. Only the two steps that
+# read BAMs need pysam.
+reads = ["pysam>=0.22"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+trio-phase = "trio_phase.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

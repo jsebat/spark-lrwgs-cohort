@@ -3,9 +3,9 @@ import subprocess
 import sys
 
 from conftest import read_tsv
-from phase_dnm.io.vcf import VcfReader, iter_trio
-from phase_dnm.phasing import orient as O
-from phase_dnm.phasing import transmission as T
+from trio_phase.io.vcf import VcfReader, iter_trio
+from trio_phase.phasing import orient as O
+from trio_phase.phasing import transmission as T
 
 
 def _orient_rows(minitrio):
@@ -100,7 +100,7 @@ def test_summary_and_cli(minitrio, tmp_path):
     p = minitrio["paths"]; c, f, m = minitrio["ids"]
     out = tmp_path / "phase"
     env = dict(os.environ); env["PYTHONPATH"] = os.path.join(os.path.dirname(__file__), "..", "src")
-    base = [sys.executable, "-m", "phase_dnm.cli"]
+    base = [sys.executable, "-m", "trio_phase.cli"]
     r = subprocess.run(base + ["orient", "--child", c, "--manifest", p["manifest"], "--child-vcf", p["child"],
                                "--father-vcf", p["father"], "--mother-vcf", p["mother"], "--out-dir", str(out)],
                        capture_output=True, text=True, env=env)

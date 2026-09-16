@@ -4,13 +4,13 @@ import subprocess
 import sys
 
 from conftest import read_tsv
-from phase_dnm.phasing import qc as Q
+from trio_phase.phasing import qc as Q
 
 
 def _run_m1_vcf_level(minitrio, out):
     p = minitrio["paths"]; c, f, m = minitrio["ids"]
     env = dict(os.environ); env["PYTHONPATH"] = os.path.join(os.path.dirname(__file__), "..", "src")
-    base = [sys.executable, "-m", "phase_dnm.cli"]
+    base = [sys.executable, "-m", "trio_phase.cli"]
     for cmd in ("orient", "transmission"):
         r = subprocess.run(base + [cmd, "--child", c, "--manifest", p["manifest"], "--child-vcf", p["child"],
                                    "--father-vcf", p["father"], "--mother-vcf", p["mother"], "--out-dir", str(out)],
