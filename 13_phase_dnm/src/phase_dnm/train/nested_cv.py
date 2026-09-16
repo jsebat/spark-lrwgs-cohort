@@ -52,6 +52,27 @@ def _read_matrix(path: str) -> pd.DataFrame:
     return add_derived(df)
 
 
+def restrict_by_svlen(d: "Data", min_svlen: int, log=None) -> "Data":
+    """Keep only rows whose event is at least `min_svlen` long, in BOTH classes.
+
+    svlen_log10 is the only size column in the rf matrix (svtype is categorical and excluded), so the restriction is by
+    length alone: insertions of that size are kept too. That is deliberate -- a size-restricted model that also
+    filtered on type would be selecting on a property the classifier can see, and the point of the restriction is to
+    define the question, not to shape the classes."""
+    import numpy as _np
+    if "svlen_log10" not in d.X.columns:
+        if log:
+            log("  svlen_log10 absent; cannot restrict by size, keeping all rows")
+        return d
+    L = pd.to_numeric(d.X["svlen_log10"], errors="coerce")
+    keep = (L >= _np.log10(min_svlen)).to_numpy()
+    n_pos, n_neg = int(d.y[keep].sum()), int((1 - d.y[keep]).sum())
+    if log:
+        log("  domain >= %d bp: %d of %d rows (%d positive, %d negative)" % (min_svlen, keep.sum(), len(keep), n_pos, n_neg))
+    return Data(X=d.X[keep], y=d.y[keep], family=d.family[keep], ids=d.ids[keep] if hasattr(d.ids, "__getitem__") else d.ids,
+                features=d.features, n_real=n_neg, n_synth=n_pos)
+
+
 def add_derived(df: pd.DataFrame) -> pd.DataFrame:
     """Features computed from columns the matrix already holds, so matrices written before the change carry them too.
 

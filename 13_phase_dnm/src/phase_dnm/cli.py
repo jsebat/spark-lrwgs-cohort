@@ -493,7 +493,13 @@ def cmd_train(a: argparse.Namespace) -> int:
     classes = {"snv_indel": ("SNV", "INDEL"), "sv": ("SV",), "tr": ("TR",)}[a.class_group]
     allowed = {c for vc in classes for c in reg.rf_matrix_columns(vc)}
     rep = HZ.run_class(a.class_group, a.evidence_dir, a.train_dir, a.folds_dir, seeds, a.out_dir, fam_of, a.max_real_per_child,
-                       reg.manifest(), log=log, baselines=not a.no_baselines, freeze=not a.no_freeze, allowed_cols=allowed)
+                       reg.manifest(), log=log, baselines=not a.no_baselines, freeze=not a.no_freeze, allowed_cols=allowed,
+                       rare_positives=a.rare_positives, parent_min_dp=a.parent_min_dp, min_svlen=a.min_svlen)
+    if not a.rare_positives:
+        log("NOTE: the positive rarity gate is OFF. Positives are no longer restricted to rare variants, so any "
+            "feature that tracks allele frequency separates the classes on its own. The model's columns are printed "
+            "below; a leak scan must confirm none of them does (P24).")
+        log("MODEL COLUMNS (%d): %s" % (len(sorted(allowed)), ", ".join(sorted(allowed))))
     for arm, sm in sorted(rep["summary"].items()):
         log("SUMMARY %-22s roc_auc %s [%s-%s] pr_auc %s%s" % (arm, None if sm["roc_auc_mean"] is None else round(sm["roc_auc_mean"], 4),
             None if sm["roc_auc_min"] is None else round(sm["roc_auc_min"], 4), None if sm["roc_auc_max"] is None else round(sm["roc_auc_max"], 4),
@@ -962,6 +968,15 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--folds-dir", required=True), tr.add_argument("--out-dir", required=True)
     tr.add_argument("--seeds", default="0"), tr.add_argument("--max-real-per-child", type=int, default=20000)
     tr.add_argument("--registry"), tr.add_argument("--no-baselines", action="store_true"), tr.add_argument("--no-freeze", action="store_true")
+    # A model for one size class must not inherit the genome-wide arm's presets (JS, 2026-09-16). These default to the
+    # genome-wide behaviour, so the existing three classes are unchanged unless a flag is given.
+    tr.add_argument("--no-rare-positives", dest="rare_positives", action="store_false", default=True,
+                    help="drop SynthDNM's rarity gate on the positives. ONLY safe when the model cannot see a frequency "
+                         "feature; verify with the leak scan before believing any number from it (P24)")
+    tr.add_argument("--parent-min-dp", type=float, default=0.0,
+                    help="restrict BOTH classes to loci where both parents have at least this readable haplotype depth "
+                         "(p_min_hap_dp), so a hom-ref parental call is backed by reads")
+    tr.add_argument("--min-svlen", type=int, help="restrict BOTH classes to events at least this long")
     tr.set_defaults(func=cmd_train)
     an = sub.add_parser("annotate", help="P26: gnomAD AF, leave-one-family-out founder counts, sib-shared for one class group")
     an.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), an.add_argument("--manifest", required=True)

@@ -145,7 +145,8 @@ def heuristic_scores(side: pd.DataFrame, class_group: str) -> pd.DataFrame:
 # ----------------------------------------------------------------------------------------------
 def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: str, seeds: Sequence[int], out_dir: str,
               family_of_child: Dict[str, str], max_real_per_child: Optional[int], registry_manifest: dict, log=None,
-              baselines: bool = True, freeze: bool = True, allowed_cols: Optional[Iterable[str]] = None) -> Dict[str, object]:
+              baselines: bool = True, freeze: bool = True, allowed_cols: Optional[Iterable[str]] = None,
+              rare_positives: bool = True, parent_min_dp: float = 0.0, min_svlen: Optional[int] = None) -> Dict[str, object]:
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(os.path.join(out_dir, "rf_probs"), exist_ok=True)
     log = log or (lambda m: None)
@@ -164,7 +165,13 @@ def run_class(class_group: str, evidence_dir: str, train_dir: str, folds_dir: st
         assign = {r["family_id"]: int(r["outer_fold"]) for r in csv.DictReader(open(os.path.join(folds_dir, "folds.seed%d.tsv" % seed)), delimiter="\t")}
         real_glob = os.path.join(evidence_dir, "*", "features", "*.%s.features.rf.tsv" % class_group)
         synth_glob = os.path.join(train_dir, "seed%d" % seed, "*", "features", "*.%s.features.rf.tsv" % class_group)
-        d = CV.load_matrices(real_glob, synth_glob, class_group, family_of_child, max_real_per_child=max_real_per_child, seed=seed, allowed=allowed_cols)
+        d = CV.load_matrices(real_glob, synth_glob, class_group, family_of_child, max_real_per_child=max_real_per_child,
+                             seed=seed, allowed=allowed_cols, rare_positives=rare_positives,
+                             positive_parent_min_dp=parent_min_dp)
+        if min_svlen is not None:
+            # the deletion model's DOMAIN: events at least this long. Applied to both classes, so it defines what the
+            # model is asked about rather than what distinguishes the classes.
+            d = CV.restrict_by_svlen(d, min_svlen, log=log)
         gate = getattr(CV.load_matrices, "last_positive_gate", None)
         if gate:
             log("  positive rarity gate (P24 correction): %d -> %d synthetic rows kept (%.1f %%), %d unannotated"
