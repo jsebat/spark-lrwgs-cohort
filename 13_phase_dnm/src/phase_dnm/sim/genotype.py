@@ -27,6 +27,7 @@ de novo candidate can be in.
 from __future__ import annotations
 
 import csv
+import json
 import math
 import os
 import subprocess
@@ -174,6 +175,7 @@ def fill_candidates(candidates_path: str, out_path: str, bams: Dict[str, str], r
             n["small_genotyped"] += 1
         else:
             filled = False
+            sd: Dict[str, str] = {}
             for role, (c_gt, c_gq, c_dp, c_ad, c_pl) in ROLE_COLS.items():
                 led = ledger.get((r["variant_id"], LEDGER_ROLE[role])) or ledger.get((r["variant_id"], role))
                 if not led:
@@ -181,7 +183,16 @@ def fill_candidates(candidates_path: str, out_path: str, bams: Dict[str, str], r
                 n_alt, n_ref = led["alt"], led["ref"]
                 g, q, p = _pl_from_counts(n_ref, n_alt)
                 r[c_gt], r[c_gq], r[c_dp], r[c_ad], r[c_pl] = g, q, str(n_ref + n_alt), "%d,%d" % (n_ref, n_alt), p
+                sd["%s_SD" % role] = "%d,%d" % (n_ref, n_alt)
                 filled = True
+            if filled and vc == "TR":
+                # TRGT reports SD as spanning reads PER ALLELE, and the ledger counts exactly that: the reads carrying
+                # the planted allele and the reads carrying the other one. The planner writes child_AL as
+                # [other, planted], so [ref, alt] is in the same order. Without this, child_SD_expanded and
+                # min_parent_SD were empty for every planted TR -- the same hole P29 closed for allelic depth, one
+                # field over. child_ALLR is NOT filled here: it is a statement about the caller's uncertainty, and
+                # this arm has no caller to be uncertain.
+                _merge_payload(r, sd)
             if filled:
                 r["caller"] = "spike+ledger"
                 n["sv_from_ledger" if vc == "SV" else "tr_from_ledger"] += 1
@@ -194,6 +205,18 @@ def fill_candidates(candidates_path: str, out_path: str, bams: Dict[str, str], r
         log("spike genotype: %(rows)d rows -> %(small_genotyped)d small variants genotyped by bcftools, "
             "%(sv_from_ledger)d SV and %(tr_from_ledger)d TR filled from the planter ledger" % n)
     return n
+
+
+def _merge_payload(row: Dict[str, str], extra: Dict[str, str]) -> None:
+    """Add keys to a candidate row's class_payload JSON in place, leaving the rest of it untouched."""
+    try:
+        pl = json.loads(row.get("class_payload") or "{}")
+    except (TypeError, ValueError):
+        return
+    if not isinstance(pl, dict):
+        return
+    pl.update(extra)
+    row["class_payload"] = json.dumps(pl, sort_keys=True, separators=(",", ":"))
 
 
 def write_private_annot(candidates_path: str, out_path: str, log=None) -> int:
