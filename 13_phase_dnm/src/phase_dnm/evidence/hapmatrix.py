@@ -350,9 +350,22 @@ def transmission_features(m: Matrix, p: HapParams) -> Dict[str, object]:
     if cp.alt > _e(cp.n, p) and cm.alt > _e(cm.n, p):
         out["poo_reason"] = "ALT_ON_BOTH_CHILD_HAPLOTYPES"
         return out
-    origin, other = ("F", "M") if cp.alt >= cm.alt else ("M", "F")
+    if cp.alt == cm.alt:
+        # A TIE carries no information about which parent contributed, and `>=` silently resolved every one of them
+        # PATERNAL: genome-wide, 39753 rows sit at exactly equal alt counts and 100% of them were called paternal,
+        # 0 maternal. None reach the current call set, so today's paternal fractions are unaffected, but the bias is
+        # latent and would appear the moment a threshold loosened or the rows were used in bulk.
+        out["poo_reason"] = "TIED_ALT_READS"
+        return out
+    origin, other = ("F", "M") if cp.alt > cm.alt else ("M", "F")
     alt_on, alt_off = (cp.alt, cm.alt) if origin == "F" else (cm.alt, cp.alt)
     out["parent_of_origin"] = "paternal" if origin == "F" else "maternal"
+    # NOT a confidence in the parent assignment, despite the name. The ALT_ON_BOTH_CHILD_HAPLOTYPES guard above has
+    # already returned whenever both child haplotypes carry alt above the error expectation, so alt_off is 0 or noise
+    # by the time we get here and this is 1.0 in 96.2% of rows (99.6% of SNVs). What it actually measures is the
+    # PURITY of the child's read partition. Filtering on it removes almost nothing -- in particular it keeps every one
+    # of the 72 change-point calls whose paternal fraction is exactly 0.500. Kept under its existing name so downstream
+    # tables do not silently change meaning; redefining it is a separate decision (see DESIGN P34).
     out["poo_confidence"] = round(alt_on / (alt_on + alt_off), 3)
     out["poo_reason"] = "OK"
     pl = m.parent_labelled(origin)

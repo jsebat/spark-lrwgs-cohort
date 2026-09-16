@@ -456,6 +456,48 @@ So the two arms' quality verdicts are recorded with the arm that produced them a
 "validated set". Both carry `discovery_mode = targeted_clinical` (P31) and neither enters a recall, FDR or rate
 estimate for the genome-wide caller.
 
+### P34 — Parent of origin: what it is trustworthy for, and what is wrong with it (2026-09-16)
+
+Validated against the call set and the phase tables. PoO is inferred only in real trios and is never a classifier
+feature; this section says how far the output can be trusted.
+
+**Trustworthy for SNVs, and only for SNVs.**
+
+| class | paternal fraction | n | reading |
+|---|---|---|---|
+| **SNV** | **0.776** (95% CI 0.758–0.794) | 2,108 | the expected 0.75–0.80; stable across all 35 children (mean 0.778, sd 0.081) |
+| INDEL | 0.631 | — | above 0.50, well below 0.776: aggregate signal only |
+| SV | 0.622 | — | aggregate signal only |
+| TR | 0.552 | 1,305 | 3.7σ from 0.50 but not usable per call |
+
+**An orthogonal check that does not depend on the expected ratio.** In male offspring, a chrX variant outside the
+pseudoautosomal regions cannot be paternal. Only 3 chrX calls in male offspring are assigned paternal, and all 3 lie
+inside PAR1 (804,657 / 971,115 / 2,480,315; PAR1 ends at 2,781,479). Zero violations: the orientation and transmission
+plumbing is wired the right way round.
+
+**The change-point flags identify exactly what they should.** SNV calls flagged `NEAR_CHANGE_POINT` have a paternal
+fraction of **0.5000 exactly** (36 of 72) against 0.786 unflagged, p = 1.1e-8 — no information whatever.
+`NEAR_CHILD_SWITCH` gives 0.623 vs 0.781 (p = 0.0036). Negative controls behave: `LOW_HAP_DEPTH` (p = 0.59) and
+`AMBIGUOUS_READS` (p = 0.43) show no effect, so this is specific to phase geometry rather than flags in general.
+
+**Three defects.**
+
+1. **The paternal tie-break (FIXED).** `cp.alt >= cm.alt` resolved every tie paternal. Genome-wide, 39,753 rows sit at
+   exactly equal alt counts and 100% were called paternal, 0 maternal. None reached the call set, so no published
+   number changes, but the bias was latent. A tie now returns `undetermined` with `poo_reason = TIED_ALT_READS`.
+2. **`poo_confidence` is mis-named (DOCUMENTED, NOT CHANGED).** It is `alt_on / (alt_on + alt_off)` evaluated after the
+   `ALT_ON_BOTH_CHILD_HAPLOTYPES` guard has already returned, so `alt_off` is 0 or noise and the value is 1.0 in 96.2%
+   of rows (99.6% of SNVs). It measures the purity of the CHILD's read partition, not confidence in the parent.
+   Filtering on it removes almost nothing and keeps all 72 worthless change-point calls. Redefining it would change
+   the meaning of a published column, so it is documented in place and left for an explicit decision.
+3. **Change-point calls are emitted as `poo_reason = OK`** with `poo_confidence` 1.0; the warning survives only in the
+   free-text `flags`. Setting them `undetermined` would cost 120 of 3,853 calls (3.1%) and is the obvious next step.
+
+**What could not be measured.** There is no ground-truth PoO in this cohort, so no per-call accuracy is stated. The
+quad sibling test has essentially no power: 2 shared called loci in the entire cohort, both agreeing. Extending it to
+inherited variants gives thousands of loci (0.914 / 0.853 concordance) but discordance there is confounded by sites
+heterozygous in both parents, so it bounds the error rate rather than measuring it.
+
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
 
