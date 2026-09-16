@@ -88,7 +88,10 @@ final:                       # P15 - decision layer (M3), amended 2026-09-14 (JS
   # left 263 negatives against the genome-wide model's 22434. `inconclusive` is admitted because a large deletion's
   # signal is the ABSENCE of reads on the deleted haplotype, which the six-haplotype matrix cannot call phased-germline.
   sv_large_min_svlen: 5000
-  sv_large_tau_q: 0.95
+  sv_large_tau_q: null       # DISABLED (JS, 2026-09-16). One main classifier decides every SV on the genome-wide
+                             # settings; large SVs are not re-thresholded here, they are routed to the targeted
+                             # clinical arm (P31/P32) instead. The mechanism and the measurement above are kept so the
+                             # decision is reversible and the reasoning is not lost.
   sv_large_rf_branch_classes: [germline_DNM_phased, germline_DNM_unphased, inconclusive]
   tau_q_rescue: 0.99         # legacy name of the pre-0.3.0 rescue branch; used as tier 2 only when tau_q_tier2 is absent
   tr_rescue_min_units: 3     # a TIER-2 TR call needs >= 3 motif units (one-haplotype stutter mimics a phased 1-unit change; cohort PoO 0.56 vs 0.75)

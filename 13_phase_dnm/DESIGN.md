@@ -361,6 +361,47 @@ the split. GIAB stays held out of both.
 truth, and no clinical case was used to fit them. What changes is that the module no longer claims the automated path
 recovers the cohort's two known pathogenic large deletions on its own merits.
 
+### P32 — One classifier; large SVs go to the targeted clinical arm (JS, 2026-09-16)
+
+**The decision.** There is ONE de novo classifier per class group. No size-specific model, no size-specific threshold,
+no size-specific gate. Structural variants at or above 5 kb that the genome-wide arm does not call are routed to the
+targeted clinical arm of P31 rather than re-thresholded in the genome-wide one.
+
+**Why not a large-SV classifier.** One was built and measured (`harness_sv5kb`: deletions and other SVs ≥ 5 kb,
+rarity gate off, parental depth floor 5, five seeds). It is WORSE than the shared model on exactly the events it was
+designed for:
+
+| planted deletion | shared model | large-SV model |
+|---|---|---|
+| 20 kb | 0.915 | 0.681 |
+| 50 kb | 0.936 | 0.660 |
+
+The cause is the cohort, not the fitting: there are **263 real SV candidates at or above 5 kb in the whole cohort**,
+against 22,434 for the shared model. Restricting training to that size band starves it of the negatives that teach it
+what to reject, and the size-specific fitting gains less than the lost negatives cost. Nor can it be repaired by
+keeping the positives large and the negatives unrestricted: every positive would then be ≥ 5 kb and nearly every
+negative below it, so `svlen_log10` alone separates the classes — the same asymmetry that gave `p_min_hap_dp` a
+single-feature AUC of 0.736 when a selection rule was applied to one class only.
+
+**Why not a large-SV threshold and gate either.** That combination does work — planted recall 0.915 and 0.936 at 20
+and 50 kb against 0.149 and 0.064 in production, with the gate rather than the threshold carrying the whole effect.
+It was implemented, measured, and then deliberately switched off (`final.sv_large_tau_q: null`). Admitting
+`inconclusive` into the score branch for a size class is a second decision rule with its own failure modes and its own
+FDR, tuned on planted events whose junction evidence we already know is unfaithful above 20 kb. The cohort does not
+have the real large de novo SVs to calibrate it against. The mechanism and the numbers stay in `thresholds.yaml` so
+the decision is reversible, but the genome-wide arm ships with one set of settings for every SV.
+
+**What happens to large SVs instead.** They go to the targeted clinical arm, and the arithmetic is why this is
+reasonable rather than a retreat: **263 candidates ≥ 5 kb across 35 children is about 8 per child.** That is a
+reviewable number. The regime where an automated caller is weakest — too few examples to learn from — is exactly the
+regime where per-variant review is cheapest. The targeted arm may look below the genome-wide threshold, may weigh
+depth, junctions, heterozygosity and parental coverage as the variant demands, and records its reasoning per variant
+(P31). For large SVs its scope is SIZE, not the gene panel, so nothing is missed for being outside a gene list.
+
+**What this does not change.** The genome-wide arm's thresholds, gates and reported metrics are exactly as they were;
+nothing in this section alters a number the classifier produces. And the P31 rule still holds: anything the targeted
+arm reports carries `discovery_mode = targeted_clinical` and never enters a recall, FDR or rate estimate.
+
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
 
