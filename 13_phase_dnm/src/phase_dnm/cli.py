@@ -523,7 +523,8 @@ def cmd_annotate(a: argparse.Namespace) -> int:
             order, fgt = AN.founder_genotypes(a.cohort_vcf, bed, sorted(founder_family), a.bcftools, a.work)
         else:
             order, fgt = AN.founder_genotypes_sv(a.cohort_vcf, sorted(founder_family), a.bcftools, a.work) if hasattr(AN, "founder_genotypes_sv") else ([], {})
-        log("founder genotypes at %d sites (%d founders)" % (len(fgt), len(order)))
+        n_fgt = len(fgt) if a.class_group == "snv_indel" else sum(len(v) for v in fgt.values())
+        log("founder genotypes at %d sites (%d founders)" % (n_fgt, len(order)))
     tr_table = None
     strchive = None
     if a.class_group == "tr" and a.cohort_vcf:
