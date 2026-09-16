@@ -169,13 +169,33 @@ class SiteQC:
     margin: int = 30
     min_mapq: int = 20
     pad: int = 2500               # slice half-width around a site (>= review windows + read overhang)
-    # A large deletion needs a much wider slice than a small variant: sv_interval_evidence measures flanking depth in
-    # a probe window at start - 22000 .. start - 20000, so a 2.5 kb slice contains no reads where the evidence layer
-    # looks and every depth and junction feature comes back empty.
-    big_pad: int = 25000          # slice half-width for BIGDEL sites (> the 22 kb flank probe of sv_interval_evidence)
+    # An SV deletion is the only class whose evidence is measured OUTSIDE the event: sv_interval_evidence compares
+    # depth inside the interval against a flank probe at start - 2300 .. start - 300 (bp_window + probe_bp; note that
+    # its `flank_bp=20000` argument is declared and never used, so the probe is near, not 22 kb out). A read covering
+    # that probe may begin a full read length earlier, and reads outside the slice were never written -- so a narrow
+    # slice truncates the flank depth at its own edge and biases every ratio low. The pad is therefore a read length.
+    big_pad: int = 25000          # slice half-width for SV deletions: one HiFi read length beyond the flank probe
     big_mask_frac: float = 0.5    # BIGDEL: breakpoints must be mask-free; this much INTERIOR mask overlap is allowed
     spacing: int = 60000          # min distance between planted sites (no read spans two)
     max_tries_per_site: int = 400
+
+
+def _slice_window(pos1: int, cls: str, sub: str, length: int, qc: SiteQC) -> Tuple[int, int]:
+    """The 0-based BAM slice apply_plan writes for a site. The planner and apply_plan MUST agree on it: the planner
+    keeps these windows `spacing` apart, which is what makes "no read is written twice" true."""
+    pad = qc.big_pad if (cls == "SV" and sub in ("DEL", "BIGDEL")) else qc.pad
+    return pos1 - 1 - pad, pos1 - 1 + max(0, length) + pad
+
+
+def _clear(used_chrom: List[Tuple[int, int]], lo: int, hi: int, spacing: int) -> bool:
+    """Is a slice [lo, hi) at least `spacing` away from every slice already reserved on this contig?
+
+    apply_plan writes one fetch window per site in coordinate order, and fetch returns every read OVERLAPPING a
+    window -- including reads that begin far to its left. Two windows closer together than a read length therefore
+    make apply_plan write the same read twice AND emit it out of order, leaving a BAM that samtools cannot index.
+    Anchor-to-anchor distance does not capture this: a 50 kb deletion's slice reaches 75 kb past its anchor, more
+    than the whole spacing budget, which is how a site 60,490 bp away still landed 13 kb inside its neighbour."""
+    return all(hi + spacing <= u_lo or lo >= u_hi + spacing for u_lo, u_hi in used_chrom)
 
 
 def _reads_at(bam, chrom: str, s0: int, e0: int, qc: SiteQC):
@@ -221,7 +241,7 @@ def plan_sites(bams: Dict[str, object], tr_bams: Dict[str, object], labels, regi
                mask=None, log=None, trgt_vcf_index: Optional[str] = None) -> Tuple[List[PlanRow], List[CandidateRecord], Dict[str, int]]:
     rng = random.Random(seed)
     grid = _scenario_grid(rng, n_per)
-    used: Dict[str, List[int]] = defaultdict(list)
+    used: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
     plan: List[PlanRow] = []
     cands: List[CandidateRecord] = []
     stats: Dict[str, int] = defaultdict(int)
@@ -237,22 +257,22 @@ def plan_sites(bams: Dict[str, object], tr_bams: Dict[str, object], labels, regi
                 locus = next(tr_iter, None)
                 if locus is None:
                     break
-                if any(abs(locus["start"] - u) < qc.spacing for u in used[locus["chrom"]]):
+                lo, hi = (locus["start"] - qc.pad, int(locus.get("end") or locus["start"]) + qc.pad)
+                if not _clear(used[locus["chrom"]], lo, hi, qc.spacing):
                     stats["skip_spacing"] += 1
                     continue
                 site = _try_tr_site(locus, tr_bams, labels, rng, qc, sc, L, cf, pf, family, child, n_item, seed)
             else:
                 chrom, rs, re_ = regions[rng.randrange(len(regions))]
-                # the anchor must leave room for the event AND its slice at both ends
-                lo_pad = qc.big_pad if sub == "BIGDEL" else qc.pad
-                hi = re_ - lo_pad - (L if sub == "BIGDEL" else 0)
+                # the anchor must leave room for the event AND its whole slice at both ends
+                lo_pad = qc.big_pad if (cls == "SV" and sub in ("DEL", "BIGDEL")) else qc.pad
+                hi = re_ - L - lo_pad + 1
                 if hi <= rs + lo_pad:
                     stats["skip_window"] += 1
                     continue
                 pos1 = rng.randrange(rs + lo_pad, hi)
-                # a planted event must clear its neighbours by the spacing AND by its own length, or two large
-                # deletions can overlap even while their anchors are far enough apart
-                if any(abs(pos1 - u) < qc.spacing + (L if sub == "BIGDEL" else 0) for u in used[chrom]):
+                w_lo, w_hi = _slice_window(pos1, cls, sub, L, qc)
+                if not _clear(used[chrom], w_lo, w_hi, qc.spacing):
                     stats["skip_spacing"] += 1
                     continue
                 if mask is not None:
@@ -273,7 +293,7 @@ def plan_sites(bams: Dict[str, object], tr_bams: Dict[str, object], labels, regi
             if site is None:
                 continue
             row, rec = site
-            used[row.chrom].append(row.pos)
+            used[row.chrom].append(_slice_window(row.pos, row.variant_class, row.subtype, row.length, qc))
             plan.append(row); cands.append(rec)
             placed = True
             break
@@ -310,19 +330,21 @@ def _window_qc(chrom, w0, w1, anchor0, bams, qc, stats, check_clean):
 
 def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, family, child, n_item, seed, stats):
     pos0 = pos1 - 1
-    if sub == "BIGDEL":
-        # A deletion longer than a read cannot be validated across its whole span. _reads_at keeps only reads that
-        # cover the window end to end and clean_window then demands that span be indel-free, so for a 5-50 kb event
-        # both are unsatisfiable: no HiFi read is that long. That is the same fact P28 rests on, and it silently
-        # rejected every large deletion this planter was written for -- four runs, 448 planned items each, zero
-        # BIGDEL placed, all of them counted as skip_window or skip_hap_qc. A large event is validated at its two
-        # BREAKPOINTS instead, which is what the planter edits and what the evidence layer measures.
-        left = _window_qc(chrom, pos0 - qc.margin, pos0 + qc.margin + 1, pos0, bams, qc, stats, True)
-        if left is None:
+    if cls == "SV":
+        # An SV is validated at its BREAKPOINTS, never across its span. _reads_at keeps only reads covering the
+        # window end to end and clean_window then demands that whole span be indel-free, so the gate gets harder the
+        # longer the event is and is outright unsatisfiable past a read length. e449b8c granted BIGDEL the breakpoint
+        # treatment; leaving the rest of the SV class on the span gate hid the same defect one size down. Of the SV
+        # deletions that did place, EVERY one was the shortest length in the grid (23 of 23 at 200 bp, none at 500 or
+        # 1500) -- and 200 bp is below readers.min_interval_bp, so no SV row in the whole spike ever reached the
+        # interval evidence at all. The span was never the thing being planted: apply_plan edits the breakpoints.
+        got = _window_qc(chrom, pos0 - qc.margin, pos0 + qc.margin + 1, pos0, bams, qc, stats, True)
+        if got is None:
             return None
-        if _window_qc(chrom, pos0 + L - qc.margin, pos0 + L + qc.margin + 1, pos0 + L, bams, qc, stats, True) is None:
+        if sub in ("DEL", "BIGDEL") and _window_qc(chrom, pos0 + L - qc.margin, pos0 + L + qc.margin + 1,
+                                                   pos0 + L, bams, qc, stats, True) is None:
             return None
-        reads, alns, allr = left
+        reads, alns, allr = got
     else:
         s0, e0 = pos0 - qc.margin, pos0 + max(1, L) + qc.margin + 1
         got = _window_qc(chrom, s0, e0, pos0, bams, qc, stats, cls != "SNV")
@@ -340,7 +362,10 @@ def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, famil
         stats["skip_untransmitted"] += 1
         return None
     # the variant itself, from the reads' consensus (reference-free)
-    ref_seq = consensus_seq(allr, pos0, pos0 + (L + 1 if (cls, sub) in (("INDEL", "DEL"), ("SV", "DEL")) else 1))
+    # Only an INDEL deletion writes its deleted bases into REF. An SV deletion is symbolic (<DEL> plus END), so it
+    # needs the anchor base alone -- asking for a unanimous L+1 base consensus was a second span-wide gate on exactly
+    # the sites the first one had already thinned.
+    ref_seq = consensus_seq(allr, pos0, pos0 + (L + 1 if (cls, sub) == ("INDEL", "DEL") else 1))
     if ref_seq is None:
         stats["skip_consensus"] += 1
         return None
@@ -359,14 +384,19 @@ def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, famil
         payload = {"spike": True}
         rec_ref, rec_alt = ref, alt
     else:  # SV
-        if sub == "DEL":
-            svlen, end, alt = -L, pos1 + L, "<DEL>"
+        if sub in ("DEL", "BIGDEL"):
+            # BIGDEL is this planner's size label, not a callable type: what a caller emits for a 5-50 kb event is a
+            # DEL with an END. Recording it as anything else forfeits the five depth/junction features outright,
+            # because sv_interval_evidence returns {} unless svtype is an interval type AND end > start. Every
+            # BIGDEL planted so far fell through to the insertion branch and was written as <INS:5000bp> with
+            # end == start, so the one instrument built for large deletions never saw a single one of them.
+            svtype, svlen, end, alt = "DEL", -L, pos1 + L, "<DEL>"
         else:
-            svlen, end, alt = L, pos1, "".join(rng.choice(BASES) for _ in range(L))
-        vid = "spike:%s:%d:%s:%d" % (chrom, pos1, sub, L)
-        payload = {"svtype": sub, "svlen": svlen, "end": end, "homlen": None, "imprecise": False, "mateid": None, "svclaim": None,
+            svtype, svlen, end, alt = sub, L, pos1, "".join(rng.choice(BASES) for _ in range(L))
+        vid = "spike:%s:%d:%s:%d" % (chrom, pos1, sub, L)     # the id keeps BIGDEL: recall is reported by event size
+        payload = {"svtype": svtype, "svlen": svlen, "end": end, "homlen": None, "imprecise": False, "mateid": None, "svclaim": None,
                    "caller_id": vid, "child_cn": None, "father_cn": None, "mother_cn": None, "insseq_len": L if sub == "INS" else None, "spike": True}
-        rec_ref, rec_alt = ref_seq[0], (alt if sub == "DEL" else "<INS:%dbp>" % L)
+        rec_ref, rec_alt = ref_seq[0], (alt if sub in ("DEL", "BIGDEL") else "<INS:%dbp>" % L)
     row = PlanRow(variant_id=vid, chrom=chrom, pos=pos1, variant_class=cls, subtype=sub, length=L, ref=rec_ref if cls != "SV" else ".",
                   alt=(alt if cls != "SV" or sub == "INS" else "."), scenario=sc, child_hap=child_hap, child_frac=cf,
                   parent=origin if sc in ("PM", "IM") else ".", parent_hap=t_hap or 0, parent_frac=pf,
@@ -503,7 +533,8 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
                tr: bool = False, log=None, ledger_path: Optional[str] = None) -> Dict[str, int]:
     """Write <out_dir>/<role>.<tag>.bam with every primary/secondary/supplementary read in +-pad of each planted site of
     the matching class group (tr=False: SNV/INDEL/SV from the genome BAMs; tr=True: TR from the TRGT spanning BAMs),
-    edited where the plan says. Sites are >= spacing apart so no read is written twice.
+    edited where the plan says. The planner keeps these windows >= spacing apart (see _clear), which is what makes
+    "no read is written twice" true and the output coordinate-sorted.
 
     `ledger_path` additionally records, per site and per role, how many reads carry the planted allele (edited, plus
     the ones removed because they fell inside a large deletion) and how many carry the reference. Those are the exact
@@ -518,10 +549,20 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
     for role, bam in bams.items():
         out_path = os.path.join(out_dir, "%s.%s.bam" % (role, tag))
         rows.sort(key=lambda r: (bam.get_tid(r.chrom), r.pos))
+        # Fail here, naming the two sites, rather than 6 minutes of planning later inside samtools index with
+        # "Unsorted positions on sequence #20". Overlapping windows do not merely break the sort order: they write
+        # the reads in the overlap TWICE, which inflates exactly the depth the SV features are read from.
+        prev_chrom, prev_lo, prev_hi, prev_id = None, 0, 0, ""
+        for row in rows:
+            lo, hi = _slice_window(row.pos, row.variant_class, row.subtype, row.length, qc)
+            if row.chrom == prev_chrom and lo < prev_hi:
+                raise ValueError("spike apply: slice windows overlap on %s -- %s [%d,%d) then %s [%d,%d); the "
+                                 "planner must keep them %d bp apart"
+                                 % (row.chrom, prev_id, prev_lo, prev_hi, row.variant_id, lo, hi, qc.spacing))
+            prev_chrom, prev_lo, prev_hi, prev_id = row.chrom, lo, hi, row.variant_id
         with pysam.AlignmentFile(out_path, "wb", template=bam) as out:
             for row in rows:
-                pad = qc.big_pad if row.subtype == "BIGDEL" else qc.pad
-                s0, e0 = row.pos - 1 - pad, row.pos - 1 + row.length + pad
+                s0, e0 = _slice_window(row.pos, row.variant_class, row.subtype, row.length, qc)
                 for read in bam.fetch(row.chrom, max(0, s0), e0):
                     if read.is_unmapped:
                         continue
