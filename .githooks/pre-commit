@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Refuse a commit that would put identifiers into this PUBLIC repo.
+#
+# This exists because the scan was being run as `phi_scan.sh | tail -1 && git commit`. A pipeline takes the exit
+# status of its LAST command, so tail's 0 replaced the scan's 1 and the commit proceeded even while the scan printed
+# DO NOT COMMIT. A guard that a pipe can silence is not a guard. git runs this hook itself and honours its exit code.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# 1. files: delegate entirely to the scanner, which owns the word list. Nothing is duplicated here, so this hook
+#    cannot trip its own scan.
+if [ -f scripts/phi_scan.sh ]; then
+  if ! bash scripts/phi_scan.sh; then
+    echo "pre-commit: phi_scan found something. Commit refused." >&2
+    exit 1
+  fi
+fi
+
+# 2. the commit MESSAGE is equally public and phi_scan never reads it. Study-ID patterns only: personal names in a
+#    message stay a matter of discipline, since listing them here would put them in the repo.
+MSG="$(git rev-parse --git-dir)/COMMIT_EDITMSG"
+if [ -f "$MSG" ] && grep -qEi '(SP|SF)0[0-9]{6}|REACH00[0-9]{4}' "$MSG"; then
+  echo "pre-commit: the commit MESSAGE contains a study identifier. Commit refused." >&2
+  exit 1
+fi
+exit 0
