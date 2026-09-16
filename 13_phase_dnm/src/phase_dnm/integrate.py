@@ -54,6 +54,17 @@ class FinalParams:
     apply_rules: bool = True
     sv_depth_rule_tier1: bool = True       # SV deletions decided by the interval evidence are called on it, not on the score
     sv_depth_min_rule_score: float = 6.0   # every germline criterion of the deletion path met (P8 amendment)
+    # The review-class gate, as a PARAMETER so a size-specific arm can set its own without touching the genome-wide
+    # one (JS, 2026-09-16: "new classifier for large SVs can change gates. The main classifier doesn't need to be
+    # affected by that"). The default is the genome-wide gate and must stay that way.
+    #
+    # Why a large-SV arm needs a different one: the review establishes `germline_DNM_phased` by seeing ALT READS
+    # confined to one child haplotype. A large deletion's signal is the ABSENCE of reads on the deleted haplotype, so
+    # the six-haplotype matrix cannot express it and the row falls through to `inconclusive`. Measured on planted
+    # events at the production threshold, 20 kb and 50 kb deletions have median rf_q 1.0000 -- the score is saturated
+    # -- and recall of 0.149 and 0.064, because 36 of 47 land as inconclusive. No threshold can recover that; the gate
+    # is what rejects them, and it encodes a small-variant notion of evidence.
+    rf_branch_classes: Tuple[str, ...] = RF_BRANCH_CLASSES
 
 
 def _f(x) -> Optional[float]:
@@ -134,7 +145,7 @@ def decide(row: Dict[str, object], p: FinalParams, rf_prob: Optional[float]) -> 
         tier = 1 if rf_prob >= tau1 else (2 if tau2 is not None and rf_prob >= tau2 else 0)
         if tier == 0:
             return _no("BELOW_TAU", mode)
-        if cls not in RF_BRANCH_CLASSES:
+        if cls not in p.rf_branch_classes:
             return _no("RF_UNSUPPORTED:%s" % (cls or "none"), mode)
         if tier == 2 and vclass == "TR":
             du = _f(_payload(row).get("delta_units"))
