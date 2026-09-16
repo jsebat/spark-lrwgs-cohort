@@ -30,6 +30,7 @@ N_PER="${N_PER:-12}"; SEED="${SEED:-13}"
 bam_of() { ls "$O"/merged_haplotagged_bam/*/"$1".*.haplotagged.bam 2>/dev/null | head -1; }
 bai_of() { local b; b=$(bam_of "$1"); echo "${b/merged_haplotagged_bam\//merged_haplotagged_bam_index/}.bai"; }
 trb_of() { ls "$O"/trgt_spanning_reads/*/"$1".*.trgt.spanning.sorted.bam 2>/dev/null | head -1; }
+SMALLV=$(ls "$O"/joint_small_variants_vcf/*.vcf.gz 2>/dev/null | head -1)   # child family VCF: het-SNV persistence inside the SV interval (P17)
 tri_of() { local b; b=$(trb_of "$1"); echo "${b/trgt_spanning_reads\//trgt_spanning_reads_index/}.bai"; }
 MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --mask $m"; done
 REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "$REF_FA" ] && REFARG="--reference $REF_FA"
@@ -64,11 +65,16 @@ while IFS=$'\t' read -r child father mother; do
     CA="$SD/$cls.candidates.tsv"; [ -s "$CA" ] || { echo "no $cls spike candidates"; continue; }
     [ "$(wc -l < "$CA")" -gt 1 ] || { echo "no $cls spike candidates"; continue; }
     t0=$(date +%s)
-    "$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CA" --out "$SD/$cls.evidence.tsv" $LBL $SL $SLT --salt "spike-$FAMILY" --thresholds "$THR"
+    # sv_het_snv_persistence is a property of the CHILD, not of the planted allele, so the child's own family VCF
+    # applies to a spiked slice as much as to a real candidate. m4_review_sv_synth.sb has always passed it; this
+    # arm did not, which is why the feature was empty in every spike run.
+    "$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CA" --out "$SD/$cls.evidence.tsv" $LBL $SL $SLT \
+        ${SMALLV:+--smallvar-vcf "$SMALLV" --child-sample "$child"} --salt "spike-$FAMILY" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli likelihood --evidence "$SD/$cls.evidence.tsv" --out "$SD/$cls.evidence.lik.tsv" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$SD/$cls.evidence.tsv" --candidates "$CA" --child "$child" --manifest "$MANIFEST" \
         --out "$SD/$cls.features.tsv" --rf-out "$SD/$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml" \
-        --orientation "$PD/$child.orientation.tsv" --changepoints "$PD/$child.changepoints.resolved.tsv"         --annot "$SD/$cls.annot.tsv"
+        --orientation "$PD/$child.orientation.tsv" --changepoints "$PD/$child.changepoints.resolved.tsv" \
+        --annot "$SD/$cls.annot.tsv" ${FEATURE_ARGS:-}
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike evaluate --plan "$SD/plan.tsv" --evidence "$SD/$cls.evidence.lik.tsv" --out "$SD/$cls.spike_summary.tsv"
     echo "spike review+evaluate $cls done in $(( $(date +%s) - t0 )) s"
   done
