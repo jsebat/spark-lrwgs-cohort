@@ -256,6 +256,16 @@ def cmd_spike(a: argparse.Namespace) -> int:
             elif os.path.exists(cand + ".tmp"):
                 os.remove(cand + ".tmp")
         log("spike genotype: %d planted candidate rows now carry the caller and annotation blocks" % n_any)
+        # the small-variant VCF the planted genome would have: without it sv_het_persistence reads the UNEDITED
+        # calls and every planted deletion looks like "depth halved but heterozygosity persists", the signature the
+        # depth rule uses to reject a chimeric read
+        plan_p = os.path.join(a.out_dir, "plan.tsv")
+        if a.smallvar_vcf and a.child_sample and os.path.exists(plan_p):
+            GT.spiked_smallvar_vcf(plan_p, a.smallvar_vcf, a.child_sample,
+                                   os.path.join(a.out_dir, "smallvar.spiked.vcf.gz"), log=log)
+        elif os.path.exists(plan_p):
+            log("spike genotype: no --smallvar-vcf/--child-sample, so the review will read UNEDITED small variants "
+                "and the heterozygosity half of the depth rule cannot be tested")
         return 0
     if a.step == "evaluate":
         import csv
@@ -906,6 +916,8 @@ def build_parser() -> argparse.ArgumentParser:
     sk.add_argument("--k", type=int, default=5), sk.add_argument("--thresholds")
     sk.add_argument("--reference", help="genotype: reference FASTA for bcftools mpileup over the spiked slices")
     sk.add_argument("--bcftools", default="bcftools", help="genotype: bcftools executable")
+    sk.add_argument("--smallvar-vcf", help="genotype: the child's family joint small-variant VCF; a copy is written with planted deletions made visible")
+    sk.add_argument("--child-sample", help="genotype: the child's sample name in --smallvar-vcf")
     sk.set_defaults(func=cmd_spike)
     au = sub.add_parser("audit", help="P30: assert that what the config declares is what the data contains")
     au.add_argument("--evidence-dir", required=True)

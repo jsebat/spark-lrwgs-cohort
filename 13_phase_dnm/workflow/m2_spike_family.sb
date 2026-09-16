@@ -59,8 +59,10 @@ while IFS=$'\t' read -r child father mother; do
   # Genotype the spiked slices with bcftools (small variants), fill SV/TR allelic depths from the planter ledger, and
   # write the by-construction private population annotation.
   t0=$(date +%s)
-  "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike genotype --out-dir "$SD" $SL ${REF_FA:+--reference "$REF_FA"}       --bcftools "${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}" --thresholds "$THR"
+  "$PHASE_DNM_PYTHON" -m phase_dnm.cli spike genotype --out-dir "$SD" $SL ${REF_FA:+--reference "$REF_FA"}       --bcftools "${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}" --thresholds "$THR"       ${SMALLV:+--smallvar-vcf "$SMALLV" --child-sample "$child"}
   echo "spike genotype done in $(( $(date +%s) - t0 )) s"
+  # the review reads the edited calls where they exist: a planted deletion must remove the child's heterozygosity
+  SPIKEDV=""; [ -s "$SD/smallvar.spiked.vcf.gz" ] && SPIKEDV="$SD/smallvar.spiked.vcf.gz"
   for cls in snv_indel sv tr; do
     CA="$SD/$cls.candidates.tsv"; [ -s "$CA" ] || { echo "no $cls spike candidates"; continue; }
     [ "$(wc -l < "$CA")" -gt 1 ] || { echo "no $cls spike candidates"; continue; }
@@ -69,7 +71,7 @@ while IFS=$'\t' read -r child father mother; do
     # applies to a spiked slice as much as to a real candidate. m4_review_sv_synth.sb has always passed it; this
     # arm did not, which is why the feature was empty in every spike run.
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli review --candidates "$CA" --out "$SD/$cls.evidence.tsv" $LBL $SL $SLT \
-        ${SMALLV:+--smallvar-vcf "$SMALLV" --child-sample "$child"} --salt "spike-$FAMILY" --thresholds "$THR"
+        ${SMALLV:+--smallvar-vcf "${SPIKEDV:-$SMALLV}" --child-sample "$child"} --salt "spike-$FAMILY" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli likelihood --evidence "$SD/$cls.evidence.tsv" --out "$SD/$cls.evidence.lik.tsv" --thresholds "$THR"
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$SD/$cls.evidence.tsv" --candidates "$CA" --child "$child" --manifest "$MANIFEST" \
         --out "$SD/$cls.features.tsv" --rf-out "$SD/$cls.features.rf.tsv" $MASKARGS $REFARG --registry "$HERE/config/features.yaml" \

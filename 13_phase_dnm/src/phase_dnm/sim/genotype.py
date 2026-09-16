@@ -219,6 +219,90 @@ def _merge_payload(row: Dict[str, str], extra: Dict[str, str]) -> None:
     row["class_payload"] = json.dumps(pl, sort_keys=True, separators=(",", ":"))
 
 
+# ----------------------------------------------------------------------------------------------
+# the small-variant VCF the planted genome would have
+# ----------------------------------------------------------------------------------------------
+def spiked_smallvar_vcf(plan_path: str, src_vcf: str, child: str, out_vcf: str, bcftools: str = "bcftools",
+                        flank_bp: int = 25000, log=None) -> int:
+    """Rewrite the child's small-variant calls so that a planted deletion is visible in them.
+
+    `sv_het_persistence` decides whether a candidate deletion is constitutional by asking whether the child's
+    HETEROZYGOUS sites inside the interval have collapsed: one haplotype is gone, so those sites become hemizygous and
+    the caller reports them homozygous. The planter edits reads and never touched the VCF, so every planted deletion
+    read as "depth halved but heterozygosity persists" -- which is precisely the signature the rule uses to REJECT a
+    chimeric read. Measured on 129 planted germline large deletions: sv_het_snv_persistence came back at 0.80 to 2.37
+    where a real deletion gives ~0, 59 were classified phase_conflict_artifact and 62 inconclusive, and rule_score
+    stalled at 3-4 against the 6 the deterministic path needs. The het half of the depth rule could not be tested at
+    all.
+
+    Inside a planted interval the child's phased heterozygous genotype is therefore collapsed onto the haplotype that
+    survives: the planter records which haplotype it deleted (`child_hap`, the same HP tag the reads carry), so for a
+    deleted haplotype 1 the genotype becomes the hap-2 allele twice, and vice versa. Unphased heterozygous sites are
+    left alone, because there is no way to say which haplotype carried which allele. Sites outside every planted
+    interval are untouched, which keeps the flanking baseline the metric compares against honest.
+
+    Only the regions the review actually queries are written (each interval plus `flank_bp` either side), so this is a
+    small file rather than a copy of the genome.
+    """
+    import pysam
+    rows = []
+    with open(plan_path, newline="") as fh:
+        for r in csv.DictReader(fh, delimiter="\t"):
+            if r.get("variant_class") == "SV" and r.get("subtype") in ("DEL", "BIGDEL"):
+                try:
+                    start = int(r["pos"])
+                    rows.append((r["chrom"], start, start + int(r["length"]), int(r.get("child_hap") or 0)))
+                except (KeyError, ValueError):
+                    continue
+    if not rows:
+        if log:
+            log("spike smallvar: no planted deletions in the plan; the review keeps the unedited VCF")
+        return 0
+    regions = sorted((c, max(0, a - flank_bp), b + flank_bp) for c, a, b, _ in rows)
+    vin = pysam.VariantFile(src_vcf)
+    if child not in list(vin.header.samples):
+        vin.close()
+        if log:
+            log("spike smallvar: %s is not in %s; the review keeps the unedited VCF" % (child, os.path.basename(src_vcf)))
+        return 0
+    tmp = out_vcf[:-3] if out_vcf.endswith(".gz") else out_vcf
+    vout = pysam.VariantFile(tmp, "w", header=vin.header)
+    n_written = n_collapsed = 0
+    seen = set()
+    for chrom, rs, re_ in regions:
+        try:
+            it = vin.fetch(chrom, rs, re_)
+        except ValueError:
+            continue
+        for rec in it:
+            key = (rec.chrom, rec.pos, rec.ref, tuple(rec.alts or ()))
+            if key in seen:
+                continue
+            seen.add(key)
+            smp = rec.samples[child]
+            gt = smp.get("GT")
+            if gt and len(gt) == 2 and None not in gt and gt[0] != gt[1] and smp.phased:
+                for c, a, b, hap in rows:
+                    if c == rec.chrom and a <= rec.pos <= b and hap in (1, 2):
+                        keep = gt[1] if hap == 1 else gt[0]     # the allele on the haplotype that survives
+                        smp["GT"] = (keep, keep)
+                        smp.phased = True
+                        n_collapsed += 1
+                        break
+            vout.write(rec)
+            n_written += 1
+    vout.close()
+    vin.close()
+    if out_vcf.endswith(".gz"):
+        pysam.tabix_compress(tmp, out_vcf, force=True)
+        os.remove(tmp)
+        pysam.tabix_index(out_vcf, preset="vcf", force=True)
+    if log:
+        log("spike smallvar: %d records over %d planted deletions, %d heterozygous sites collapsed onto the surviving "
+            "haplotype -> %s" % (n_written, len(rows), n_collapsed, os.path.basename(out_vcf)))
+    return n_collapsed
+
+
 def write_private_annot(candidates_path: str, out_path: str, log=None) -> int:
     """The annotation table a planted variant would have if it were looked up: it is private to the child, by
     construction. Absent gnomAD AF, zero leave-one-family-out cohort AC and founder recurrence, not sibling-shared.
