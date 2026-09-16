@@ -298,6 +298,12 @@ def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, se
     feats = sorted({f.name for vc in vclass_set for f in registry.for_class(vc)})
     cols = ID_COLUMNS + feats
     produced: Counter = Counter()
+    # A column can be "produced" and still carry nothing: annotate.write_annot writes the sentinel "." for
+    # "checked, no hit" (strchive_locus) and callers write "." for fields they do not emit, and a column that is
+    # one value in every row is exactly what the presence-leak guard drops at training time. Counting distinct
+    # values (capped at 2 - we only need "more than one") makes that visible in the summary instead of leaving it
+    # to be found by hand, as glnexus_rnc_child and parent_rnc_any were.
+    distinct: Dict[str, set] = {}
     n = 0
     rf_cols = None
     rf_fh = None
@@ -338,8 +344,12 @@ def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, se
                         if k in registry.features:
                             row[k] = v
             for k in feats:
-                if row.get(k) not in (None, ""):
+                v = row.get(k)
+                if v not in (None, ""):
                     produced[k] += 1
+                    d = distinct.setdefault(k, set())
+                    if len(d) < 2:
+                        d.add(str(v))
             fh.write("\t".join("" if row.get(c) is None else str(row.get(c)) for c in cols) + "\n")
             if rf_fh is not None:
                 rf_fh.write("\t".join([str(row.get(k, "")) for k in ("family_id", "sample_id", "variant_id", "variant_class")]
@@ -348,5 +358,8 @@ def extract_child(evidence_tsv: str, candidates_tsv: str, registry: Registry, se
     if rf_fh is not None:
         rf_fh.close()
     never = [k for k in feats if produced[k] == 0]
+    constant = [k for k in feats if produced[k] and len(distinct.get(k, ())) < 2]
     return {"rows": n, "features_applicable": len(feats), "features_produced": len(feats) - len(never),
-            "never_produced": never, "rf_columns": len(rf_cols) if rf_cols else None, "registry_sha256": registry.sha256}
+            "never_produced": never, "constant_columns": constant,
+            "features_informative": len(feats) - len(never) - len(constant),
+            "rf_columns": len(rf_cols) if rf_cols else None, "registry_sha256": registry.sha256}
