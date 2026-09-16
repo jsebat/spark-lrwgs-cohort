@@ -259,7 +259,15 @@ def spiked_smallvar_vcf(plan_path: str, src_vcf: str, child: str, out_vcf: str, 
             log("spike smallvar: no planted deletions in the plan; the review keeps the unedited VCF")
         return 0
     regions = sorted((c, max(0, a - flank_bp), b + flank_bp) for c, a, b, _ in rows)
-    vin = pysam.VariantFile(src_vcf)
+    # the family VCF is a symlink into the WDL work directory and its index sits in a sibling *_index/ directory,
+    # so opening without index_filename makes every fetch raise and the file comes out empty
+    from ..evidence.readers import vcf_index_for
+    idx = vcf_index_for(src_vcf)
+    if idx is None:
+        if log:
+            log("spike smallvar: no tabix index for %s; refusing to write an empty edited VCF" % os.path.basename(src_vcf))
+        return 0
+    vin = pysam.VariantFile(src_vcf, index_filename=idx)
     if child not in list(vin.header.samples):
         vin.close()
         if log:
@@ -293,6 +301,14 @@ def spiked_smallvar_vcf(plan_path: str, src_vcf: str, child: str, out_vcf: str, 
             n_written += 1
     vout.close()
     vin.close()
+    if n_written == 0:
+        # an empty edited VCF is worse than none: the review would find no heterozygous sites anywhere and
+        # sv_het_snv_persistence would go from wrong to absent
+        if log:
+            log("spike smallvar: no records fetched over %d planted deletions; refusing to write an empty edited VCF"
+                % len(rows))
+        os.remove(tmp)
+        return 0
     if out_vcf.endswith(".gz"):
         pysam.tabix_compress(tmp, out_vcf, force=True)
         os.remove(tmp)

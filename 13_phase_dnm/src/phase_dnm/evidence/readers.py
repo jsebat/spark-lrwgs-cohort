@@ -431,6 +431,19 @@ def sv_interval_evidence(rec: CandidateRecord, bams: TrioBams, supporting_json: 
     return out
 
 
+def vcf_index_for(vcf_path: str):
+    """The tabix/CSI index for a VCF, including the WDL layout where the VCF is a symlink and its index lives in a
+    SIBLING <name>_index/ directory rather than next to the file. Returns None when there is none, so a caller can say
+    so instead of silently fetching nothing."""
+    import os as _os
+    for cand in (vcf_path + ".tbi", vcf_path + ".csi",
+                 vcf_path.replace("/joint_small_variants_vcf/", "/joint_small_variants_vcf_index/") + ".tbi",
+                 vcf_path.replace("/joint_small_variants_vcf/", "/joint_small_variants_vcf_index/") + ".csi"):
+        if _os.path.exists(cand):
+            return cand
+    return None
+
+
 def sv_het_persistence(rec: CandidateRecord, smallvar_vcf: Optional[str], child: str,
                        flank_bp: int = 20000, bp_window: int = 300, min_interval_bp: int = 5000,
                        min_sites: int = 20) -> Dict[str, object]:
@@ -447,13 +460,7 @@ def sv_het_persistence(rec: CandidateRecord, smallvar_vcf: Optional[str], child:
     if end - start < min_interval_bp:
         return {}
     import pysam
-    idx = None
-    for cand in (smallvar_vcf + ".tbi", smallvar_vcf + ".csi",
-                 smallvar_vcf.replace("/joint_small_variants_vcf/", "/joint_small_variants_vcf_index/") + ".tbi",
-                 smallvar_vcf.replace("/joint_small_variants_vcf/", "/joint_small_variants_vcf_index/") + ".csi"):
-        if os.path.exists(cand):
-            idx = cand
-            break
+    idx = vcf_index_for(smallvar_vcf)
     if idx is None:
         return {"sv_het_index_missing": 1}
     def het_frac(a: int, b: int):
