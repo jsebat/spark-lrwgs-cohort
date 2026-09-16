@@ -115,10 +115,11 @@ def main():
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--thresholds")
-    ap.add_argument("--out"
-    ap.add_argument("--per-site-out")
-    ap.add_argument("--tau-override", type=float, help="use this tau instead of the production one (a size-specific arm has its own)")
-    ap.add_argument("--rf-branch-classes", help="comma-separated review classes the score branch accepts; a size-specific arm may widen this"), required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--tau-override", type=float,
+                    help="use this tau instead of the production one (a size-specific arm has its own)")
+    ap.add_argument("--rf-branch-classes",
+                    help="comma-separated review classes the score branch accepts; a size-specific arm may widen this")
     ap.add_argument("--per-site-out", help="also write the per-row table behind the curve")
     a = ap.parse_args()
 
