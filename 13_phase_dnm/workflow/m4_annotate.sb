@@ -23,11 +23,14 @@ export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 BCFTOOLS="${BCFTOOLS:-$(dirname "$PHASE_DNM_PYTHON")/bcftools}"
 ANNOT_DIR="${ANNOT_DIR:-$EVIDENCE_DIR/../annot}"; WORK="$ANNOT_DIR/work.$CLS"; mkdir -p "$ANNOT_DIR/real" "$WORK"
 SLIVAR=""; [ -n "${SLIVAR_SIF:-}" ] && [ -s "$SLIVAR_SIF" ] && { source /etc/profile.d/modules.sh 2>/dev/null || true; module load singularitypro 2>/dev/null || module load singularitypro/4.1.2 2>/dev/null || true; SLIVAR="singularity exec -B /expanse:/expanse $SLIVAR_SIF slivar"; }
-case $CLS in snv_indel) CV="$COHORT_BCF";; sv) CV="$COHORT_SV_VCF";; *) CV="";; esac
+# TR needs the cohort TRGT VCF too: cli.cmd_annotate builds the founder allele table only when --cohort-vcf is given,
+# so with CV empty for tr the whole TR branch (trgt_pop_p99_distance, the P24 rarity gate) was skipped here.
+case $CLS in snv_indel) CV="$COHORT_BCF";; sv) CV="$COHORT_SV_VCF";; tr) CV="${COHORT_TRGT_VCF:-}";; *) CV="";; esac
+STRARG=""; [ "$CLS" = tr ] && [ -n "${STRCHIVE_JSON:-}" ] && [ -s "$STRCHIVE_JSON" ] && STRARG="--strchive $STRCHIVE_JSON"
 t0=$(date +%s)
 "$PHASE_DNM_PYTHON" -m phase_dnm.cli annotate --class-group "$CLS" --manifest "$MANIFEST" --cand-glob "$EVIDENCE_DIR/*/candidates/*.$CLS.candidates.tsv" \
     --out-dir "$ANNOT_DIR/real" --work "$WORK" ${CV:+--cohort-vcf "$CV"} --bcftools "$BCFTOOLS" \
-    ${SLIVAR:+--slivar-cmd "$SLIVAR"} ${GNOMAD_ZIP:+--gnomad-zip "$GNOMAD_ZIP"} \
+    ${SLIVAR:+--slivar-cmd "$SLIVAR"} ${GNOMAD_ZIP:+--gnomad-zip "$GNOMAD_ZIP"} $STRARG \
     --joint-vcf-pattern "$CALLSET_ROOT/{FAMILY}/out/joint_small_variants_vcf/*.vcf.gz"
 echo "annotate $CLS done in $(( $(date +%s) - t0 )) s"
 # features refresh for every child of every complete-trio family (annotation columns are registry features)

@@ -34,10 +34,18 @@ while IFS=$'\t' read -r child father mother; do
   for cls in snv_indel sv tr; do
     EV="$ED/evidence/$child.$cls.evidence.tsv"; CA="$ED/candidates/$child.$cls.candidates.tsv"
     [ -s "$EV" ] && [ -s "$CA" ] || { echo "ERROR: evidence or candidates missing for $cls" >&2; exit 3; }
+    # The cohort/population block (gnomad_af, cohort_AC_loo, pon_founder_recurrence_loo, sib_shared,
+    # trgt_pop_p99_distance, strchive_locus) is computed by the annotate step and enters through --annot. This step
+    # writes the SAME features.tsv that m4_annotate.sb writes, so running it without --annot silently blanked those
+    # columns again every time (2026-09-15 audit: 0/49140 rows carried them, against 100% in the annot tables).
+    AN="${ANNOT_DIR:-$EVIDENCE_DIR/../annot}/real/$child.$cls.annot.tsv"
+    ANNOTARG=""
+    if [ -s "$AN" ]; then ANNOTARG="--annot $AN"
+    else echo "WARNING: no annot table for $cls at $AN; cohort/population features stay empty" >&2; fi
     t0=$(date +%s)
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$EV" --candidates "$CA" --child "$child" --manifest "$MANIFEST" \
         --out "$ED/features/$child.$cls.features.tsv" --rf-out "$ED/features/$child.$cls.features.rf.tsv" $MASKARGS $REFARG \
-        --registry "$HERE/config/features.yaml" \
+        --registry "$HERE/config/features.yaml" $ANNOTARG \
         --orientation "$PD/$child.orientation.tsv" --changepoints "$PD/$child.changepoints.resolved.tsv" ${FEATURE_ARGS:-}
     echo "features $cls done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
   done

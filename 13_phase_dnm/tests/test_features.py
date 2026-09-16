@@ -11,9 +11,10 @@ from phase_dnm.records import CandidateRecord, write_candidates
 
 def test_registry_loads_and_gates():
     reg = Registry()
-    assert reg.version and len(reg.features) > 100
+    assert reg.version and len(reg.features) > 90   # 94 after the 2026-09-15 SV/TR drops; the registry only ever
+    # shrinks as never-produced entries are retired, so this guards that it loads at all, not a target size
     unsafe = set(reg.unsafe_columns())
-    for name in ("parent_of_origin", "t_alt_reads", "u_alt_reads", "dist_crossover_log10", "sib_shared", "graphtyper_outcome"):
+    for name in ("parent_of_origin", "t_alt_reads", "u_alt_reads", "dist_crossover_log10", "sib_shared", "pon_founder_recurrence_loo"):
         assert name in unsafe, name
     snv_rf = reg.rf_matrix_columns("SNV")
     assert "child_AR" in snv_rf and "c_alt_hap_frac" in snv_rf and "hap_obs_k5" in snv_rf
@@ -103,7 +104,7 @@ def test_extract_child_end_to_end(tmp_path):
     assert "t_alt_reads" not in rf_row and "parent_of_origin" not in rf_row and "poo_confidence" not in rf_row
     assert rf_row["c_alt_hap_frac"] == "1.0" and rf_row["child_GQ"] == "45"
     # everything never produced is reported, not silently absent
-    assert "gnomad_af" in summ["never_produced"] and "mappability_k100" in summ["never_produced"]
+    assert "gnomad_af" in summ["never_produced"] and "cohort_AC_loo" in summ["never_produced"]
 
 
 def test_population_frequency_features_are_not_classifier_columns():
