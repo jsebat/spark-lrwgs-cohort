@@ -115,7 +115,7 @@ def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_c
     raw putative-DNM set, as in SynthDNM. Without it the positives are dominated by common inherited variants and every
     caller-quality feature becomes a frequency proxy (P24 correction).
 
-    `positive_parent_min_dp` requires both surrogate parents to have at least this readable haplotype depth
+    `positive_parent_min_dp` restricts BOTH classes to loci where both parents have at least this readable haplotype depth
     (`p_min_hap_dp`) at the locus before the row may be a positive. The candidate rule already demands that both
     parents be CALLED and carry no alt (candidates.sv_candidates), but a 0/0 call with no reads under it is absence of
     evidence, not evidence of absence: a parent with poor coverage there can be called hom-ref while carrying the
@@ -133,6 +133,16 @@ def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_c
         df = _read_matrix(path)
         if df.empty:
             continue
+        if positive_parent_min_dp > 0 and "p_min_hap_dp" in df.columns:
+            # the SAME floor as the positives. A criterion applied to one class only becomes a discriminative
+            # feature: filtering positives alone on p_min_hap_dp gave it a single-feature AUC of 0.736 against
+            # unfiltered negatives, which is the site_qual failure re-created by a selection rule. Applied to both
+            # classes it is a statement about the model's DOMAIN -- loci where the parental genotypes are backed by
+            # reads -- and carries no class information.
+            dp = pd.to_numeric(df["p_min_hap_dp"], errors="coerce")
+            df = df[dp >= positive_parent_min_dp]
+            if df.empty:
+                continue
         if max_real_per_child and len(df) > max_real_per_child:
             df = df.iloc[np.sort(rng.choice(len(df), max_real_per_child, replace=False))]
         df["label"] = 0; df["origin"] = "real"
