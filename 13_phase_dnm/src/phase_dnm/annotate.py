@@ -5,7 +5,8 @@ cohort features need, computed once per class group over the union of every chil
                             (the raw joint VCF carries only AF/AQ/AC/AN; the WDL's tertiary VCF is already filtered)
   cohort_AC_loo             alternate-allele count among the 65 unaffected founders EXCLUDING the founders of the child's
   pon_founder_recurrence_loo  family and of the parents' family (identical for a real trio; symmetric for a synthetic one);
-                            genotypes from the cohort BCF (small variants) / cohort SV VCF (SVs, matched by sawfish id),
+                            genotypes from the cohort BCF (small variants) / cohort SV VCF (SVs, matched by
+                            position and size -- see founder_genotypes_sv for why the sawfish id cannot be used),
                             both normalised with `bcftools norm -m -any` so a split multi-allelic record matches
   sib_shared                1 when the candidate allele is carried by a sibling in the family joint VCF (the two quads)
 
@@ -15,6 +16,7 @@ everything else is plain Python. Identifiers are values, never code.
 """
 from __future__ import annotations
 
+import bisect
 import csv
 import gzip
 import os
@@ -227,8 +229,13 @@ def write_annot(cand_path: str, out_path: str, class_group: str, gnomad: Dict, f
                 key = None
             af = gnomad.get(key) if key is not None else None
             ac = an = nf = None
-            if key is not None and key in fgt:
-                ac, an, nf = lofo_counts(fgt[key], order, founder_family, exclude_families)
+            if class_group == "sv":
+                pl = rec.class_payload or {}
+                gts = match_sv(fgt, rec.chrom, rec.start, rec.end, pl.get("svtype") or "", pl.get("svlen"))
+            else:
+                gts = fgt.get(key) if key is not None else None
+            if gts is not None:
+                ac, an, nf = lofo_counts(gts, order, founder_family, exclude_families)
                 n_ac += 1
             if class_group == "tr" and tr_table is not None:
                 pl = rec.class_payload or {}
@@ -363,17 +370,79 @@ def tr_lofo_stats(child_len: Optional[int], unit_bp: int, per_founder: Optional[
     return ac, len(pool), n_rec, dist
 
 
-def founder_genotypes_sv(cohort_sv_vcf: str, founder_ids: List[str], bcftools: str, work: str) -> Tuple[List[str], Dict[Tuple, List[str]]]:
-    """{(chrom, pos, sawfish id, svtype): [GT per founder]} for every record of the cohort SV VCF (the SV candidate key)."""
+SV_POS_SLOP = 500        # bp a breakpoint may move between two independent sawfish runs
+SV_SIZE_RATIO = 0.7      # min shorter/longer length for two records to be the same event
+
+
+def sv_length(pos, end, svlen, svtype) -> Optional[int]:
+    """The event's length, from SVLEN when the caller gives one and from END otherwise. None for a breakend."""
+    if svlen not in (None, "", "."):
+        try:
+            return abs(int(svlen))
+        except (TypeError, ValueError):
+            pass
+    if svtype in ("DEL", "DUP", "INV", "CNV") and end not in (None, "", "."):
+        try:
+            return max(0, int(end) - int(pos))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def founder_genotypes_sv(cohort_sv_vcf: str, founder_ids: List[str], bcftools: str, work: str) -> Tuple[List[str], Dict[Tuple[str, str], List[Tuple[int, Optional[int], List[str]]]]]:
+    """{(chrom, svtype): [(pos, length, [GT per founder])]} for every record of the cohort SV VCF, position-sorted.
+
+    Keyed for matching by POSITION AND SIZE, never by id. A sawfish id embeds the index of the run that produced it,
+    so the same locus is "sawfish:13:0:0:0:0" in the cohort VCF and "sawfish:0:7:0:0:0" in a family callset. Keying
+    on the id matched 470 of 21,992 candidate sites -- 2%, the accidental-collision rate -- which left cohort_AC_loo
+    and pon_founder_recurrence_loo empty for all but a handful of SV rows, so the P26 population block for this
+    class was effectively absent."""
     samples = os.path.join(work, "founders.txt")
     with open(samples, "w") as fh:
         fh.write("\n".join(founder_ids) + "\n")
-    q = subprocess.run("%s view -S %s --force-samples -Ou %s | %s query -f '%%CHROM\\t%%POS\\t%%ID\\t%%INFO/SVTYPE[\\t%%GT]\\n'" % (bcftools, samples, cohort_sv_vcf, bcftools),
+    view = "%s view -S %s --force-samples -Ou %s" % (bcftools, samples, cohort_sv_vcf)
+    q = subprocess.run("%s | %s query -f '%%CHROM\t%%POS\t%%INFO/SVTYPE\t%%INFO/END\t%%INFO/SVLEN[\t%%GT]\n'" % (view, bcftools),
                        shell=True, check=True, capture_output=True, text=True)
-    out: Dict[Tuple, List[str]] = {}
+    # --force-samples silently DROPS founders the SV callset does not carry, and the GT columns then no longer line
+    # up with the requested list, so the order has to come back from the subset itself.
+    order = subprocess.run("%s | %s query -l" % (view, bcftools), shell=True, capture_output=True, text=True).stdout.split()
+    order = order or founder_ids
+    out: Dict[Tuple[str, str], List[Tuple[int, Optional[int], List[str]]]] = defaultdict(list)
     for line in q.stdout.splitlines():
         f = line.split("\t")
-        if len(f) < 5:
+        if len(f) < 6:
             continue
-        out[(f[0], int(f[1]), f[2], f[3])] = f[4:]
-    return founder_ids, out
+        try:
+            pos = int(f[1])
+        except ValueError:
+            continue
+        out[(f[0], f[2])].append((pos, sv_length(pos, f[3], f[4], f[2]), f[5:]))
+    for v in out.values():
+        v.sort(key=lambda r: r[0])
+    return order, dict(out)
+
+
+def match_sv(table: Dict[Tuple[str, str], List[Tuple[int, Optional[int], List[str]]]], chrom: str, pos: int,
+             end, svtype: str, svlen, pos_slop: int = SV_POS_SLOP,
+             size_ratio: float = SV_SIZE_RATIO) -> Optional[List[str]]:
+    """The cohort founders' genotypes at the candidate's event, or None if the cohort has no such event.
+
+    Same SVTYPE, breakpoint within `pos_slop`, and -- when both sides report a length -- lengths agreeing to
+    `size_ratio`. The nearest surviving breakpoint wins, so a run of similar events cannot double-count."""
+    rows = table.get((chrom, svtype))
+    if not rows:
+        return None
+    want = sv_length(pos, end, svlen, svtype)
+    best, best_d = None, None
+    for p, ln, gts in rows[bisect.bisect_left(rows, (pos - pos_slop,)):]:
+        if p > pos + pos_slop:
+            break
+        if want is not None and ln is not None:
+            longer = max(want, ln)
+            if longer > 0 and min(want, ln) / longer < size_ratio:
+                continue
+        d = abs(p - pos)
+        if best_d is None or d < best_d:
+            best, best_d = gts, d
+    return best
+

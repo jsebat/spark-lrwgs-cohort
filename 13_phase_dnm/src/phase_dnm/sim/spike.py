@@ -328,6 +328,23 @@ def _window_qc(chrom, w0, w1, anchor0, bams, qc, stats, check_clean):
     return reads, alns, allr
 
 
+def _bp_homology(left_alns, right_alns, l0: int, r0: int, limit: int) -> int:
+    """Microhomology at a deletion's two breakpoints: how many bases just inside the left breakpoint are identical to
+    the bases just inside the right one, read off the same consensus the site was planted from.
+
+    That count is the number of positions the identical deletion could equally be placed at, which is what a caller
+    reports as HOMLEN. The planter hardcoded it to None, so bp_homology_len was empty for every synthetic SV while
+    real sawfish calls carry it -- the classifier could only ever see that column on one side of the comparison."""
+    n = 0
+    while n < limit:
+        a = consensus_base(left_alns, l0 + n)[0]
+        b = consensus_base(right_alns, r0 + n)[0]
+        if a is None or b is None or a == "N" or a != b:
+            break
+        n += 1
+    return n
+
+
 def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, family, child, n_item, seed, stats):
     pos0 = pos1 - 1
     if cls == "SV":
@@ -341,10 +358,13 @@ def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, famil
         got = _window_qc(chrom, pos0 - qc.margin, pos0 + qc.margin + 1, pos0, bams, qc, stats, True)
         if got is None:
             return None
-        if sub in ("DEL", "BIGDEL") and _window_qc(chrom, pos0 + L - qc.margin, pos0 + L + qc.margin + 1,
-                                                   pos0 + L, bams, qc, stats, True) is None:
-            return None
+        right = None
+        if sub in ("DEL", "BIGDEL"):
+            right = _window_qc(chrom, pos0 + L - qc.margin, pos0 + L + qc.margin + 1, pos0 + L, bams, qc, stats, True)
+            if right is None:
+                return None
         reads, alns, allr = got
+        homlen = _bp_homology(allr, right[2], pos0, pos0 + L, qc.margin) if right is not None else 0
     else:
         s0, e0 = pos0 - qc.margin, pos0 + max(1, L) + qc.margin + 1
         got = _window_qc(chrom, s0, e0, pos0, bams, qc, stats, cls != "SNV")
@@ -394,8 +414,9 @@ def _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, famil
         else:
             svtype, svlen, end, alt = sub, L, pos1, "".join(rng.choice(BASES) for _ in range(L))
         vid = "spike:%s:%d:%s:%d" % (chrom, pos1, sub, L)     # the id keeps BIGDEL: recall is reported by event size
-        payload = {"svtype": svtype, "svlen": svlen, "end": end, "homlen": None, "imprecise": False, "mateid": None, "svclaim": None,
-                   "caller_id": vid, "child_cn": None, "father_cn": None, "mother_cn": None, "insseq_len": L if sub == "INS" else None, "spike": True}
+        payload = {"svtype": svtype, "svlen": svlen, "end": end, "imprecise": False, "mateid": None, "svclaim": None,
+                   "caller_id": vid, "child_cn": None, "father_cn": None, "mother_cn": None, "insseq_len": L if sub == "INS" else None,
+                   "homlen": homlen, "spike": True}
         rec_ref, rec_alt = ref_seq[0], (alt if sub in ("DEL", "BIGDEL") else "<INS:%dbp>" % L)
     row = PlanRow(variant_id=vid, chrom=chrom, pos=pos1, variant_class=cls, subtype=sub, length=L, ref=rec_ref if cls != "SV" else ".",
                   alt=(alt if cls != "SV" or sub == "INS" else "."), scenario=sc, child_hap=child_hap, child_frac=cf,
