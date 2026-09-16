@@ -173,6 +173,7 @@ class SiteQC:
     # a probe window at start - 22000 .. start - 20000, so a 2.5 kb slice contains no reads where the evidence layer
     # looks and every depth and junction feature comes back empty.
     big_pad: int = 25000          # slice half-width for BIGDEL sites (> the 22 kb flank probe of sv_interval_evidence)
+    big_mask_frac: float = 0.5    # BIGDEL: breakpoints must be mask-free; this much INTERIOR mask overlap is allowed
     spacing: int = 60000          # min distance between planted sites (no read spans two)
     max_tries_per_site: int = 400
 
@@ -254,9 +255,20 @@ def plan_sites(bams: Dict[str, object], tr_bams: Dict[str, object], labels, regi
                 if any(abs(pos1 - u) < qc.spacing + (L if sub == "BIGDEL" else 0) for u in used[chrom]):
                     stats["skip_spacing"] += 1
                     continue
-                if mask is not None and mask.overlap_bp(chrom, pos1, pos1 + max(1, L)) > 0:
-                    stats["skip_mask"] += 1
-                    continue
+                if mask is not None:
+                    if sub == "BIGDEL":
+                        # Requiring zero mask overlap across a 50 kb interval is effectively impossible in this
+                        # genome, which is why the first run that placed BIGDEL at all placed 24 at 5 kb and none at
+                        # 20 or 50 kb: skip_mask was the largest bucket. What the evidence layer actually needs is
+                        # clean BREAKPOINTS; interior segdup is tolerable up to a fraction, and is flagged anyway.
+                        bad = (mask.overlap_bp(chrom, pos1 - qc.margin, pos1 + qc.margin) > 0
+                               or mask.overlap_bp(chrom, pos1 + L - qc.margin, pos1 + L + qc.margin) > 0
+                               or mask.overlap_bp(chrom, pos1, pos1 + L) > qc.big_mask_frac * L)
+                    else:
+                        bad = mask.overlap_bp(chrom, pos1, pos1 + max(1, L)) > 0
+                    if bad:
+                        stats["skip_mask"] += 1
+                        continue
                 site = _try_site(chrom, pos1, cls, sub, L, bams, labels, rng, qc, sc, cf, pf, family, child, n_item, seed, stats)
             if site is None:
                 continue

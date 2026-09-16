@@ -306,6 +306,16 @@ def cmd_spike(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit(a: argparse.Namespace) -> int:
+    """P30: compare every declaration against the artefact that is supposed to satisfy it. Non-zero on any FAIL."""
+    from . import audit as AU
+    from .features.registry import Registry
+    reg = Registry(a.registry)
+    groups = tuple(a.class_group) if a.class_group else ("snv_indel", "sv", "tr")
+    return AU.run(a.evidence_dir, reg, harness_dir=a.harness_dir, spike=a.spike, class_groups=groups,
+                  log=lambda m: sys.stderr.write(m + chr(10)))
+
+
 def _final_params(thr: dict):
     from .integrate import FinalParams
     f = thr.get("final", {})
@@ -895,6 +905,14 @@ def build_parser() -> argparse.ArgumentParser:
     sk.add_argument("--reference", help="genotype: reference FASTA for bcftools mpileup over the spiked slices")
     sk.add_argument("--bcftools", default="bcftools", help="genotype: bcftools executable")
     sk.set_defaults(func=cmd_spike)
+    au = sub.add_parser("audit", help="P30: assert that what the config declares is what the data contains")
+    au.add_argument("--evidence-dir", required=True)
+    au.add_argument("--harness-dir", help="a harness output dir; enables the train/score column check")
+    au.add_argument("--registry", help="config/features.yaml (default: the module's)")
+    au.add_argument("--class-group", action="append", choices=["snv_indel", "sv", "tr"],
+                    help="restrict to these class groups (repeatable; default all three)")
+    au.add_argument("--no-spike", dest="spike", action="store_false", default=True)
+    au.set_defaults(func=cmd_audit)
     ig = sub.add_parser("integrate", help="M3: final unfiltered table per child and class group (P15 decision, class columns, feature vector)")
     ig.add_argument("--evidence", required=True, help="<child>.<class>.evidence.lik.tsv"), ig.add_argument("--features", help="<child>.<class>.features.tsv")
     ig.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"])
