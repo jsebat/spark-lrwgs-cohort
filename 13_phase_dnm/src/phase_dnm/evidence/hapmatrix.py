@@ -589,7 +589,15 @@ def reclassify_row(row: Dict[str, object], hp: HapParams, cp: ClassParams, thres
     m = Matrix.from_evidence_row(row)
     f = features(m, hp)
     t = transmission_features(m, hp)
-    c = classify(m, f, t, hp, cp)
+    # The SV INTERVAL evidence must be carried forward. It is produced by a BAM pass that this function deliberately
+    # avoids, so calling classify() without it silently drops the whole depth branch: the cohort's 35 kb pathogenic
+    # deletion went from rule_score 6 and TIER1_SV_DEPTH to rule_score 2 and BELOW_TAU purely by being reclassified.
+    # The columns are already in the row (review writes both the raw counts and the derived ratios), so rebuild the
+    # dict from them rather than recomputing anything.
+    sv_row = {k: v for k, v in row.items()
+              if (k.startswith("sv_") or (len(k) > 2 and k[0] in "CFM" and k[1] == "_" and "sv_" in k))
+              and v not in (None, "")}
+    c = classify(m, f, t, hp, cp, sv=sv_row or None)
     old_flags = [x for x in str(row.get("flags") or "").split(";") if x in POSITIONAL_FLAGS]
     c["flags"] = ";".join([x for x in c["flags"].split(";") if x] + old_flags)
     t = poo_clear_near_switch(t, c["flags"])
