@@ -326,7 +326,15 @@ def _depth_by_hap(bam, chrom: str, a: int, b: int, min_mapq: int = 5, n_points: 
 
     Depth must be measured at points, not as reads-per-window: a 15 kb HiFi read overlaps every short window it touches,
     so counting overlapping reads and dividing by the window width inflates short windows (it returned ~26x for a 302 bp
-    event). Depth is therefore averaged over `n_points` evenly spaced positions, each counted as the reads spanning it."""
+    event). Depth is therefore averaged over `n_points` evenly spaced positions.
+
+    A point counts only where the read is ALIGNED there, which is not the same as lying between its start and end: a
+    read carrying the deletion as a single D operation still spans the interval, and counting the span reported full
+    depth inside a deletion that the reads plainly showed. Measured on a planted 5 kb heterozygous deletion, this
+    function returned 0.968 and 0.938 for the two haplotypes where samtools depth over the same interval gives 0.397 --
+    so the depth rule was blind to exactly the size class an aligner represents as one D in a spanning read, roughly
+    300 bp up to the read length. Larger events were unaffected only because their reads go missing altogether, which
+    is why the 35 kb MECP2 deletion scored correctly while mid-size ones could not."""
     out: Dict[Optional[int], float] = {1: 0.0, 2: 0.0, None: 0.0}
     if b <= a:
         return out
@@ -343,6 +351,8 @@ def _depth_by_hap(bam, chrom: str, a: int, b: int, min_mapq: int = 5, n_points: 
                 continue
             if read.reference_start > pt or (read.reference_end or 0) <= pt:
                 continue
+            if not any(s0 <= pt < e0 for s0, e0 in read.get_blocks()):
+                continue                      # spans the point inside a D/N: not aligned there, so not depth
             out[_hp_of(read)] += 1.0
     n = float(len(pts))
     return {k: v / n for k, v in out.items()}
