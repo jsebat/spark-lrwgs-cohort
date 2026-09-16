@@ -17,6 +17,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -316,6 +317,16 @@ def write_parquet(tsv: str) -> Optional[str]:
     except ImportError:
         return None
     out = tsv[:-4] + ".parquet" if tsv.endswith(".tsv") else tsv + ".parquet"
-    t = pc.read_csv(tsv, parse_options=pc.ParseOptions(delimiter="\t"), convert_options=pc.ConvertOptions(strings_can_be_null=True))
+    # The parquet is a convenience twin of the TSV, which is the primary output and is already written. An empty
+    # or header-only table is a legitimate result for a child with no candidates in a class, and pyarrow raises
+    # ArrowInvalid("Empty CSV file") on it -- that failed one whole family after its snv_indel outputs had
+    # written correctly. A missing sidecar is not a reason to lose a family.
+    try:
+        if os.path.getsize(tsv) == 0:
+            return None
+        t = pc.read_csv(tsv, parse_options=pc.ParseOptions(delimiter="\t"), convert_options=pc.ConvertOptions(strings_can_be_null=True))
+    except Exception as e:                       # any pyarrow parse failure here is non-fatal
+        sys.stderr.write("WARNING: no parquet twin for %s (%s); the TSV is unaffected" % (os.path.basename(tsv), e) + chr(10))
+        return None
     pq.write_table(t, out)
     return out
