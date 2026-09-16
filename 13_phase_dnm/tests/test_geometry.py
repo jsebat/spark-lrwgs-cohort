@@ -30,6 +30,9 @@ def test_registry_drops_superseded_b_block():
     reg = Registry()
     for name in ("child_alt_mapq_mean", "child_alt_readpos_frac_median", "child_alt_rq_mean"):
         assert name not in reg.features
-    for name in ("c_alt_mapq0_frac", "c_alt_supp_frac", "c_alt_readlen_median", "c_alt_rq_mean", "c_block_len_log10", "c_dist_block_edge_log10"):
+    for name in ("c_alt_supp_frac", "c_alt_readlen_median", "c_alt_rq_mean", "c_block_len_log10", "c_dist_block_edge_log10"):
         assert name in reg.features and reg.features[name].rf_safe
+    # c_alt_mapq0_frac survived the B-block rename but not the 2026-09-15 audit: it reads 0.0 in every non-empty
+    # row of all three classes, so it was dropped as constant rather than as superseded.
+    assert "c_alt_mapq0_frac" not in reg.features
     assert not reg.features["dist_crossover_log10"].rf_safe and not reg.features["near_crossover_flag"].rf_safe
