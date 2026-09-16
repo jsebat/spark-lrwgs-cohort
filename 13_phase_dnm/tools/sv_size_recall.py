@@ -153,8 +153,7 @@ def main():
     _tq = (_fin.get("tau_q") or {}).get("sv")
     if _tq is not None:
         tau, use_q = float(_tq), True
-        sys.stderr.write("tau from thresholds final.tau_q.sv = %.6g (production)
-" % tau)
+        sys.stderr.write("tau from thresholds final.tau_q.sv = %.6g (production)%s" % (tau, chr(10)))
     elif use_q and t.get("tau_q") is not None:
         tau = float(t["tau_q"])
     elif t.get("tau") is not None:
