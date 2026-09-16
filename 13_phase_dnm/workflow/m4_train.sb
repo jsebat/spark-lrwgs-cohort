@@ -25,3 +25,12 @@ TRAIN_DIR="${TRAIN_DIR:-$EVIDENCE_DIR/../train}"
 OUT_DIR="${OUT_DIR:-$TRAIN_DIR/harness}"     # separate runs must use separate OUT_DIRs (two runs writing one dir overwrite each other)
 "$PHASE_DNM_PYTHON" -m phase_dnm.cli train --class-group "$CLS" --manifest "$MANIFEST" --evidence-dir "$EVIDENCE_DIR" --train-dir "$TRAIN_DIR" \
     --folds-dir "$TRAIN_DIR/folds" --out-dir "$OUT_DIR" --seeds "$SEEDS" --max-real-per-child "$MAX_REAL" --registry "$HERE/config/features.yaml"
+
+# The rescore post-step belongs to training, not to whoever remembers it afterwards. Without it rf_probs holds only
+# (variant_id, rf_prob, n_seeds) and the tau json has no score_column, so everything downstream that expects the
+# fold-quantile rf_q either dies (the WES external arm on harness_v4) or silently falls back to the raw probability
+# with a different threshold (the P28 size-recall tool on harness_v6). It was skipped for v4 and again for v6, each
+# time discovered only from a downstream symptom, so it now runs here for the class just trained.
+"$PHASE_DNM_PYTHON" -m phase_dnm.cli rescore --class-group "$CLS" --manifest "$MANIFEST"     --evidence-dir "$EVIDENCE_DIR" --harness-dir "$OUT_DIR" --folds-dir "$TRAIN_DIR/folds" --seeds "$SEEDS"
+echo "rescore done for $CLS; rf_probs columns: $(head -1 "$(ls "$OUT_DIR"/rf_probs/*."$CLS".rf_probs.tsv | head -1)")"
+
