@@ -106,17 +106,29 @@ def _private_ids(features_path: str, af_max: float) -> Optional[set]:
 def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_child: Dict[str, str],
                   max_real_per_child: Optional[int] = None, seed: int = 0, allowed: Optional[Iterable[str]] = None,
                   max_presence_gap: float = 0.5, min_real_presence: float = 0.01,
-                  rare_positives: bool = True, positive_af_max: float = 0.001) -> Data:
+                  rare_positives: bool = True, positive_af_max: float = 0.001,
+                  positive_parent_min_dp: float = 0.0) -> Data:
     """Concatenate real (label 0) and synthetic (label 1) rf matrices for one class group. Real rows may be thinned per
     child (seeded) for speed; the fold assignment uses the CHILD's family for both kinds of rows.
 
     `rare_positives` applies SynthDNM's allele-count gate to the POSITIVES only (see `_private_ids`); negatives stay the
     raw putative-DNM set, as in SynthDNM. Without it the positives are dominated by common inherited variants and every
-    caller-quality feature becomes a frequency proxy (P24 correction)."""
+    caller-quality feature becomes a frequency proxy (P24 correction).
+
+    `positive_parent_min_dp` requires both surrogate parents to have at least this readable haplotype depth
+    (`p_min_hap_dp`) at the locus before the row may be a positive. The candidate rule already demands that both
+    parents be CALLED and carry no alt (candidates.sv_candidates), but a 0/0 call with no reads under it is absence of
+    evidence, not evidence of absence: a parent with poor coverage there can be called hom-ref while carrying the
+    variant, which puts a genuinely INHERITED event into the positive set wearing perfect de novo evidence. That
+    mislabelling is invisible to every downstream check, so it is excluded here rather than modelled. 0 disables it.
+
+    Turning `rare_positives` off is only safe when the model cannot see a frequency feature -- otherwise a common
+    positive is separable by frequency alone and P24 repeats itself. The caller is responsible for that exclusion and
+    `load_matrices.last_positive_gate` records which gates ran so the choice is auditable."""
     rng = np.random.default_rng(seed)
     frames = []
     n_real = n_synth = 0
-    n_syn_before = n_syn_nogate = 0
+    n_syn_before = n_syn_nogate = n_syn_lowdp = 0
     for path in sorted(glob.glob(real_glob)):
         df = _read_matrix(path)
         if df.empty:
@@ -130,6 +142,13 @@ def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_c
         if df.empty:
             continue
         n_syn_before += len(df)
+        if positive_parent_min_dp > 0 and "p_min_hap_dp" in df.columns:
+            dp = pd.to_numeric(df["p_min_hap_dp"], errors="coerce")
+            before_dp = len(df)
+            df = df[dp >= positive_parent_min_dp]
+            n_syn_lowdp += before_dp - len(df)
+            if df.empty:
+                continue
         if rare_positives:
             keep = _private_ids(path, positive_af_max)
             if keep is None:
@@ -140,9 +159,12 @@ def load_matrices(real_glob: str, synth_glob: str, class_group: str, family_of_c
                     continue
         df["label"] = 1; df["origin"] = "synthetic"
         n_synth += len(df); frames.append(df)
-    if rare_positives:
-        load_matrices.last_positive_gate = dict(before=n_syn_before, after=n_synth, unannotated=n_syn_nogate,
-                                                kept_frac=round(n_synth / max(n_syn_before, 1), 4), af_max=positive_af_max)
+    load_matrices.last_positive_gate = dict(before=n_syn_before, after=n_synth, unannotated=n_syn_nogate,
+                                            kept_frac=round(n_synth / max(n_syn_before, 1), 4),
+                                            af_max=positive_af_max if rare_positives else None,
+                                            rarity_gate=bool(rare_positives),
+                                            parent_min_dp=positive_parent_min_dp,
+                                            dropped_low_parent_dp=n_syn_lowdp)
     if not frames:
         raise ValueError("no matrices for %s" % class_group)
     if rare_positives and n_syn_before and not n_synth:
