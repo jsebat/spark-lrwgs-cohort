@@ -587,7 +587,10 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
                                  "planner must keep them %d bp apart"
                                  % (row.chrom, prev_id, prev_lo, prev_hi, row.variant_id, lo, hi, qc.spacing))
             prev_chrom, prev_lo, prev_hi, prev_id = row.chrom, lo, hi, row.variant_id
-        with pysam.AlignmentFile(out_path, "wb", template=bam) as out:
+        # Reads are written in fetch order, i.e. sorted by their ORIGINAL start. write_back moves a right-clipped junction
+        # read to the edited start, so the stream is no longer coordinate-sorted: sort before indexing (the slices are small).
+        unsorted = out_path + ".unsorted.bam"
+        with pysam.AlignmentFile(unsorted, "wb", template=bam) as out:
             for row in rows:
                 s0, e0 = _slice_window(row.pos, row.variant_class, row.subtype, row.length, qc)
                 for read in bam.fetch(row.chrom, max(0, s0), e0):
@@ -621,6 +624,8 @@ def apply_plan(plan: List[PlanRow], bams: Dict[str, object], out_dir: str, tag: 
                     elif spanning and _primary(read, 0):
                         ledger[(row.variant_id, role)]["ref"] += 1
                     out.write(read)
+        pysam.sort("-o", out_path, unsorted)
+        os.remove(unsorted)
         pysam.index(out_path)
         if log:
             log("spike apply: %s -> %s (%d reads, %d edited)" % (role, os.path.basename(out_path), stats["reads_%s" % role], stats["edited_%s" % role]))
