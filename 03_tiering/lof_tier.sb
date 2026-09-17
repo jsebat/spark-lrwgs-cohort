@@ -16,7 +16,10 @@
 # s_het = GeneBayes post_mean, joined on Ensembl gene id.
 set -uo pipefail
 T=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
-GB=/expanse/projects/sebat1/s3/data/sebat/g2mh/scripts/scripts_for_rare_pipeline/resources/GeneBayes/output/Supplementary_Table_1.tsv
+# s_het source, in order: GENEBAYES_TSV (ensg-keyed GeneBayes table) if it exists, else SHET_TABLE (the lab's
+# symbol-keyed shet_by_symbol.tsv, built from GeneBayes + GENCODE). The g2mh GeneBayes path vanished on 2026-09-16.
+GB="${GENEBAYES_TSV:-/expanse/projects/sebat1/s3/data/sebat/g2mh/scripts/scripts_for_rare_pipeline/resources/GeneBayes/output/Supplementary_Table_1.tsv}"
+SYM="${SHET_TABLE:-$T/denovo_sv/shet_by_symbol.tsv}"
 LOF=$T/lof_sites.tsv
 MASK=$T/mask.segdup_repeat.bed.gz
 OUT=$T/lof_tiered.tsv
@@ -28,8 +31,8 @@ sx() { singularity exec -B /expanse:/expanse "$SIF" "$@"; }
 
 [ -s "$LOF" ]  || { echo "FATAL: $LOF missing"; exit 2; }
 [ -s "$MASK" ] || { echo "FATAL: $MASK missing"; exit 2; }
-[ -s "$GB" ]   || { echo "FATAL: GeneBayes table missing"; exit 2; }
-echo "GeneBayes genes: $(( $(wc -l < "$GB") - 1 ))"
+[ -s "$GB" ] || [ -s "$SYM" ] || { echo "FATAL: neither GENEBAYES_TSV ($GB) nor SHET_TABLE ($SYM) exists"; exit 2; }
+if [ -s "$GB" ]; then echo "GeneBayes genes (by ensg): $(( $(wc -l < "$GB") - 1 ))"; else echo "GeneBayes table absent; s_het by SYMBOL from $SYM ($(wc -l < "$SYM") genes)"; fi
 
 # 1. apply the standard mask, keeping every column
 awk -F'\t' 'BEGIN{OFS="\t"} NR>1 {print $1,$2-1,$2,$3,$4,$5,$6,$7,$8,$9,$10}' "$LOF" | sort -k1,1 -k2,2n > "$T/_lof_all.bed"
@@ -41,9 +44,13 @@ echo "masked: $IN -> $OUTN (dropped $((IN-OUTN)))"
 # 2. join GeneBayes s_het on ensg, assign tier
 #    _lof_masked.bed cols: 1 chrom 2 start 3 pos 4 ref 5 alt 6 symbol 7 ensg
 #                          8 consequence 9 gnomad_af 10 lof 11 lof_filter
-awk -F'\t' -v GB="$GB" '
+awk -F'\t' -v GB="$GB" -v SYM="$SYM" '
 BEGIN{
   OFS="\t";
+  while ((getline line < SYM) > 0) {    # symbol<TAB>s_het, no header; a missing file ends the loop at once
+    n=split(line, f, "\t"); if (n < 2) continue;
+    symshet[f[1]] = f[2] + 0; symseen[f[1]] = 1;
+  }
   while ((getline line < GB) > 0) {
     n=split(line, f, "\t");
     if (f[1]=="ensg") continue;          # header
@@ -54,7 +61,7 @@ BEGIN{
 }
 {
   ensg=$7; sub(/\..*$/, "", ensg);       # strip version suffix if present
-  if (ensg in seen) { s=shet[ensg]; sv=sprintf("%.6g", s) } else { s=-1; sv="NA" }
+  if (ensg in seen) { s=shet[ensg]; sv=sprintf("%.6g", s) } else if ($6 in symseen) { s=symshet[$6]; sv=sprintf("%.6g", s) } else { s=-1; sv="NA" }
   if (s >= 0.18)                    t="lof_t1";
   else if (s >= 0.03 && s < 0.18)   t="lof_t2";
   else                              t="lof_t3";   # includes s_het NA (JS)
