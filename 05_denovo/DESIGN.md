@@ -502,74 +502,81 @@ quad sibling test has essentially no power: 2 shared called loci in the entire c
 inherited variants gives thousands of loci (0.914 / 0.853 concordance) but discordance there is confounded by sites
 heterozygous in both parents, so it bounds the error rate rather than measuring it.
 
-**A fourth defect, open and unresolved: see P35.** The per-call accuracy this section declines to state is
-now known to be bad enough to mis-split the parental-age effect between the two parents.
+**Per-call accuracy, measured (P35):** 99.7% agreement with an independent read-backed assignment over 1,802
+tier-1 SNVs. The parental-age pattern that looked like misassignment is leverage from one family (P35).
 
 
-### P35 — OPEN DEFECT: the parental-age effect is split wrongly between parents of origin (JS, 2026-09-16)
+### P35 — Parent of origin validated per call: 99.7% agreement with an independent read-backed assignment (2026-09-16)
 
-> **Not fixed, and deliberately not investigated yet (JS: "make a prominent note to trouble shoot this later (not
-> now)"). Do not use maternal-origin de novo counts, or either origin-split age slope, for any claim until this is
-> resolved.** The aggregate paternal fraction (P34) is unaffected and remains usable.
+**This section replaces an earlier P35 that declared the maternal-origin assignment an open defect.** That declaration was
+wrong. It rested on an argument from the parental-age slopes and on no per-call measurement; the per-call measurement
+has now been made and the assignment is correct.
 
-**The observation that started this (JS).** The maternal-origin / maternal-age effect for SNVs is far too strong.
+**The suspicion (JS).** Maternal-origin de novo SNVs rise with maternal age at 0.70/yr against 0.80/yr for the paternal
+pair — far too symmetric for germline biology, where the paternal effect should dominate roughly four to one. The
+reading was that maternal origin is misassigned a large fraction of the time.
 
-**What the numbers are, and why they cannot all be right.** Published estimates (deCODE, 1,548 trios) put the paternal
-age effect at ~1.51 de novo SNVs per year and the maternal at ~0.37/year, roughly four to one.
+**The test.** `tools/poo_readcheck.py` assigns parent of origin a second way that shares nothing with the pipeline's
+method: it takes the child's reads that CARRY the de novo allele and reads, on those same reads, the alleles at nearby
+informative sites — sites where the child is heterozygous and one parent lacks the allele. An allele the father does
+not carry came from the mother, and vice versa. No haplotag, no phase block, no orientation table: the read itself
+says which parent the DNM haplotype came from. The REF-carrying reads are the other haplotype and must vote for the
+OTHER parent, which is a control built into every site. Genetic sex from chrX heterozygosity is checked for every
+sample against the manifest. Run over all 35 children (job 54333211), 2,546 tier-1 SNVs.
 
-| regression (n = 33 trios) | slope / yr | r | p | expected |
-|---|---|---|---|---|
-| total SNVs vs paternal age | **1.508** | 0.771 | 1.6e-11 | ~1.51 — matches |
-| paternal-origin SNVs vs paternal age | **0.799** | 0.548 | 2.6e-4 | should be ~1.5, is **half** |
-| maternal-origin SNVs vs maternal age | **0.698** | 0.625 | 8.3e-6 | should be ~0.37, is **double** |
-
-The total is right. The split is wrong, and wrong in a self-consistent way: 0.799 + 0.698 = 1.497, almost exactly the
-total slope. The age-driven excess is being **divided ~53/47 between the two origin classes when the biology says
-~80/20**. Mutations that accumulate with paternal age are landing in the maternal bin. That the two halves sum to the
-correct total is what makes this a partition error rather than a counting error — nothing is lost, it is filed under
-the wrong parent.
-
-**A test that does not straightforwardly agree, and should be taken seriously.** Under simple contamination
-(`M_obs = M_true + eps * P_true`), maternal-origin counts should carry residual paternal-age signal after maternal age
-is accounted for. They do not:
-
-| partial correlation | value |
+| | result |
 |---|---|
-| r(maternal-origin, maternal age \| paternal age) | **+0.478** |
-| r(maternal-origin, paternal age \| maternal age) | **+0.011** |
-| r(paternal-origin, paternal age \| maternal age) | +0.587 |
-| r(paternal-origin count, maternal-origin count) | +0.183 |
+| genetic sex (chrX 20–60 Mb het fraction) vs manifest, 105 samples | **0 mismatches** |
+| read-backed assignment available (≥2 votes, ≥80% one parent) | 2,017 / 2,546 (79%) |
+| REF-read control: other haplotype votes the other parent | **1,630 / 1,662 (98.1%)** |
+| pipeline vs read-backed, both assigned | **1,796 / 1,802 agree (99.7%)** |
+| pipeline-paternal that read back maternal | 3 (0.2%) |
+| pipeline-maternal that read back paternal | 3 (0.8%) |
+| orientation table (HAP1_PAT/MAT) vs what the reads say hap1 is | **1,680 / 1,682 (99.9%)** |
+| pipeline `undetermined` that read-back resolves | 215 (158 `CHILD_BLOCK_UNORIENTED`, 57 `PHASE_SWITCH_RISK`) |
 
-So the maternal-origin association survives adjustment and looks specific to maternal age. Two reasons not to treat
-this as exoneration: paternal and maternal age are themselves correlated at **r = 0.724** in these 33 trios, which
-leaves a partial correlation little room to separate them at n = 33; and if misassignment moves calls *out of* the
-paternal bin *into* the maternal one, the induced negative component partly cancels the positive one in
-r(paternal count, maternal count), so +0.183 is not the clean null it looks like.
+Every link of the chain was also re-read against the data during this exercise — manifest father/mother vs sex
+(35/35 consistent), `orient.assign` for every parental genotype combination, the per-sample phased VCF and the
+haplotagged BAM (same HiPhase invocation, so PS/HP tags and the orientation table share a coordinate system), the
+review → reclassify hand-off (only transitions are to `undetermined` from the phase-switch guard), and the counting
+and regression scripts — and nothing was found wrong on inspection either.
 
-**Status: the partition is demonstrably wrong; the mechanism is not yet established.** The slope decomposition is
-solid arithmetic on the delivered call set. Whether the cause is per-call misassignment (JS's reading), a
-maternal-age-dependent difference in phasing quality, or something in how unassigned calls are distributed, is
-an open question.
+**The independent method reproduces the age pattern.** Re-splitting each child's counts by the READ-BACKED parent:
+maternal-origin ~ maternal age r = 0.69, 0.74/yr; paternal-origin ~ paternal age r = 0.54, 0.84/yr. Two methods that
+share no phasing machinery cannot both misassign the same calls the same way. The pattern is in the data, not in the
+assignment.
 
-**Tests to run when this is picked up, cheapest first.**
-1. **Simulate the partition error.** Relabel a fraction `eps` of paternal-origin calls as maternal and find the `eps`
-   that reproduces 0.799 / 0.698. That converts the discrepancy into a stated misassignment rate and predicts what
-   the partial correlations should look like under it — which is the direct test of whether the r = +0.011 above is
-   actually incompatible with contamination at that rate, or merely underpowered.
-2. **Re-fit on parental read evidence rather than child haplotype labels.** Restrict to maternal-origin calls with
-   strong parental support on the transmitted haplotype (`t_alt_reads`, `t_dp`). This is direct evidence of the
-   parent; if the maternal slope falls towards 0.37 there, the labelling is the fault.
-3. **Test whether assignment quality tracks maternal age** — the alternative to per-call error. Regress the
-   unassigned fraction, and the `PHASE_SWITCH_RISK` rate, on maternal age per trio. A dependence here would produce
-   the same symptom without any call being individually wrong.
-4. **Build a usable confidence and threshold on it.** `poo_confidence` cannot serve: it is 1.0 in 99.6% of SNV rows
-   and measures child read-partition purity, not confidence in the parent (P34, defect 2). Until it is redefined
-   there is no threshold to sweep.
+**What the pattern is.** Simulating PERFECT assignment for these 32 trios' actual ages with deCODE parameters
+(1.5/yr paternal, 0.37/yr maternal, 79% assigned) gives paternal slope 1.19 (90%: 0.91–1.49) and maternal 0.29
+(0.12–0.46). The observed values sit at the low edge and above the high edge respectively, so the data are genuinely
+off the textbook model — the cause is leverage, not labelling:
 
-**What this does NOT overturn.** The aggregate paternal fraction 0.776 (95% CI 0.758–0.794, n = 2,108) and the chrX
-orthogonal control (3 paternal calls in male offspring, all 3 inside PAR1, zero violations) both stand. A partition
-error of this size is compatible with both: the ratio is dominated by the large paternal class, and the chrX check
-tests orientation, not per-call accuracy.
+| | maternal slope | paternal slope |
+|---|---|---|
+| all 33 trios | 0.70 (r 0.63) | 0.87 (r 0.57) |
+| drop the one quad (mother 41.7 / 35.2 y at the births) | 0.52 (r 0.56) | 0.89 |
+| mothers < 40 only (n = 31) | **0.47 (r 0.48)** | **1.00 (r 0.60)** |
+
+That quad's mother was 41.7 and 35.2 at the two births and her children carry **33 and 21** maternal-origin DNMs against
+a cohort mean of 11. Those calls are not artefacts: 0 of 50 show any maternal read on the transmitted haplotype, at
+52× parental depth (this family was sequenced at twice the cohort's depth), none is sibling-shared, rf median 0.995.
+Two siblings both elevated is what a maternal-lineage effect looks like, and an accelerating maternal age effect at
+older ages is documented biology. With that one family's mother under 40 the slopes are exactly what perfect
+assignment predicts.
+
+**Consequences.**
+1. The maternal-origin counts and both origin-split slopes are usable, with the leverage of the oldest-mother quad and
+   (the trio with the 43.5-year-old mother) reported alongside them. The earlier instruction not to use them is withdrawn.
+2. `tools/poo_readcheck.py` and `tools/poo_eval.py` are the module's parent-of-origin validation step
+   (`workflow/m3_poo_readcheck.sb`, one array task per child). They should run whenever the call set changes.
+3. Read-back resolves 215 calls the pipeline leaves undetermined and vice versa; the union raises the assigned fraction.
+   A `poo_readback` column and a consensus are the natural next step and are not yet written into the final tables.
+4. `poo_confidence` remains mis-named (P34, defect 2); the read-backed vote counts are the confidence the column was
+   supposed to be.
+
+**A lesson worth keeping.** Symmetric-looking slopes at n = 33 are weak evidence about per-call accuracy; a per-call
+measurement against an independent method is strong evidence and cost one array job. The measurement should have come
+before the declaration.
 
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.

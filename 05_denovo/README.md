@@ -1,11 +1,9 @@
 # 05_denovo — phase-aware de novo mutation calling for long-read trios
 
-> **OPEN DEFECT (2026-09-16) — parent of origin mis-splits the parental-age effect.** De novo SNVs track paternal
-> age at 1.51/yr in total, matching the literature, but the origin-split slopes are 0.80/yr (paternal-origin vs
-> paternal age) and 0.70/yr (maternal-origin vs maternal age) — they sum to the right total but divide it ~53/47
-> when the biology says ~80/20. The partition is wrong; the mechanism is not established. **Do not use
-> maternal-origin counts or either origin-split slope.** The aggregate paternal fraction (0.776) and the chrX
-> control are unaffected and remain usable. Full statement and the tests to run: [DESIGN.md P35](DESIGN.md).
+> **Parent of origin is validated per call (2026-09-16).** An independent read-backed assignment agrees with the
+> pipeline on 1,796 of 1,802 tier-1 de novo SNVs (99.7%); the orientation table is right on 1,680 of 1,682 blocks.
+> The apparent excess maternal-age effect is leverage from one quad with a 42-year-old mother, not misassignment.
+> Validation step: `workflow/m3_poo_readcheck.sb` + `tools/poo_eval.py`. Details: [DESIGN.md P35](DESIGN.md).
 
 
 

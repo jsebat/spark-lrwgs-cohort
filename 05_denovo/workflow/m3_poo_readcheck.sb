@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=pdnm_poo
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1 --ntasks=1 --mem=6G --time=00:40:00
+# Parent-of-origin validation (DESIGN P35): an independent, read-backed assignment for every tier-1 de novo SNV of one
+# child, compared per call with the pipeline's phase-based assignment. One array task per complete-trio child:
+#   sbatch --array=1-$(awk -F'\t' 'NR>1 && $7=="offspring" && $3!="0"' $MANIFEST | wc -l) workflow/m3_poo_readcheck.sb
+# then:  $PHASE_DNM_PYTHON tools/poo_eval.py $POO_DIR <parental_ages.tsv> $MANIFEST
+set -uo pipefail
+HERE="${PHASE_DNM_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/phase_dnm" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/config/phase_dnm.env"
+: "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${FINAL_DIR:?}" "${PHASE_DIR:?}" "${PHASE_DNM_PYTHON:?}"
+# the tool reads CALLSET_ROOT from the environment; the env file sets it without exporting it
+export CALLSET_ROOT
+POO_DIR="${POO_DIR:-$(dirname "$FINAL_DIR")/poo_readcheck}"; mkdir -p "$POO_DIR"
+line=$(awk -F'\t' 'NR>1 && $7=="offspring" && $3!="0"{print $2"\t"$1}' "$MANIFEST" | sed -n "${SLURM_ARRAY_TASK_ID:?run as an array}p")
+FAM=$(echo "$line" | cut -f1); CHILD=$(echo "$line" | cut -f2)
+[ -n "$CHILD" ] || { echo "no child for array index $SLURM_ARRAY_TASK_ID" >&2; exit 2; }
+echo "task $SLURM_ARRAY_TASK_ID: $FAM $CHILD"
+"$PHASE_DNM_PYTHON" "$HERE/tools/poo_readcheck.py" "$FAM" "$CHILD" "$MANIFEST" "$FINAL_DIR" "$PHASE_DIR" "$POO_DIR/$FAM.$CHILD.poo_readcheck.tsv"
