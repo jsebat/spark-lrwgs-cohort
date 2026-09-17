@@ -33,7 +33,10 @@ MASKARGS=""; for m in ${MASK_BEDS:-}; do [ -s "$m" ] && MASKARGS="$MASKARGS --ma
 REFARG=""; [ -n "${REF_FA:-}" ] && [ -s "$REF_FA" ] && REFARG="--reference $REF_FA"
 for CLS in snv_indel sv tr; do
   CA="$W/candidates/$CHILD.$CLS.candidates.tsv"; EV="$W/evidence/$CHILD.$CLS.evidence.tsv"; [ -s "$CA" ] && [ -s "$EV" ] || continue
-  case $CLS in snv_indel) CV="$COHORT_BCF";; sv) CV="$COHORT_SV_VCF";; *) CV="";; esac
+  # TR gets the cohort TRGT VCF too (as tr_synth_annot.sb does). With CV="" the synthetic TR annotation had an empty
+  # cohort_AC_loo, which the training loader read as 0 = private, so the P24 rarity gate kept every TR positive and a
+  # missing annotation was indistinguishable from "private" (review 2026-09-16, D8).
+  case $CLS in snv_indel) CV="$COHORT_BCF";; sv) CV="$COHORT_SV_VCF";; tr) CV="${COHORT_TRGT_VCF:-}";; *) CV="";; esac
   "$PHASE_DNM_PYTHON" -m phase_dnm.cli annotate --class-group "$CLS" --manifest "$MANIFEST" --candidates "$CA" --exclude-families "$CF,$PF" \
       --out-dir "$W/annot" --work "$W/annot/work" ${CV:+--cohort-vcf "$CV"} --bcftools "$BCFTOOLS" ${SLIVAR:+--slivar-cmd "$SLIVAR"} ${GNOMAD_ZIP:+--gnomad-zip "$GNOMAD_ZIP"}
   GEO=""; PD="${PHASE_DIR:-}/$CF"; [ -s "$PD/$CHILD.orientation.tsv" ] && GEO="--orientation $PD/$CHILD.orientation.tsv"   # child-only geometry; no crossovers for a synthetic trio

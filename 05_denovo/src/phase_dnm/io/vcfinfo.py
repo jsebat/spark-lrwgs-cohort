@@ -7,7 +7,7 @@ import csv
 from typing import Dict, Iterable, List
 
 INFO_FIELDS = [
-    ("PDNM_PROB", "1", "Float", "Module 4 classifier probability (rf_prob); missing until a model is frozen"),
+    ("PDNM_PROB", "1", "Float", "Module 4 classifier score: rf_q (fold-quantile score, 1 - pass rate among the cohort's candidates of the class) when score_column is rf_q, else the calibrated rf_prob; missing until a model is frozen"),
     ("PDNM_CALL", "1", "String", "Final de novo call after the P15 phase layer: YES or NO"),
     ("PDNM_MODE", "1", "String", "Decision mode: rf+phase or phase_only (provisional, no classifier)"),
     ("PDNM_WHY", "1", "String", "Decision reason: TIER1, TIER2, RULES:<failed rules>, BELOW_TAU, TIER2_TR_SIZE, RF_UNSUPPORTED:<class>, PHASE_ONLY, DEMOTED:<class>, MOSAIC:<class>, NOT_PHASED_GERMLINE, HAP_UNOBSERVED, LOW_POSTERIOR"),

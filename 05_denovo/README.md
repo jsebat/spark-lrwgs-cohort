@@ -154,7 +154,8 @@ in this order, then class-specific columns, then the full registered feature vec
 
 ```
 family_id sample_id chrom start end ref alt variant_class caller caller_gt caller_qual
-rf_prob dnm_call{YES,NO} call_mode{rf+phase,phase_only} decision_reason mosaic_flag
+rf_prob dnm_call{YES,CANDIDATE,NO} dnm_tier{1,2,0} call_mode{rf+phase,phase_only} decision_reason mosaic_flag
+(with score_column rf_q the `rf_prob` column carries rf_q, the fold-quantile score, not a calibrated probability)
 parent_of_origin{paternal,maternal,undetermined} poo_reason poo_confidence
 phase_class hap_obs_k3 hap_obs_k5 child_alt_hap_frac child_alt_other_hap
 transmitted_parent_alt_reads untransmitted_parent_alt_reads phase_score flags

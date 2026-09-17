@@ -202,7 +202,9 @@ checkpoint m4_synthetic_seed:
     output: touch(os.path.join(TRAIN_DIR, "seed{seed}", ".synthetic.done"))
     resources: mem_mb=8000, runtime=1440, cpus_per_task=2
     shell:
-        COMMON + "T={input[0]}; N=$(( $(wc -l < $T) - 1 )); for i in $(seq 1 $N); do bash " + SB("m4_synthetic_trio.sb") + " $T $i && bash " + SB("m4_annotate_synthetic.sb") + " $T $i; done"
+        # each step fails the rule explicitly: under `set -e` a failing first command of an `a && b` list inside a
+        # for-loop does NOT abort, the loop continued and .synthetic.done was touched with positives missing (D7)
+        COMMON + "T={input[0]}; N=$(( $(wc -l < $T) - 1 )); for i in $(seq 1 $N); do bash " + SB("m4_synthetic_trio.sb") + " $T $i || exit 1; bash " + SB("m4_annotate_synthetic.sb") + " $T $i || exit 1; done"
 
 rule m4_train:
     input: expand(os.path.join(TRAIN_DIR, "seed{seed}", ".synthetic.done"), seed=SEEDS), expand(os.path.join(EVIDENCE_DIR, "..", "annot", "real", ".done.{cls}"), cls=["snv_indel", "sv"])

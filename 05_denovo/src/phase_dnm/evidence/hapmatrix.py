@@ -253,7 +253,13 @@ class Matrix:
         rows = {}
         for (role, hp), pre in ((("C", 1), "C1"), (("C", 2), "C2"), (("F", 1), "F1"), (("F", 2), "F2"), (("M", 1), "M1"), (("M", 2), "M2")):
             rows[(role, hp)] = Row(dp=i(pre + "_dp"), alt=i(pre + "_alt"), ref=i(pre + "_ref"), amb=i(pre + "_amb"))
-        untagged = {role: Row(dp=i(role + "_untagged_dp"), alt=i(role + "_untagged_alt")) for role in ROLES}
+        untagged = {}
+        for role in ROLES:
+            dp, alt = i(role + "_untagged_dp"), i(role + "_untagged_alt")
+            # *_untagged_ref exists in tables written from 2026-09-16 on; before that REF is unknown and dp - alt is
+            # the best available (it over-counts unreadable reads as REF, D13)
+            ref = i(role + "_untagged_ref") if str(row.get(role + "_untagged_ref") or "") not in ("", ".") else max(0, dp - alt)
+            untagged[role] = Row(dp=dp, alt=alt, ref=ref)
         h = row.get("child_hap1_is")
         tr = {}
         for par in ("F", "M"):

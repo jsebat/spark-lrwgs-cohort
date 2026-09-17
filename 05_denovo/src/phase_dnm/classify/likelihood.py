@@ -136,7 +136,11 @@ def rows_from_evidence(row: dict) -> Tuple[Dict[str, Optional[Counts]], bool]:
         origin = None
     unt = None
     try:
-        unt = (int(float(row["C_untagged_alt"])), int(float(row["C_untagged_dp"])) - int(float(row["C_untagged_alt"])))
+        u_alt = int(float(row["C_untagged_alt"]))
+        # readable REF among untagged reads when the table carries it (2026-09-16 on); dp - alt before that counted
+        # unreadable AMB reads as REF, unlike the tagged rows (D13)
+        u_ref = str(row.get("C_untagged_ref") or "")
+        unt = (u_alt, int(float(u_ref)) if u_ref not in ("", ".") else int(float(row["C_untagged_dp"])) - u_alt)
     except (KeyError, ValueError, TypeError):
         pass
     rows: Dict[str, Optional[Counts]] = {"A": A, "O": O, "UNT": unt}

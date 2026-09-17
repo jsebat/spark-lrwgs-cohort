@@ -3,11 +3,17 @@ class-specific columns. Inputs are the M2 tables that already exist for every ca
 evidence table (rule class, parent of origin, six-haplotype counts, posterior) and the registered feature table.
 `rf_prob` comes from Module 4; until a model exists the decision runs in a documented PROVISIONAL mode.
 
-P15 (DESIGN):
-  dnm_call = YES  iff rf_prob >= tau_class,
-               or (rf_prob >= tau_rescue_class and phase_class == germline_DNM_phased and hap_obs_k5 == 6)   [rescue]
-  dnm_call = NO   whenever phase_class in {phase_conflict_artifact, inherited_missed_in_parent}, whatever rf_prob    [demotion]
+P15 as amended (thresholds 0.3.0, DESIGN P15 / P32; this docstring described the pre-0.3.0 rule until 2026-09-16):
+  score = rf_q, the fold-quantile score (1 - pass rate among the cohort's candidates of the same variant class).
+  dnm_call = YES (dnm_tier 1)        iff rf_q >= tau_q[class] and the review class is germline-consistent
+                                          (germline_DNM_phased / germline_DNM_unphased) and the rule layer passes
+  dnm_call = CANDIDATE (dnm_tier 2)  iff tau_q_tier2[class] <= rf_q < tau_q[class] under the same gates
+  TIER1_SV_DEPTH                     a deletion/duplication whose interval evidence meets rule_score >= 6 is tier 1
+                                          regardless of rf_q (deterministic depth path, P8 amendment)
+  dnm_call = NO whenever phase_class in {phase_conflict_artifact, inherited_missed_in_parent, parental_mosaic_transmitted}
   mosaic classes are never YES; they are reported separately (mosaic_flag).
+  Rule layer (apply_rules): gnomAD AF < 0.001, leave-one-family-out cohort AC 0, founder-panel recurrence 0,
+  segdup/simple-repeat mask (filter for SNV/indel and TR, flag for SV), sib_shared demotion.
 Provisional mode (call_mode = phase_only; rf_prob missing or tau unset): YES iff phase_class == germline_DNM_phased,
 hap_obs_k5 == 6 and phase_score >= phase_only_min_score — the intersection that carried the parent-of-origin signal
 on the cohort (paternal fraction 0.72 vs 0.50 for either layer alone, PLAN 2026-09-13). Every row keeps the reason.

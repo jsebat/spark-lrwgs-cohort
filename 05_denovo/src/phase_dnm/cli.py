@@ -482,7 +482,25 @@ def cmd_external(a: argparse.Namespace) -> int:
         for k in ("score_column", "tau_q", "tau_q_rescue"):
             if k in t:
                 taus[k] = t[k]
+    # The harness tau json carries the uniform placeholder 0.999 (rescore.py / score.py); the pipeline actually runs
+    # at thresholds.yaml final.tau_q / tau_q_tier2 (0.99 for snv_indel and sv). Without this override the external
+    # arm reported recall, real pass rate and mosaic sensitivity at an operating point nothing else uses
+    # (review 2026-09-16, D10; tools/sv_size_recall.py had been patched, external.py had not).
+    if getattr(a, "thresholds", None):
+        fq = load_thresholds(a.thresholds).get("final", {})
+        first_vc = {"snv_indel": "SNV", "sv": "SV", "tr": "TR"}[a.class_group]
+        def _pick(d):
+            d = d or {}
+            v = d.get(first_vc, d.get(a.class_group))
+            return None if v is None else float(v)
+        tq = _pick(fq.get("tau_q"))
+        t2 = _pick(fq.get("tau_q_tier2")) or _pick(fq.get("tau_q_rescue"))
+        if tq is not None:
+            taus["tau_q"] = tq
+        if t2 is not None:
+            taus["tau_q_rescue"] = t2
     log = lambda m: sys.stderr.write(m + "\n")
+    log("EXTERNAL operating point: %s" % json.dumps({k: taus.get(k) for k in ("score_column", "tau_q", "tau_q_rescue")}))
     if a.truth == "wes":
         rep = EX.evaluate_labelled(a.evidence_dir, a.harness_dir, a.class_group, a.seed, fam_of, fold_of, taus, a.labels_dir, log=log)
     else:
@@ -822,6 +840,7 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--evidence-dir", required=True), ex.add_argument("--harness-dir", required=True), ex.add_argument("--folds-dir", required=True)
     ex.add_argument("--seed", type=int, default=0), ex.add_argument("--max-real-per-child", type=int, default=20000), ex.add_argument("--out", required=True)
     ex.add_argument("--truth", default="spike", choices=["spike", "wes"]), ex.add_argument("--labels-dir", help="wes: directory of <child>.snv_indel.wes.tsv label files")
+    ex.add_argument("--thresholds", help="thresholds.yaml: evaluate at final.tau_q / tau_q_tier2, the operating point the pipeline runs at (default: the harness tau json placeholder)")
     ex.set_defaults(func=cmd_external)
     rs = sub.add_parser("rescore", help="M4 post-step: fold-quantile score rf_q from saved fold models; writes rf_probs/ (rf_prob + rf_q) and tau_q")
     rs.add_argument("--class-group", required=True, choices=["snv_indel", "sv", "tr"]), rs.add_argument("--manifest", required=True)

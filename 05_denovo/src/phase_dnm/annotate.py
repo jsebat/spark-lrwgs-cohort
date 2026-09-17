@@ -179,9 +179,13 @@ def sib_shared_sites(joint_vcf: str, child: str, sibs: List[str], sites: Set[Tup
         return set()
     out: Set[Tuple[str, int, str, str]] = set()
     rd = VcfReader(joint_vcf)
+    # `sites` holds NORMALISED positions (norm_allele trims the shared prefix, so an anchor-base indel sits at pos+1
+    # or further), while rec.pos is the raw VCF position. Testing the raw position alone skipped every standard indel
+    # record, so sib_shared was never 1 for an indel (review 2026-09-16, D9). The prefix can be trimmed by at most
+    # len(ref) - 1 bases, so test that window.
     want = {(c, p) for c, p, _, _ in sites}
     for rec in iter_records(rd, tuple(sibs)):
-        if (rec.chrom, rec.pos) not in want:
+        if not any((rec.chrom, rec.pos + k) in want for k in range(max(1, len(rec.ref)))):
             continue
         for ai, alt in enumerate(rec.alts, start=1):
             key = (rec.chrom,) + norm_allele(rec.pos, rec.ref, alt)

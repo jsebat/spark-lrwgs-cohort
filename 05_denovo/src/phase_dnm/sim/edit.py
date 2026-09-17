@@ -178,6 +178,9 @@ def apply_breakpoint(a: Aln, pos: int, keep: str, margin: int = 20) -> Optional[
                 if op in (S, H):
                     if op == S:
                         clipped_q += L
+                    # advance the query cursor before skipping, as the right-hand branch does: without it every base
+                    # kept after a leading soft clip was read from an offset shifted by the clip length (D12)
+                    ref += ref_len; q += qry_len
                     continue
                 cig.append((op, L))
                 if qry_len:

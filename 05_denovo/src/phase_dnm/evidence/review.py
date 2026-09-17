@@ -37,7 +37,11 @@ def evidence_columns(k: Iterable[int]) -> List[str]:
     cols = list(CORE)
     for key in ROW_PREFIX.values():
         cols += ["%s_%s" % (key, f) for f in ROW_FIELDS]
-    cols += ["C_untagged_dp", "C_untagged_alt", "F_untagged_dp", "F_untagged_alt", "M_untagged_dp", "M_untagged_alt"]
+    # *_untagged_ref added 2026-09-16 (D13): the likelihood's UNT row was (alt, dp - alt), which counted unreadable
+    # (AMB) untagged reads as REF, unlike the tagged rows whose n = alt + ref. Older tables lack the column and the
+    # likelihood falls back to dp - alt for them.
+    cols += ["C_untagged_dp", "C_untagged_alt", "C_untagged_ref", "F_untagged_dp", "F_untagged_alt", "F_untagged_ref",
+             "M_untagged_dp", "M_untagged_alt", "M_untagged_ref"]
     cols += ["t_alt_reads", "t_dp", "u_alt_reads", "u_dp", "nt_parent_alt_reads", "t_hap_resolved"]
     # D-block features in a fixed order (registry names)
     cols += ["c_alt_hapA", "c_alt_hapO", "c_dp_hapA", "c_dp_hapO", "c_alt_hap_frac", "c_alt_confined", "c_alt_tagged_frac",
@@ -106,6 +110,7 @@ def review_child(candidates_tsv: str, out_tsv: str, bams: TrioBams, labels: H.La
             for role in ("C", "F", "M"):
                 row["%s_untagged_dp" % role] = m.untagged[role].dp
                 row["%s_untagged_alt" % role] = m.untagged[role].alt
+                row["%s_untagged_ref" % role] = m.untagged[role].ref
             w.writerow({k: ("" if row.get(k) is None else row.get(k)) for k in cols})
             counts[c["phase_class"]] += 1
             counts["rows"] += 1

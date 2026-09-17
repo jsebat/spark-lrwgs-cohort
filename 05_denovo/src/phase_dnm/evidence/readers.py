@@ -141,12 +141,42 @@ def support_sv(read, rec: CandidateRecord, supporting: Set[str], bp_window: int 
 
 
 def _sv_signature_matches(read, rec: CandidateRecord, svtype, svlen, bps, bp_window: int, len_tol: float, sa_tol: int) -> bool:
+    return sv_signature(read.reference_start, read.reference_end, read.cigartuples,
+                        read.get_tag("SA") if read.has_tag("SA") else None, rec.chrom, svtype, svlen, bps,
+                        bp_window, len_tol, sa_tol)
+
+
+def _cigar_ref_span(cigar: str) -> int:
+    """Reference bases consumed by a CIGAR string (M/D/N/=/X), for the span of a supplementary alignment."""
+    n = 0
+    for L, op in _CIGAR.findall(cigar):
+        if op in "MDN=X":
+            n += int(L)
+    return n
+
+
+def sv_signature(ref_start: int, ref_end: Optional[int], cigartuples, sa_tag: Optional[str], chrom: str, svtype, svlen,
+                 bps, bp_window: int, len_tol: float, sa_tol: int) -> bool:
+    """Does this alignment carry a junction signature for THIS event? Pure function of the alignment's coordinates,
+    CIGAR and SA tag, so it can be tested without a BAM.
+
+    Two signatures. (1) A CIGAR indel of the event's length whose reference anchor lies within bp_window of a
+    breakpoint. (2) A split read: this alignment ENDS (either end) within 3 x bp_window of one breakpoint and its
+    supplementary alignment lands (either end) within sa_tol of the OTHER breakpoint.
+
+    The first version of (2) compared only reference_start with the breakpoints, so a junction read whose primary
+    segment lies to the LEFT of a breakpoint -- clipped at its 3' end, reference_end == breakpoint, start up to a
+    read length away -- could never match; and an inner `any(... for bp in bps)` re-bound `bp`, so the "other
+    breakpoint" constraint was a no-op. Every junction read not named in sawfish's supporting-read list went through
+    this path: all of them in the spike arm and in the surrogate parents of synthetic trios, and any real read sawfish
+    omitted. The planted-deletion junction deficit above 20 kb recorded in DESIGN P31 is this function's signature
+    (review 2026-09-16, D4)."""
     L_want = abs(int(svlen)) if svlen not in (None, "", ".") else None
     # 1. CIGAR indel at a breakpoint with the event's length (DEL -> D, INS/DUP -> I)
-    if L_want and svtype in ("DEL", "INS", "DUP") and read.cigartuples:
+    if L_want and svtype in ("DEL", "INS", "DUP") and cigartuples:
         want_op = 2 if svtype == "DEL" else 1
-        ref = read.reference_start
-        for op, L in read.cigartuples:
+        ref = ref_start
+        for op, L in cigartuples:
             if op in (0, 7, 8):
                 ref += L
             elif op == 2:
@@ -160,19 +190,22 @@ def _sv_signature_matches(read, rec: CandidateRecord, svtype, svlen, bps, bp_win
                 ref += L
             if ref > max(bps) + bp_window:
                 break
-    # 2. supplementary alignment landing near the OTHER breakpoint (or, for BND/INV, near any breakpoint on the same contig)
-    if read.has_tag("SA"):
-        for part in read.get_tag("SA").split(";"):
+    # 2. split read: primary ends at one breakpoint, supplementary lands at the other
+    if sa_tag:
+        ends_here = [ref_start] + ([ref_end] if ref_end is not None else [])
+        for part in str(sa_tag).split(";"):
             f = part.split(",")
             if len(f) < 2:
                 continue
-            chrom, pos = f[0], int(f[1])
-            if chrom != rec.chrom:
+            sa_chrom, sa_pos = f[0], int(f[1])
+            if sa_chrom != chrom:
                 continue
-            here = read.reference_start
+            sa_ends = [sa_pos] + ([sa_pos + _cigar_ref_span(f[3])] if len(f) > 3 and f[3] else [])
             for bp in bps:
-                other = [b for b in bps if b != bp] or [bp]
-                if any(abs(here - bp) <= bp_window * 3 for bp in bps) and any(abs(pos - o) <= sa_tol for o in other):
+                if min(abs(e - bp) for e in ends_here) > bp_window * 3:
+                    continue                                  # this alignment does not end at this breakpoint
+                others = [b for b in bps if b != bp] or [bp]
+                if any(abs(se - o) <= sa_tol for se in sa_ends for o in others):
                     return True
     return False
 
