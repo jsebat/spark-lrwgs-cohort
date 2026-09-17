@@ -17,8 +17,8 @@
 set -uo pipefail
 T=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
 # s_het source, in order: GENEBAYES_TSV (ensg-keyed GeneBayes table) if it exists, else SHET_TABLE (the lab's
-# symbol-keyed shet_by_symbol.tsv, built from GeneBayes + GENCODE). The g2mh GeneBayes path vanished on 2026-09-16.
-GB="${GENEBAYES_TSV:-/expanse/projects/sebat1/s3/data/sebat/g2mh/scripts/scripts_for_rare_pipeline/resources/GeneBayes/output/Supplementary_Table_1.tsv}"
+# symbol-keyed shet_by_symbol.tsv, built from GeneBayes + GENCODE). The g2mh tree moved to G2MH/legacy/pre-2026-09-reorganization on 2026-09-16.
+GB="${GENEBAYES_TSV:-/expanse/projects/sebat1/s3/data/sebat/G2MH/legacy/pre-2026-09-reorganization/scripts/scripts_for_rare_pipeline/resources/GeneBayes/output/Supplementary_Table_1.tsv}"
 SYM="${SHET_TABLE:-$T/denovo_sv/shet_by_symbol.tsv}"
 LOF=$T/lof_sites.tsv
 MASK=$T/mask.segdup_repeat.bed.gz
