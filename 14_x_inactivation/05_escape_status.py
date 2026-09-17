@@ -92,7 +92,7 @@ def load_islands(path, intervals, min_cov, min_cpg):
         pos, beta = arrays[chrom]
         i, j = np.searchsorted(pos, start), np.searchsorted(pos, end)
         if j - i >= min_cpg:
-            out[(start, end)] = float(beta[i:j].mean())
+            out[(chrom, start, end)] = float(beta[i:j].mean())     # the caller looks islands up by the full triple
     return out
 
 
