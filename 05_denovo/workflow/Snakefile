@@ -89,8 +89,14 @@ rule m2_review:
     shell: COMMON + "bash " + SB("m2_review_family.sb") + " {wildcards.family}"
 
 rule m2_reclassify:
-    # reclassify -> likelihood -> features (with annotation and geometry when present); the review output stays immutable
-    input: rules.m2_review.output
+    # reclassify -> likelihood -> features (with annotation and geometry when present); the review output stays immutable.
+    # The population annotation is a REQUIRED input, not an optional one: m2_reclassify_family.sb passes --annot only
+    # when the per-child annot table exists, and integrate applies the population rules (gnomAD, leave-one-family-out
+    # cohort count, founder panel, sib-shared) only when those columns are filled. Until 2026-09-16 nothing in the
+    # all -> m3_integrate chain depended on annotate_real, so a fresh `snakemake all` produced tier-1 calls with the
+    # mask rule alone and a normal-looking summary. Depending on it here also serialises the two writers of
+    # features.tsv (m4_annotate.sb re-runs features with --annot; reclassify rewrites them) that had no ordering.
+    input: rules.m2_review.output, expand(os.path.join(EVIDENCE_DIR, "..", "annot", "real", ".done.{cls}"), cls=CLASS_GROUPS)
     output: os.path.join(EVIDENCE_DIR, "{family}", "m2_reclassify.status")
     resources: mem_mb=4000, runtime=120, cpus_per_task=1
     shell: COMMON + "REPLACE_REVIEW=1 bash " + SB("m2_reclassify_family.sb") + " {wildcards.family}"
@@ -110,7 +116,11 @@ rule annotate_real:
 # `integrate` then ran in phase_only mode -- a call set with no classifier at all, which looks complete and is
 # silently weaker. A downgrade that produces plausible output is the most dangerous default available.
 #
-#   frozen (default)  score with models/<cls>.xgb.json, refit on the full SPARK long-read cohort
+#   frozen (default)  score with models/<cls>.xgb.json, refit on the full SPARK long-read cohort.
+#                     IN-SAMPLE on that cohort: every real candidate of the 33 training families, true DNMs included,
+#                     was a label-0 training row, and rf_q is built from the scored rows' own ranks. For a NEW cohort
+#                     this is the right default (P21 transfer path); for the training cohort itself use SCORE_MODE=train,
+#                     whose fold models score each family out of fold (this is how the reported call set was made).
 #   train             use this cohort's own harness (requires the M4 target to have been run first)
 #   none              phase-only; must be asked for explicitly, never reached by accident
 # env_value() reads the config FILE only -- it never looks at os.environ. Using it here meant SCORE_MODE=none

@@ -94,6 +94,26 @@ carries it. The job derives the sample identifiers from `05_denovo`'s tables at 
 passes on depth 0.59, LOH 0.0, both parents intact; *DNMT3A* is depth 0.38 and phased but has no junction read at both
 ends of a 302 bp event and no heterozygosity measurement below 5 kb, which is exactly the REVIEW case.
 
+## First run on the cohort (2026-09-16)
+
+Blind — no gene named in advance — the module's own shortlist (quality PASS or REVIEW, relevance HIGH or MODERATE) is
+**104 rows** over 35 children. Its only HIGH + PASS rows are a frameshift `LoF_HC` indel in *DLX6* (below the
+genome-wide threshold), the 302 bp *DNMT3A* deletion (rank 2, PASS 5/5, below threshold), the 35 kb *MECP2* deletion
+(rank 3, PASS 6/6, tier 1) and a start-lost SNV in *ETFA* (tier 1). Eleven further `LoF_HC` indels in panel genes sit
+at REVIEW below threshold — the list this arm exists to hand an analyst. The rest of the shortlist is TR REVIEW rows.
+Acceptance: PASS for both known events, with the *DNMT3A* row graded PASS rather than the expected REVIEW because the
+evidence table records junction reads at both breakpoints, a column the final table had dropped.
+
+| | rows | PASS | REVIEW | FAIL |
+|---|---|---|---|---|
+| arm A (rare + large SV) | 68 | 1 | 3 | 64 |
+| arm B (clinically led): SV 121, SNV 506, indel 83, TR 5,807 | 6,517 | 7 | 141 | 6,369 |
+
+Known gap: 43,053 of the 93,432 SNV/indel candidates inside a panel-gene span are absent from the freeze-1 VEP VCFs and
+carry no consequence (`smallvar_annotation.tsv.missing`). Most are low-quality raw candidates the freeze excluded, but
+the gap is not yet characterised, and the VEP/LOFTEE resources recorded by `03_tiering` were absent at their paths on
+this date, so re-annotation is blocked upstream. Missense tiers attached for 425 variants via dbNSFP parquet.
+
 ## What this module must never be used for
 
 Any performance number, any threshold fit, any claim about the genome-wide classifier. Arm A's quality verdicts may

@@ -48,7 +48,8 @@ while IFS=$'\t' read -r child father mother; do
         --mother-bam "$(bam_of "$mother")" --mother-bai "$(bai_of "$mother")" \
         --child-tr-bam "$(trb_of "$child")" --child-tr-bai "$(tri_of "$child")" --father-tr-bam "$(trb_of "$father")" --father-tr-bai "$(tri_of "$father")" \
         --mother-tr-bam "$(trb_of "$mother")" --mother-tr-bai "$(tri_of "$mother")" \
-        ${SVJ:+--sv-supporting-reads "$SVJ"} ${SMALLV:+--smallvar-vcf "$SMALLV" --child-sample "$child"} \n        $MAXARG --salt "$FAMILY" --thresholds "$HERE/config/thresholds.yaml"
+        ${SVJ:+--sv-supporting-reads "$SVJ"} ${SMALLV:+--smallvar-vcf "$SMALLV" --child-sample "$child"} \
+        $MAXARG --salt "$FAMILY" --thresholds "$HERE/config/thresholds.yaml"
     echo "review $cls done for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
   done
   n_done=$((n_done+1))

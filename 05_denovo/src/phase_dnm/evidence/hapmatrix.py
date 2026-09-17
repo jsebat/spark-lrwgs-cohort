@@ -594,10 +594,24 @@ def reclassify_row(row: Dict[str, object], hp: HapParams, cp: ClassParams, thres
     # deletion went from rule_score 6 and TIER1_SV_DEPTH to rule_score 2 and BELOW_TAU purely by being reclassified.
     # The columns are already in the row (review writes both the raw counts and the derived ratios), so rebuild the
     # dict from them rather than recomputing anything.
-    sv_row = {k: v for k, v in row.items()
+    # The row comes from csv.DictReader, so every value is a STRING, and classify_sv_interval / _rule_score_sv
+    # compare them with floats ("0.59" <= 0.7 raises TypeError). This went unnoticed because the one cohort
+    # reclassify that ran on SV tables (2026-09-16) ran while the sv_ columns were blank, so sv_row was empty and
+    # the depth branch was skipped; the "carry the SV evidence forward" intent above had never actually executed.
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return v
+    sv_row = {k: _num(v) for k, v in row.items()
               if (k.startswith("sv_") or (len(k) > 2 and k[0] in "CFM" and k[1] == "_" and "sv_" in k))
               and v not in (None, "")}
-    c = classify(m, f, t, hp, cp, sv=sv_row or None)
+    # classify_sv_interval reads the DERIVED block (c_sv_junc_both_ends, p_sv_max_hap_depth_change, ...), which
+    # review.py builds with sv_depth_features(raw) | raw. The filter above keeps only the raw upper-case columns, so
+    # without rebuilding the derived block here `both_ends` is None and every reclassified deletion falls to
+    # inconclusive / NO_JUNCTION_BOTH_ENDS -- the second cause of the "rule 6 -> 2 after reclassify" episode.
+    sv_full = (sv_depth_features(sv_row) | sv_row) if sv_row else None
+    c = classify(m, f, t, hp, cp, sv=sv_full)
     old_flags = [x for x in str(row.get("flags") or "").split(";") if x in POSITIONAL_FLAGS]
     c["flags"] = ";".join([x for x in c["flags"].split(";") if x] + old_flags)
     t = poo_clear_near_switch(t, c["flags"])

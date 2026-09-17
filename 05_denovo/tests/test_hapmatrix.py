@@ -223,13 +223,25 @@ def test_reclassify_from_evidence_row_reproduces_the_rule_layer():
              dict(child_A=(6, 4), child_O=(5, 5)), dict(F2=(0, 0)), dict(child_A=(1, 9)), dict(M2=(4, 6)), dict(hap1_is="M", f_trans=2)]
     for kw in cases:
         m, f, t, c = scenario(**kw)
+        # 1. without a positional flag the rule layer and the parent of origin round-trip exactly
         row = _review_style_row(m, f, t, c)
-        row["flags"] = (row["flags"] + ";NEAR_CHILD_SWITCH").strip(";")     # a positional flag must survive
         out = H.reclassify_row(row, hp, cp, thresholds_version="test")
         assert out["phase_class"] == c["phase_class"], (kw, out["phase_class"], c["phase_class"])
         assert out["rule_score"] == c["rule_score"] and out["parent_of_origin"] == t["parent_of_origin"]
         assert out["t_alt_reads"] == t["t_alt_reads"] and out["hap_obs_k5"] == f["hap_obs_k5"]
-        assert "NEAR_CHILD_SWITCH" in out["flags"] and out["thresholds_version"] == "test"
+        assert out["thresholds_version"] == "test"
+        # 2. a positional flag must survive, and inside a phase-switch window the parent of origin is deliberately
+        #    cleared (P34, 2026-09-16): the labels may be the wrong way round there, so the assignment is a coin toss
+        row = _review_style_row(m, f, t, c)
+        row["flags"] = (row["flags"] + ";NEAR_CHILD_SWITCH").strip(";")
+        out = H.reclassify_row(row, hp, cp, thresholds_version="test")
+        assert "NEAR_CHILD_SWITCH" in out["flags"]
+        assert out["phase_class"] == c["phase_class"] and out["rule_score"] == c["rule_score"]
+        if t["parent_of_origin"] in ("paternal", "maternal"):
+            assert out["parent_of_origin"] == "undetermined", (kw, out["parent_of_origin"])
+            assert str(out["poo_reason"]).startswith("PHASE_SWITCH_RISK"), out["poo_reason"]
+        else:
+            assert out["parent_of_origin"] == t["parent_of_origin"]
         assert out["c_alt_mapq_mean"] == row["c_alt_mapq_mean"]      # read-quality summary carried over, not recomputed
     # and a row from a table written before the ambiguity columns existed (no *_amb) still reclassifies
     m, f, t, c = scenario()
