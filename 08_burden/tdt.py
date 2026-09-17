@@ -35,7 +35,7 @@ with open(os.path.join(T, "lof_tiered.rare.tsv")) as fh:
     ix = dict((h, i) for i, h in enumerate(hdr))
     for ln in fh:
         f = ln.rstrip(NL).split(TAB)
-        tier[(f[ix["chrom"]], int(f[ix["pos"]]))] = f[ix["lof_tier"]]
+        tier[(f[ix["chrom"]], int(f[ix["pos"]]), f[ix["ref"]], f[ix["alt"]])] = f[ix["lof_tier"]]   # keyed by allele (T6)
 print("rare tiered LoF sites: %d" % len(tier))
 
 # ---- trios with an affected offspring
@@ -65,7 +65,7 @@ for _, k, fa, mo in trios:
 tgt = os.path.join(T, "rare_targets.txt")
 cmd = ("singularity exec -B /expanse:/expanse " + SIF +
        " bcftools query -T " + tgt +
-       " -f '%CHROM" + TAB + "%POS[" + TAB + "%SAMPLE|%GT|%GQ|%DP]" + NL + "' " + BCF)
+       " -f '%CHROM" + TAB + "%POS" + TAB + "%REF" + TAB + "%ALT[" + TAB + "%SAMPLE|%GT|%GQ|%DP]" + NL + "' " + BCF)
 p = subprocess.Popen(["bash", "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 out, err = p.communicate()
 if p.returncode != 0:
@@ -96,12 +96,13 @@ for ln in lines:
     f = ln.split(TAB)
     if len(f) < 3:
         continue
-    key = (f[0], int(f[1]))
+    key = (f[0], int(f[1]), f[2], f[3])
     t = tier.get(key)
     if t is None:
         continue
+    on_x = f[0] in ("chrX", "chrY")
     gt = {}
-    for cell in f[2:]:
+    for cell in f[4:]:
         q = cell.split("|")
         if q:
             gt[q[0]] = parse(cell)
@@ -111,6 +112,8 @@ for ln in lines:
             continue
         nk = gk.count("1")
         for par in (fa, mo):
+            if on_x and par == fa:
+                continue                  # a father is hemizygous on X: his single allele is not a heterozygous transmission test (T7)
             gp = gt.get(par)
             if gp is None:
                 continue
@@ -132,7 +135,7 @@ print("")
 print("=" * 66)
 print("  TRANSMISSION TEST -- inherited LoF, affected offspring")
 print("=" * 66)
-print("  %-9s %8s %8s %8s %9s %10s" % ("tier", "T", "NT", "total", "T_frac", "p(binom)"))
+print("  %-9s %8s %8s %8s %9s %10s" % ("tier", "T", "NT", "total", "T_frac", "p(normal)"))   # normal approximation with continuity correction, not an exact binomial
 tot_t = tot_nt = 0
 for t in ("lof_t1", "lof_t2", "lof_t3"):
     a, b = cnt.get(t, [0, 0])
@@ -146,14 +149,14 @@ for t in ("lof_t1", "lof_t2", "lof_t3"):
     # two-sided exact binomial via normal approx with continuity correction
     se = math.sqrt(0.25 / n)
     z = (abs(frac - 0.5) - 0.5 / n) / se if se > 0 else 0
-    pv = math.erfc(z / math.sqrt(2))
+    pv = min(1.0, math.erfc(max(0.0, z) / math.sqrt(2)))   # z < 0 when |frac-0.5| < the correction gave p > 1 (T21)
     print("  %-9s %8d %8d %8d %9.4f %10.4f" % (t, a, b, n, frac, pv))
 n = tot_t + tot_nt
 if n:
     frac = 1.0 * tot_t / n
     se = math.sqrt(0.25 / n)
     z = (abs(frac - 0.5) - 0.5 / n) / se
-    print("  %-9s %8d %8d %8d %9.4f %10.4f" % ("ALL", tot_t, tot_nt, n, frac, math.erfc(z / math.sqrt(2))))
+    print("  %-9s %8d %8d %8d %9.4f %10.4f" % ("ALL", tot_t, tot_nt, n, frac, min(1.0, math.erfc(max(0.0, z) / math.sqrt(2)))))
 print("=" * 66)
 print("  T_frac > 0.5 = over-transmission to affected offspring (burden enrichment).")
 print("  Only unambiguous meioses counted: one het parent, other parent hom-ref.")

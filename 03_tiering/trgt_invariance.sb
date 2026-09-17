@@ -10,6 +10,9 @@ source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/d
 module load singularitypro/4.1.2
 SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
 N=$(wc -l < $C/pon/pon65.samples.txt); [ "$N" -eq 65 ] || { echo "FATAL: panel N=$N"; exit 2; }
+# --force-samples below drops absent names silently; the panel must actually be in the VCF (T18)
+P=$(comm -12 <(singularity exec -B /expanse:/expanse "$SIF" bcftools query -l "$FZ/freeze1.cohort.trgt.vcf.gz" | sort) <(sort $C/pon/pon65.samples.txt) | wc -l)
+[ "$P" -eq "$N" ] || { echo "FATAL: only $P of $N panel samples are in the TRGT VCF"; exit 2; }
 printf 'trid\tchrom\tpos\tn_called\tn_distinct\tmodal_mc\tmodal_frac\n' > $OUT
 singularity exec -B /expanse:/expanse "$SIF" bash -c "
   bcftools view -S '$C/pon/pon65.samples.txt' --force-samples '$FZ/freeze1.cohort.trgt.vcf.gz' -Ou \

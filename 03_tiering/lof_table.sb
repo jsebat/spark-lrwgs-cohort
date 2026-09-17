@@ -19,9 +19,30 @@ for c in chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 ch
          chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY; do
   f=$V/$c.vep.vcf.gz
   [ -s "$f" ] || { echo "  skip $c (no file)"; continue; }
-  n=$(sx bcftools +split-vep -d -f '%CHROM\t%POS\t%REF\t%ALT\t%SYMBOL\t%Gene\t%Consequence\t%gnomAD4.1_joint_AF\t%LoF\t%LoF_filter\n' \
-        -i 'LoF="HC"' "$f" 2>/dev/null | sort -u -k1,1 -k2,2n | tee -a "$OUT" | wc -l)
+  # errors are kept and fatal (they were sent to /dev/null and a failed chromosome contributed 0 rows with a normal
+  # log line, T12); uniqueness is on chrom+pos+REF+ALT -- `sort -u -k1,1 -k2,2n` collapsed distinct HC-LoF alleles
+  # at one position (multiallelic sites, an SNV and an indel at the same POS) to one row (T1)
+  sx bcftools +split-vep -d -f '%CHROM\t%POS\t%REF\t%ALT\t%SYMBOL\t%Gene\t%Consequence\t%gnomAD4.1_joint_AF\t%LoF\t%LoF_filter\n' \
+        -i 'LoF="HC"' "$f" > "$O/_lof.$c.tsv" 2>> "$O/lof_table.split_vep.err" || { echo "FATAL: split-vep failed on $c (see $O/lof_table.split_vep.err)"; exit 3; }
+  sort -u -k1,1 -k2,2n -k3,3 -k4,4 "$O/_lof.$c.tsv" >> "$OUT"; n=$(wc -l < "$O/_lof.$c.tsv"); rm -f "$O/_lof.$c.tsv"
   echo "  $c: $n HC LoF records"
 done
 echo "=== total rows: $(( $(wc -l < "$OUT") - 1 )) ==="
+
+# ---- gnomAD v4.1 GENOMES frequency for EVERY site, SNV and indel alike (T2). The dbNSFP plugin covers coding SNVs
+# only, so every frameshift had an empty AF that the rare filter read as "absent = rare". The lab slivar zip is built
+# from gnomad.genomes.v4.1.sites; gnomad_af_join.py rewrites column 8 and keeps the dbNSFP value in a trailing column.
+SLIVAR_SIF="${SLIVAR_SIF:-/expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/docker___quay.io_pacbio_slivar@sha256_f71a27f756e2d69ec30949cbea97c54abbafde757562a98ef965f21a28aa8eaa.sif}"
+GNOMAD_ZIP="${GNOMAD_ZIP:-/expanse/projects/sebat1/jsebat/refs/hifi-wdl-resources-v3.1.0/GRCh38/slivar_gnotate/gnomad.hg38.v4.1.custom.v1.zip}"
+BCF="${COHORT_BCF:-/expanse/projects/sebat1/longread_cohort_2026/freeze1/freeze1.cohort.bcf}"
+H="${WORKFLOW_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}}"   # sbatch runs a spool copy: never $0 alone
+[ -s "$SLIVAR_SIF" ] && [ -s "$GNOMAD_ZIP" ] || { echo "FATAL: SLIVAR_SIF / GNOMAD_ZIP not found; gnomAD frequencies NOT assigned"; exit 4; }
+TD=$(mktemp -d)
+{ sx bcftools view -h -G "$BCF" | grep -E '^##(fileformat|contig)'; printf '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n';
+  awk -F'\t' 'NR>1{printf "%s\t%s\t.\t%s\t%s\t.\t.\t.\n",$1,$2,$3,$4}' "$OUT" | sort -u -k1,1V -k2,2n -k4,4 -k5,5; } > "$TD/sites.vcf"
+singularity exec -B /expanse:/expanse -B "$TD:$TD" "$SLIVAR_SIF" slivar expr --vcf "$TD/sites.vcf" --gnotate "$GNOMAD_ZIP" --out-vcf "$TD/gnot.vcf" \
+  || { echo "FATAL: slivar gnotate failed"; exit 4; }
+python3 "$H/03_tiering/gnomad_af_join.py" "$OUT" "$TD/gnot.vcf" "$OUT.tmp" && mv "$OUT.tmp" "$OUT" || { echo "FATAL: gnomad_af_join failed"; exit 4; }
+rm -rf "$TD"
+echo "=== gnomAD genomes v4.1 AF assigned: $(awk -F'\t' 'NR>1 && $8!="." && $8!=""' "$OUT" | wc -l) of $(( $(wc -l < "$OUT") - 1 )) sites (rest absent = rare) ==="
 echo "=== distinct genes with an HC LoF: $(awk -F'\t' 'NR>1{print $5}' "$OUT" | sort -u | grep -v '^$' | wc -l) ==="

@@ -106,7 +106,12 @@ def add(cls, r, gene, proband, src, qual_ok, qual_note, extra):
 
 # ---- small variants
 for r in csv.DictReader(io.open(T / "inherited_lof_constrained.tsv", encoding="utf-8"), delimiter="\t"):
-    ok = int(r["child_dp"]) >= 10 and int(r["child_gq"]) >= 20
+    def _i(x):
+        try:
+            return int(float(x))
+        except (TypeError, ValueError):
+            return -1   # DP/GQ "." arrives as "" or "None"; treat as failing QC, not as a crash (T19)
+    ok = _i(r["child_dp"]) >= 10 and _i(r["child_gq"]) >= 20
     add("small variant", dict(chrom=r["variant"].split(":")[0]), r["gene"], r["proband"],
         r["transmitted_from"], ok, f"DP {r['child_dp']}, GQ {r['child_gq']}",
         dict(detail=f"{r['consequence']} {r['variant']}", metric=f"LOEUF {r['loeuf']}", cohort=r["cohort_ac"]))
@@ -115,7 +120,7 @@ for r in csv.DictReader(io.open(T / "inherited_sv_constrained.tsv", encoding="ut
     L = int(r["length"])
     if L > 5_000_000:
         continue
-    ok = not (r["child_gq"] and int(r["child_gq"]) < 20)
+    ok = not (r["child_gq"] not in ("", "None") and int(float(r["child_gq"])) < 20)
     add("structural", dict(variant=r["variant"]), r["gene"], r["proband"], r["transmitted_from"], ok,
         f"GQ {r['child_gq']}", dict(detail=f"{r['svtype']} {L:,} bp {r['variant']}",
                                     metric=f"shet {r['shet']}", cohort=r["cohort_ac"]))

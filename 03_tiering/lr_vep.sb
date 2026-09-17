@@ -39,6 +39,9 @@ sx() { singularity exec -B /expanse:/expanse "$@"; }
 
 echo "=== $CHROM : sites-only extract ==="
 S=$SITES/$CHROM.sites.vcf.gz
+if [ -s "$S" ] && ! sx "$BT_SIF" bcftools index -n "$S" >/dev/null 2>&1; then
+  echo "  existing sites VCF is not a valid indexed file (truncated by a killed task?) -- rebuilding"; rm -f "$S" "$S.tbi"   # T12
+fi
 if [ ! -s "$S" ]; then
   sx "$BT_SIF" bash -c "bcftools view -G -r '$CHROM' '$BCF' -Oz -o '$S' && bcftools index -t '$S'"
   rc=$?; [ $rc -eq 0 ] || { echo "FATAL: sites extract rc=$rc"; exit $rc; }

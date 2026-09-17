@@ -10,7 +10,7 @@ Models:
                       a parent. Parents are unaffected, so this is reduced
                       penetrance and is reported as such.
   HOMOZYGOUS          proband hom-alt, gene biallelic_autosomal, both parents het
-  COMPOUND_HET        two rare variants, gene biallelic_autosomal, one from each parent
+  (COMPOUND_HET       two rare variants, one from each parent -- DOCUMENTED BUT NOT IMPLEMENTED; only the three models below are called)
   X_LINKED            male proband hemizygous, gene monoallelic_X_hemizygous,
                       mother carrier
 Filters: DDG2P confidence definitive|strong; rare; coding/impactful; genotype QC
@@ -142,7 +142,9 @@ for ped in sorted(glob.glob(os.path.join(R, "run_*", "analysis", "*.ped"))):
     fmt = ("%CHROM" + chr(9) + "%POS" + chr(9) + "%REF" + chr(9) + "%ALT" + chr(9) +
            "%INFO/gnomad_af" + chr(9) + "%INFO/gnomad_nhomalt" + chr(9) + "%INFO/BCSQ" +
            "[" + chr(9) + "%SAMPLE|%GT|%GQ|%DP]" + chr(10))
-    q = ("bcftools query -i 'INFO/gnomad_af<%g' -f '%s' '%s'" % (AF_REC, fmt, V))
+    # -e "af >= t" keeps records WITHOUT the tag; -i "af < t" is false for a missing value, so variants absent from
+    # gnomAD -- the rarest class -- never reached a model and the af == -1 branch below was unreachable (T4)
+    q = ("bcftools query -e 'INFO/gnomad_af>=%g' -f '%s' '%s'" % (AF_REC, fmt, V))
     for ln in sx(q).splitlines():
         f = ln.split(chr(9))
         if len(f) < 8:

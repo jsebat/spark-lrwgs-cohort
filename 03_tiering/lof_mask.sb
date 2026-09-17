@@ -41,11 +41,13 @@ if [ ! -s "$MASK" ]; then
       "$RD/rmsk.bed" >> "$TMP"
   echo "  + rmsk{Simple_repeat,Low_complexity}"
   echo "  raw mask intervals: $(wc -l < "$TMP")"
-  sx bash -c "sort -k1,1 -k2,2n '$TMP' | bedtools merge -i - | bgzip -c > '$MASK'"
+  sx bash -c "set -o pipefail; sort -k1,1 -k2,2n '$TMP' | bedtools merge -i - | bgzip -c > '$MASK'"   # pipefail: a failed merge wrote a valid EMPTY .gz with rc 0 and nothing was ever masked again (T12)
   rc=$?; [ $rc -eq 0 ] || { echo "FATAL: mask build rc=$rc"; exit $rc; }
   rm -f "$TMP"
 fi
-echo "merged mask intervals: $(sx bash -c "zcat '$MASK' | wc -l")"
+NM=$(sx bash -c "zcat '$MASK' | wc -l")
+[ "$NM" -gt 0 ] || { echo "FATAL: mask has no intervals"; rm -f "$MASK"; exit 5; }
+echo "merged mask intervals: $NM"
 echo "masked bp: $(sx bash -c "zcat '$MASK' | awk '{s+=\$3-\$2} END{printf \"%.0f\", s}'")"
 
 # LoF sites -> BED (POS is 1-based; filter_regions drops when POS > start AND POS <= end,

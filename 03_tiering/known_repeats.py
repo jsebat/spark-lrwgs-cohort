@@ -197,7 +197,10 @@ for line in out.splitlines():
         distinct = bool(path_m) and bool(ref_m) and not set(path_m) & set(ref_m)
         verdict, allele = classify(counts, L, distinct)
         qc = []
-        if not sd or max(sd) < MIN_SD:
+        sd_call = sd
+        if allele is not None and isinstance(counts, (list, tuple)) and allele in counts and len(sd) == len(counts):
+            sd_call = [sd[counts.index(allele)]]      # the support of the allele being CALLED; max(SD) let the other allele carry it (T9)
+        if not sd_call or min(sd_call) < MIN_SD:
             qc.append("low_spanning(SD=%s)" % (",".join(map(str, sd)) or "none"))
         if ap and min(ap) < MIN_AP:
             qc.append("low_purity(AP=%.2f)" % min(ap))

@@ -68,9 +68,9 @@ with open(T / "_gt.tsv") as fh:
         p = line.rstrip("\n").split("\t")
         if len(p) < 3:
             continue
-        key = (p[0], p[1])
+        key = (p[0], p[1], p[2], p[3])          # chrom, pos, REF, ALT: keyed by allele (T6)
         d = {}
-        for cell in p[2:]:
+        for cell in p[4:]:
             bits = cell.split("|")
             if len(bits) >= 2:
                 d[bits[0]] = dict(gt=bits[1],
@@ -98,7 +98,7 @@ with open(T / "lof_tiered.rare.tsv") as fh:
         if af > AF_MAX:
             continue
         n_rare += 1
-        key = (v["chrom"], v["pos"])
+        key = (v["chrom"], v["pos"], v["ref"], v["alt"])
         g = gt.get(key, {})
         carriers = [s for s, d in g.items() if d["gt"] in CARRIER]
         ac = sum(2 if g[s]["gt"] in ("1/1", "1|1") else 1 for s in carriers)

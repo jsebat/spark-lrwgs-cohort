@@ -62,10 +62,11 @@ cds = defaultdict(list)
 n_cds = 0
 for line in open(D / "gencode_cds.bed"):
     p = line.rstrip("\n").split("\t")
-    if len(p) < 4 or p[3] not in panel:
+    if len(p) < 4:
         continue
-    cds[p[0]].append((int(p[1]), int(p[2]), p[3]))
-    n_cds += 1
+    for g in [x for x in p[3].split(",") if x in panel]:       # merged CDS carry "GENEA,GENEB" (T12)
+        cds[p[0]].append((int(p[1]), int(p[2]), g))
+        n_cds += 1
 for c in cds:
     cds[c].sort()
 print(f"panel CDS intervals {n_cds:,} on {len(cds)} contigs", file=sys.stderr)

@@ -10,7 +10,11 @@ export TRGT_VCF="${TRGT_VCF:?joint TRGT VCF}"
 export PED="${PED:?cohort pedigree}"
 export CDS_BED="${CDS_BED:?GENCODE CDS bed}"
 STR="${STRCHIVE_JSON:?STRchive loci json}"
-I="${WORKFLOW_ROOT:?repo checkout}/02_tiering"
+I="${WORKFLOW_ROOT:?repo checkout}/03_tiering"    # was 02_tiering, a directory that does not exist (T3)
+# required by the scripts below; silently missing until 2026-09-16 (T11): tr_clogit.R read.delim(""), known_repeats
+# looked for the container in SIF_CACHE not SIF, and the D55 invariance gate switched itself off with a WARNING
+: "${SAMPLE_QC:?path to sample_qc.tsv (tr_clogit.R)}" "${SIF_CACHE:?singularity image cache (known_repeats.py)}" "${PON_INVARIANCE:?trgt_invariance.sb output (D55 gate)}"
+export SAMPLE_QC SIF_CACHE PON_INVARIANCE
 sx(){ singularity exec -B /expanse:/expanse "$SIF" "$@"; }
 echo "CDS bed columns: $(head -1 $CDS_BED | tr '\t' ' ')"
 

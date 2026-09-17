@@ -152,12 +152,16 @@ for line in proc.stdout:
         if max(cl) > pmax + exc and max(cl) > fm_c:
             dn_f.write("\t".join(map(str, [trid, chrom, pos, end, motifs, genes, c, fam.get(c, ""), "yes", ",".join(map(str, cl)), ",".join(map(str, pl)), ",".join(map(str, ml)), fm_c, max(cl) - pmax])) + "\n")
         # TDT on outlier alleles (family-LOO threshold)
+        if chrom in ("chrX", "chrY"):
+            continue                          # a father is hemizygous there: his single allele is not a het transmission test (T7)
         po = [L > t_c for L in pl]; mo = [L > t_c for L in ml]
         if sum(po) + sum(mo) == 1:           # exactly one outlier allele among the four parental alleles
             transmitted = any(L > t_c for L in cl)
             tdt[("cds" if genes else "noncds", "T" if transmitted else "NT")] += 1
             tdt[("all", "T" if transmitted else "NT")] += 1
 proc.wait()
+if proc.returncode != 0:
+    sys.exit("FATAL: bcftools query exited %d -- the outlier tables above are truncated, do not read them as results" % proc.returncode)
 for fh in (locus_f, out_f, dn_f): fh.close()
 
 # ---------------- per-sample table and TDT

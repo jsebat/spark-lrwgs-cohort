@@ -41,7 +41,10 @@ awk -F'\t' 'NR>1{print $1"\t"$2}' "$T/lof_tiered.rare.tsv" | sort -u -k1,1 -k2,2
 echo "target sites: $(wc -l < "$T/rare_targets.txt")"
 
 # 3. per-sample genotypes at those sites, QC-gated
-sx bcftools query -T "$T/rare_targets.txt" -f '%CHROM\t%POS[\t%SAMPLE|%GT|%GQ|%DP]\n' "$BCF" > "$T/_gt.tsv"
+# REF and ALT travel with each row so that consumers key by ALLELE: `bcftools query -T` returns every record at a
+# position, and (chrom,pos) alone applied one allele's tier to carriers of another (T6). Consumers: this awk, 08_burden/tdt.py,
+# 07_inheritance/inherited_lof_table.py.
+sx bcftools query -T "$T/rare_targets.txt" -f '%CHROM\t%POS\t%REF\t%ALT[\t%SAMPLE|%GT|%GQ|%DP]\n' "$BCF" > "$T/_gt.tsv"
 rc=$?; [ $rc -eq 0 ] || { echo "FATAL: bcftools query rc=$rc"; exit $rc; }
 echo "genotype rows pulled: $(wc -l < "$T/_gt.tsv")"
 
@@ -51,12 +54,12 @@ BEGIN{
   OFS="\t";
   while ((getline l < TIER) > 0) {
     n=split(l, f, "\t"); if (f[1]=="chrom") continue;
-    tier[f[1]"|"f[2]] = f[12];
+    tier[f[1]"|"f[2]"|"f[3]"|"f[4]] = f[12];
   }
 }
 {
-  key=$1"|"$2; t=tier[key]; if (t=="") next;
-  for (i=3; i<=NF; i++) {
+  key=$1"|"$2"|"$3"|"$4; t=tier[key]; if (t=="") next;
+  for (i=5; i<=NF; i++) {
     split($i, p, "|");   # SAMPLE|GT|GQ|DP
     s=p[1]; gt=p[2]; gq=p[3]+0; dp=p[4]+0;
     if (gt=="./."||gt==".|."||gt==".") continue;

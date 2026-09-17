@@ -29,11 +29,15 @@ echo "family founders=$NF_ removed; LOO panel N=$N (expect 65-founders_in_panel)
 build_panel() {
   src="$1"; tag="$2"; out="$OUT/$F.pon${N}.$tag.sites.vcf.gz"
   echo "=== LOO panel $tag ==="
-  sx "bcftools view -S '$OUT/$F.pon_loo.samples.txt' --force-samples '$src' -Ou \
+  P=$(sx "bcftools query -l '$src'" | sort | comm -12 - <(sort "$OUT/$F.pon_loo.samples.txt") | wc -l)
+  [ "$P" -eq "$N" ] || { echo "  FATAL: only $P of $N leave-one-out panel samples are in $src (T18)"; return 1; }
+  sx "set -o pipefail; bcftools view -S '$OUT/$F.pon_loo.samples.txt' --force-samples '$src' -Ou \
       | bcftools norm -m -any -f '$REF' -Ou \
       | bcftools +fill-tags -Ou -- -t AN,AC,AF \
       | bcftools view -G -Oz -o '$out' && bcftools index -t '$out'" || { echo "FATAL: panel $tag"; return 1; }
-  echo "  sites=$(sx "bcftools index -n '$out'")"
+  ns=$(sx "bcftools index -n '$out'")
+  [ "${ns:-0}" -gt 0 ] || { echo "  FATAL: panel $tag has zero sites -- every variant would read as absent from the panel (T5)"; return 1; }
+  echo "  sites=$ns"
 }
 build_panel "$FZ/freeze1.cohort.bcf"       snv || exit 1
 build_panel "$FZ/freeze1.cohort.sv.vcf.gz" sv  || exit 1
@@ -55,6 +59,18 @@ SNV=$(ls $OD/joint_small_variants_vcf/*.vcf.gz | head -1)
 SVV=$(ls $OD/joint_sv_vcf/*.vcf.gz | head -1)
 annot "$SNV" snv || exit 1
 annot "$SVV" sv  || exit 1
+
+# SV recurrence by RECIPROCAL OVERLAP >= 0.5 (METHODS section 3 / section 5), because exact CHROM/POS/REF/ALT matching
+# misses the same event called with drifted breakpoints in the cohort joint call (T10). One row per family SV with
+# the maximum panel AC over its overlapping panel records; insertions (END == POS) match by position only.
+sx "bcftools query -f '%CHROM\t%POS\t%INFO/END\t%INFO/SVTYPE\t%INFO/AC\n' '$OUT/$F.pon${N}.sv.sites.vcf.gz'" \
+  | awk -F'\t' 'BEGIN{OFS="\t"}{e=$3; if(e=="."||e=="") e=$2+1; if(e<=$2) e=$2+1; print $1,$2-1,e,$4,$5}' | sort -k1,1 -k2,2n > "$OUT/_panel_sv.bed"
+sx "bcftools query -f '%CHROM\t%POS\t%INFO/END\t%INFO/SVTYPE\t%ID\n' '$SVV'" \
+  | awk -F'\t' 'BEGIN{OFS="\t"}{e=$3; if(e=="."||e=="") e=$2+1; if(e<=$2) e=$2+1; print $1,$2-1,e,$4,$5}' | sort -k1,1 -k2,2n > "$OUT/_fam_sv.bed"
+sx "bedtools intersect -a '$OUT/_fam_sv.bed' -b '$OUT/_panel_sv.bed' -f 0.5 -r -wao" \
+  | awk -F'\t' 'BEGIN{OFS="\t"; print "chrom","start","end","svtype","id","max_panel_AC_overlap50"} {k=$1 FS $2 FS $3 FS $4 FS $5; ac=($10==".")?0:$10+0; if(!(k in m)||ac>m[k]) m[k]=ac} END{for(k in m) print k, m[k]}' \
+  | sort -k1,1 -k2,2n > "$OUT/$F.sv.pon_overlap.tsv"
+echo "  SV reciprocal-overlap recurrence table: $OUT/$F.sv.pon_overlap.tsv ($(( $(wc -l < "$OUT/$F.sv.pon_overlap.tsv") - 1 )) SVs)"
 
 # 4. PAYOFF: de novo SNV/indel candidates vs the LOO panel. A true de novo is absent
 #    from unrelated parents; PON_AC >= 3 in 63 unrelated founders = artifact/recurrent.

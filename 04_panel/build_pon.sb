@@ -20,6 +20,8 @@ do_one() {
   src="$1"; tag="$2"; out="$O/freeze1.pon65.$tag.sites.vcf.gz"
   echo "=== $tag : $(basename $src) ==="
   [ -s "$src" ] || { echo "  FATAL: missing $src"; return 1; }
+  P=$(comm -12 <(singularity exec -B /expanse:/expanse "$SIF" bcftools query -l "$src" | sort) <(sort "$S") | wc -l)
+  [ "$P" -eq "$N" ] || { echo "  FATAL: only $P of $N panel samples are in $src (--force-samples would drop the rest silently, T18)"; return 1; }
   singularity exec -B /expanse:/expanse "$SIF" bash -c \
     "bcftools view -S '$S' --force-samples '$src' -Ou \
      | bcftools +fill-tags -Ou -- -t AN,AC,AF \

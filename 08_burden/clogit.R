@@ -52,8 +52,10 @@ fit <- function(f) tryCatch(clogit(f, data = d), error = function(e) NULL)
 show("MODEL A: tiers + genome-wide depth (primary)",
      fit(case_binary ~ tier1 + tier2 + tier3 + depth_mean + strata(FID)))
 if (abs(r_dl) < 0.5) {
+  show("MODEL A2: tiers + depth + lowqual_skipped",          # the branch was empty and this model was never fitted (T22)
+       fit(case_binary ~ tier1 + tier2 + tier3 + depth_mean + lowqual_skipped + strata(FID)))
 } else {
-  cat("===== M3 skipped: depth and lowqual are collinear =====\n\n")
+  cat("===== MODEL A2 skipped: depth and lowqual_skipped are collinear =====\n\n")
 }
 show("MODEL B: tier 1 alone + depth",
      fit(case_binary ~ tier1 + depth_mean + strata(FID)))

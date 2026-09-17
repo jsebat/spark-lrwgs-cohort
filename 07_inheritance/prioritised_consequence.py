@@ -31,13 +31,14 @@ for line in open(D / "gencode_cds.bed"):
     p = line.rstrip("\n").split("\t")
     if len(p) < 4:
         continue
-    c, a, b, g = p[0], int(p[1]), int(p[2]), p[3]
-    cds[(g, c)].append((a, b))
-    gene_cds_bp[g] += b - a
-    if g in gene_span and gene_span[g][0] == c:
-        gene_span[g] = (c, min(gene_span[g][1], a), max(gene_span[g][2], b))
-    else:
-        gene_span.setdefault(g, (c, a, b))
+    c, a, b = p[0], int(p[1]), int(p[2])
+    for g in p[3].split(","):                       # merged CDS carry "GENEA,GENEB" (T12)
+        cds[(g, c)].append((a, b))
+        gene_cds_bp[g] += b - a
+        if g in gene_span and gene_span[g][0] == c:
+            gene_span[g] = (c, min(gene_span[g][1], a), max(gene_span[g][2], b))
+        else:
+            gene_span.setdefault(g, (c, a, b))
 
 def cds_overlap(gene, chrom, s, e):
     return sum(min(b, e) - max(a, s) for a, b in cds.get((gene, chrom), ()) if min(b, e) > max(a, s))
@@ -60,7 +61,9 @@ for r in rows:
         frac = ov / tot if tot else 0
         sp = gene_span.get(g)
         spans_gene = bool(sp and s <= sp[1] and e >= sp[2])
-        length = e - s
+        # the insertion LENGTH is the "N bp" token of detail (inherited_prioritise writes f"{svtype} {L:,} bp {variant}");
+        # e - s is the 0/1 bp POS-END interval and called every coding insertion's frame from that (T8)
+        length = int(parts[1].replace(",", "")) if len(parts) > 2 and parts[2] == "bp" and parts[1].replace(",", "").isdigit() else e - s
         if svtype == "DEL":
             csq = "whole-gene deletion" if spans_gene else "partial coding deletion"
             note = f"removes {ov:,} of {tot:,} coding bp ({frac:.0%})"

@@ -8,7 +8,7 @@ find.
 
 | script | what it does |
 |---|---|
-| `inherited_lof_table.py` | rare loss-of-function small variants transmitted to affected offspring, in SFARI, DDG2P or constrained genes, filtered on population and cohort frequency |
+| `inherited_lof_table.py` | rare loss-of-function small variants transmitted to affected offspring, in SFARI or LoF-constrained (LOEUF < 0.35) genes, filtered on population and cohort frequency (DDG2P enters through `inherited_report.py`, not here) |
 | `inherited_sv_table.py` | the same for structural variants overlapping coding sequence; breakends are counted but not interpreted |
 | `inherited_tr_table.py` | the same for tandem-repeat length outliers, with rarity defined against the cohort because no population reference exists |
 | `prioritised_consequence.py` | assigns a predicted functional consequence per variant, computed rather than inherited from the selection step: coding fraction covered for deletions and duplications, frame for insertions, coding overlap for repeats |

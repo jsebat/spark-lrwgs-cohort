@@ -58,9 +58,13 @@ panel = sfari | ddg2p | constrained
 span = {}
 for line in open(D / "gencode_cds.bed"):
     p = line.rstrip("\n").split("\t")
-    if len(p) < 4 or p[3] not in panel:
+    if len(p) < 4:
         continue
-    g, c, a, b = p[3], p[0], int(p[1]), int(p[2])
+    # bedtools merge -o distinct writes "GENEA,GENEB" where two genes' CDS overlap; test each name (T12)
+    genes_here = [x for x in p[3].split(",") if x in panel]
+    if not genes_here:
+        continue
+    g, c, a, b = genes_here[0], p[0], int(p[1]), int(p[2])
     if g in span:
         s = span[g]
         if s[0] == c:
@@ -100,7 +104,7 @@ for line in proc.stdout:
         sds = [int(x) for x in d.split(",") if x.lstrip("-").isdigit()]
         if als:
             longest[s] = max(als)
-            sd[s] = max(sds) if sds else 0
+            sd[s] = (sds[als.index(max(als))] if len(sds) == len(als) else (min(sds) if sds else 0))   # support of the LONGEST allele, the one tested (T9)
     if len(longest) < 60:
         continue
     vals = sorted(longest.values())

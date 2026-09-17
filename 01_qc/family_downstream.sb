@@ -136,7 +136,7 @@ else
     if [ -f "$MASK" ]; then
       HC=$OUT/denovo/$F.denovo.hiconf.vcf.gz
       $SING exec "$BASE_SIF" bash -c \
-        "bcftools view -T ^'$MASK' '$DN.gz' | bcftools view -i 'INFO/gnomad_af<0.001' -Oz -o '$HC' && tabix -f -p vcf '$HC'"
+        "bcftools view -T ^'$MASK' '$DN.gz' | bcftools view -e 'INFO/gnomad_af>=0.001' -Oz -o '$HC' && tabix -f -p vcf '$HC'"
       NHC=$($SING exec "$BASE_SIF" bcftools view -H "$HC" | wc -l)
       echo "  high-confidence after mask + gnomad_af<0.001: $NHC"
 
