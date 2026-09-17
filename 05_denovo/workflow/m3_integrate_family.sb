@@ -32,7 +32,15 @@ while IFS=$'\t' read -r child father mother; do
   for cls in snv_indel sv tr; do
     EV="$ED/evidence/$child.$cls.evidence.lik.tsv"; FE="$ED/features/$child.$cls.features.tsv"
     [ -s "$EV" ] || { echo "ERROR: $EV missing" >&2; exit 3; }
-    RF=""; [ -n "${RF_PROBS_DIR:-}" ] && [ -s "$RF_PROBS_DIR/$child.$cls.rf_probs.tsv" ] && RF="--rf-probs $RF_PROBS_DIR/$child.$cls.rf_probs.tsv"
+    # A run with no score source produces a call set from the phase rule alone. That is a legitimate mode but it
+# must be ASKED for: ALLOW_PHASE_ONLY=1. Without it, an unset RF_PROBS_DIR is a configuration mistake, not a
+# fallback, and failing here is cheaper than discovering call_mode=phase_only in a finished table.
+if [ -z "${RF_PROBS_DIR:-}" ] && [ "${ALLOW_PHASE_ONLY:-0}" != "1" ]; then
+  echo "ERROR: no RF_PROBS_DIR. Score with the shipped models (phase-dnm score, or SCORE_MODE=frozen in the" >&2
+  echo "       Snakefile), or set ALLOW_PHASE_ONLY=1 to deliberately call without a classifier." >&2
+  exit 4
+fi
+RF=""; [ -n "${RF_PROBS_DIR:-}" ] && [ -s "$RF_PROBS_DIR/$child.$cls.rf_probs.tsv" ] && RF="--rf-probs $RF_PROBS_DIR/$child.$cls.rf_probs.tsv"
     [ -n "${TAU_DIR:-}" ] && [ -s "$TAU_DIR/tau.$cls.json" ] && RF="$RF --tau-json $TAU_DIR/tau.$cls.json"
     t0=$(date +%s)
     "$PHASE_DNM_PYTHON" -m phase_dnm.cli integrate --evidence "$EV" ${FE:+--features "$FE"} --class-group "$cls" \

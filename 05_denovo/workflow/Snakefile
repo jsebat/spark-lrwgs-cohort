@@ -19,6 +19,7 @@
 # at build time with "missing input files" instead of silently reviewing against absent labels.
 # Families = the complete-trio families of the manifest (duos excluded, DESIGN P19). Identifiers stay in the manifest.
 import csv, os
+from snakemake.exceptions import WorkflowError
 
 configfile: "workflow/config.yaml"
 
@@ -103,10 +104,47 @@ rule annotate_real:
 
 
 # ------------------------------------------------------------------ M3
+# SCORE_MODE decides where the classifier score comes from. The DEFAULT is the pre-trained models shipped in
+# models/ (P21 transfer path), because that is the right starting point for a cohort that is not large enough to
+# train its own, and because the alternative was worse: this rule used to pass nothing when no harness existed, and
+# `integrate` then ran in phase_only mode -- a call set with no classifier at all, which looks complete and is
+# silently weaker. A downgrade that produces plausible output is the most dangerous default available.
+#
+#   frozen (default)  score with models/<cls>.xgb.json, refit on the full SPARK long-read cohort
+#   train             use this cohort's own harness (requires the M4 target to have been run first)
+#   none              phase-only; must be asked for explicitly, never reached by accident
+SCORE_MODE = env_value("SCORE_MODE") or "frozen"
+SCORE_DIR = os.path.join(TRAIN_DIR, "frozen_scores")
+
+rule score_frozen:
+    """Score every child with the shipped classifier of its class group -> rf_probs/ + tau json."""
+    output: touch(os.path.join(SCORE_DIR, ".scored.{cls}"))
+    resources: mem_mb=16000, runtime=120, cpus_per_task=2
+    shell: COMMON + ("source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli score --class-group {wildcards.cls} "
+                     "--manifest $MANIFEST --evidence-dir $EVIDENCE_DIR --model %s/models/{wildcards.cls}.xgb.json "
+                     "--out-dir %s" % (ENV, HERE, SCORE_DIR))
+
+def _score_inputs(w):
+    return expand(os.path.join(SCORE_DIR, ".scored.{cls}"), cls=CLASS_GROUPS) if SCORE_MODE == "frozen" else []
+
+def _score_env(w):
+    if SCORE_MODE == "frozen":
+        return "RF_PROBS_DIR=%s/rf_probs TAU_DIR=%s " % (SCORE_DIR, SCORE_DIR)
+    if SCORE_MODE == "train":
+        d = os.path.join(TRAIN_DIR, "harness", "rf_probs")
+        if not os.path.isdir(d):
+            raise WorkflowError(
+                "SCORE_MODE=train but %s does not exist. Run the m4 target first, or use the default "
+                "SCORE_MODE=frozen to score with the shipped classifiers." % d)
+        return "RF_PROBS_DIR=%s/harness/rf_probs TAU_DIR=%s/harness " % (TRAIN_DIR, TRAIN_DIR)
+    if SCORE_MODE == "none":
+        return ""
+    raise WorkflowError("SCORE_MODE must be frozen, train or none; got %r" % SCORE_MODE)
+
 rule m3_integrate:
-    input: rules.m2_reclassify.output
+    input: rules.m2_reclassify.output, _score_inputs
     output: os.path.join(EVIDENCE_DIR, "{family}", "m3_integrate.status")
-    params: rf=lambda w: ("RF_PROBS_DIR=%s/harness/rf_probs TAU_DIR=%s/harness " % (TRAIN_DIR, TRAIN_DIR)) if os.path.isdir(os.path.join(TRAIN_DIR, "harness", "rf_probs")) else ""
+    params: rf=_score_env
     resources: mem_mb=4000, runtime=60, cpus_per_task=1
     shell: COMMON + "{params.rf}bash " + SB("m3_integrate_family.sb") + " {wildcards.family}"
 

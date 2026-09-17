@@ -22,8 +22,8 @@
   "child_AB",
   "indel_flag",
   "haploid_flag",
-  "site_qual",
   "site_filter_fail",
+  "qd_child",
   "multiallelic",
   "indel_len",
   "homopolymer_run",
@@ -36,8 +36,6 @@
   "c_alt_hap_frac",
   "c_alt_confined",
   "c_alt_tagged_frac",
-  "c_alt_mapq0_frac",
-  "c_alt_supp_frac",
   "c_alt_readlen_median",
   "c_alt_rq_mean",
   "c_both_haps_obs_k3",
@@ -57,10 +55,10 @@
   "hap_obs_k5",
   "cpg_context"
  ],
- "model_sha256": "08537e17e3ebe21cd13c58c2359341fb92d69cd080cbcc9eb568b932b96fec7a",
- "n_features": 55,
- "n_pos": 1041175,
- "n_rows": 1740060,
+ "model_sha256": "bd7e49902982f9665f0baae914e93c63130e5e1e818eee4f7cc69c16218712b7",
+ "n_features": 53,
+ "n_pos": 50210,
+ "n_rows": 749095,
  "notes": {
   "max_real_per_child": 20000,
   "seeds": [
@@ -75,22 +73,22 @@
    "class_group": "snv_indel",
    "precision_based": {
     "tau_p80": [
-     0.025784480661639502,
-     0.02530219217373489,
-     0.026791548682204312,
-     0.025766871165644172,
-     0.02716107699574871
+     0.7282652648604933,
+     0.7176145339652451,
+     0.7201155651859877,
+     0.7418065547561948,
+     0.7098248286367098
     ],
     "tau_p95": [
-     0.24977934686672545,
-     0.2634920634920635,
-     0.28,
-     0.2919161676646706,
-     0.27539503386004516
+     0.8121910776451762,
+     0.8033898305084747,
+     0.8231292517006803,
+     0.9,
+     0.8013698630136986
     ]
    },
-   "tau": 0.9572301425661914,
-   "tau_rescue": 0.4659090909090909
+   "tau": 0.7123242889833279,
+   "tau_rescue": 0.13259958071278824
   }
  },
  "params": {
@@ -102,18 +100,16 @@
   "subsample": 0.8
  },
  "registry": {
-  "features_sha256": "546123c26d81e6f6a2b33875eeb20aebdc45c6651d26ad1c62106b2fe5054a33",
+  "features_sha256": "acb92760a8a54c770ca88a751243709d500e8a34f1bd77051b115fc6075917fe",
   "features_version": "0.1",
   "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/13_phase_dnm/config/features.yaml",
-  "n_features": 116,
-  "n_rf_safe": 96,
+  "n_features": 93,
+  "n_rf_safe": 78,
   "unsafe": [
    "cohort_AC_loo",
    "pon_founder_recurrence_loo",
    "gnomad_af",
-   "lr_sv_catalog_af",
    "trgt_pop_p99_distance",
-   "graphtyper_outcome",
    "parent_of_origin",
    "poo_confidence",
    "t_alt_reads",
@@ -124,9 +120,6 @@
    "dist_crossover_log10",
    "near_crossover_flag",
    "t_hap_resolved",
-   "ibd_child_altpath_vs_T_window",
-   "t_tr_al",
-   "u_tr_al",
    "sib_shared"
   ]
  },

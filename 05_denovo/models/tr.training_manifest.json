@@ -2,8 +2,6 @@
  "class_group": "tr",
  "features": [
   "haploid_flag",
-  "site_filter_fail",
-  "multiallelic",
   "child_AL_expanded",
   "child_AL_other",
   "child_SD_expanded",
@@ -21,7 +19,6 @@
   "c_alt_hap_frac",
   "c_alt_confined",
   "c_alt_tagged_frac",
-  "c_alt_mapq0_frac",
   "c_alt_readlen_median",
   "c_alt_rq_mean",
   "c_both_haps_obs_k3",
@@ -43,10 +40,10 @@
   "hap_obs_k3",
   "hap_obs_k5"
  ],
- "model_sha256": "92244644ef26c8cd71ccc76f8c70547c03c6086aff5dbe39785d05ba102353e1",
- "n_features": 41,
- "n_pos": 519346,
- "n_rows": 1206502,
+ "model_sha256": "c9bfeedcab78b3d6d492cee4d70253966e0f9204f37de678bce3891acc01d27e",
+ "n_features": 38,
+ "n_pos": 9498,
+ "n_rows": 696654,
  "notes": {
   "max_real_per_child": 20000,
   "seeds": [
@@ -61,22 +58,22 @@
    "class_group": "tr",
    "precision_based": {
     "tau_p80": [
-     0.2554660529344074,
-     0.24677898909811682,
-     0.2631578947368422,
-     0.2580318745256766,
-     0.2634633989035795
+     0.35,
+     0.4025974025974026,
+     0.3384615384615385,
+     0.3858267716535433,
+     0.3956043956043956
     ],
     "tau_p95": [
-     0.5672797676669895,
-     0.5876726886291179,
-     0.6367614879649891,
-     0.6189935679152477,
-     0.6426712922810061
+     null,
+     0.9696969696969697,
+     null,
+     0.9338235294117647,
+     0.9841269841269841
     ]
    },
-   "tau": 0.8888888888888888,
-   "tau_rescue": 0.4459279038718291
+   "tau": 0.16842105263157892,
+   "tau_rescue": 0.037777777777777785
   }
  },
  "params": {
@@ -88,18 +85,16 @@
   "subsample": 0.8
  },
  "registry": {
-  "features_sha256": "546123c26d81e6f6a2b33875eeb20aebdc45c6651d26ad1c62106b2fe5054a33",
+  "features_sha256": "acb92760a8a54c770ca88a751243709d500e8a34f1bd77051b115fc6075917fe",
   "features_version": "0.1",
   "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/13_phase_dnm/config/features.yaml",
-  "n_features": 116,
-  "n_rf_safe": 96,
+  "n_features": 93,
+  "n_rf_safe": 78,
   "unsafe": [
    "cohort_AC_loo",
    "pon_founder_recurrence_loo",
    "gnomad_af",
-   "lr_sv_catalog_af",
    "trgt_pop_p99_distance",
-   "graphtyper_outcome",
    "parent_of_origin",
    "poo_confidence",
    "t_alt_reads",
@@ -110,9 +105,6 @@
    "dist_crossover_log10",
    "near_crossover_flag",
    "t_hap_resolved",
-   "ibd_child_altpath_vs_T_window",
-   "t_tr_al",
-   "u_tr_al",
    "sib_shared"
   ]
  },
