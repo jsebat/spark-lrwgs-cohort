@@ -11,7 +11,7 @@ pysam = pytest.importorskip("pysam")
 from phase_dnm.sim import spike as SP
 
 CHROM, CLEN, RL = "chr1", 400000, 3000
-DEL_POS, DEL_LEN = 200001, 5000          # 1-based anchor, deletion spans [200001, 205001)
+DEL_POS, DEL_LEN = 200001, 5000          # anchor; deleted bases 0-based [200001, 205001)
 
 
 def _bam(path):
@@ -60,7 +60,7 @@ def test_apply_plan_output_is_sorted_and_indexed_after_junction_reads_move(tmp_p
             # a left-clipped junction read (crossing the right breakpoint) now starts AT the right breakpoint
             if r.has_tag("SA") and r.cigartuples[0][0] == 4:
                 moved += 1
-                assert r.reference_start == DEL_POS - 1 + DEL_LEN
+                assert r.reference_start == DEL_POS + DEL_LEN     # deleted bases are 0-based [pos, pos+L) (_edit_one)
     assert n > 0 and moved > 0
     # and the index is usable for a region query across the deletion
     with pysam.AlignmentFile(out) as bam:
