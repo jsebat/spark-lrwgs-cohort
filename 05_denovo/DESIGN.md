@@ -337,6 +337,8 @@ read at both ends at once; nothing spans a 20 kb event, so the two ends need sep
 drops the interior reads before clipping the crossers. So the honest statement is that the deterministic path beats
 the classifier at 5 kb on 59 planted events, and that **above 5 kb neither path has been validated by this module.**
 
+> **Superseded the same evening by P36:** the cap was the planter (D4 + D16), not the biology. Re-measured: junction evidence at both breakpoints in 100 % of planted events at every size; classifier 0.37 / 0.34 / 0.36 and deterministic 0.70 / 0.64 / 0.57 at 5 / 20 / 50 kb.
+
 **The design consequence, which is JS's call (2026-09-16).** If a biased, flexible, clinically-focused analysis is what
 it takes to find the pathogenic events, that is acceptable — but then it is a STAGE OF THE PIPELINE and is documented
 as one, not an informal step whose results are quietly attributed to the automated caller. The module therefore has
@@ -387,7 +389,7 @@ single-feature AUC of 0.736 when a selection rule was applied to one class only.
 and 50 kb against 0.149 and 0.064 in production, with the gate rather than the threshold carrying the whole effect.
 It was implemented, measured, and then deliberately switched off (`final.sv_large_tau_q: null`). Admitting
 `inconclusive` into the score branch for a size class is a second decision rule with its own failure modes and its own
-FDR, tuned on planted events whose junction evidence we already know is unfaithful above 20 kb. The cohort does not
+FDR, tuned on planted events whose junction evidence we already know is unfaithful above 20 kb. (The planter has since been fixed — P36 — and the argument that follows does not depend on it.) The cohort does not
 have the real large de novo SVs to calibrate it against. The mechanism and the numbers stay in `thresholds.yaml` so
 the decision is reversible, but the genome-wide arm ships with one set of settings for every SV.
 
@@ -690,6 +692,54 @@ reproducibility anchor once the trio is run (P16). Reported per class: ROC/PR-AU
 rescue, allowed here because real trios have transmitted haplotypes), the heuristic arms including H2/H3 (population
 filters are legitimate on these labels), and recall at the τ operating point. The spike-in arm is the only TR
 external truth and is said so. *First result (seed 0, 2026-09-13):* RF 0.986 / 0.988 / 0.992 (SNV/indel / SV / TR) rising to 0.998 / 0.999 / 0.996 with the P15 layer including rescue; the slivar-type heuristic arms cannot be evaluated on spike-ins (no caller genotype on a planted candidate) — that comparison belongs to the WES-confirmed exonic set. *WES-confirmed set (58 / 2,926):* RF 0.930 vs slivar 0.880 ROC-AUC; slivar's own operating point TPR 0.64 at FPR 0.023; the P15 decision at τ_q 0.997 recovers 41 % vs the original set's 59 %; none of 1,864 WES-inherited candidates is called. *v4 (2026-09-14, five-seed models on the re-reviewed tables):* WES RF 0.943 vs slivar 0.880, PR-AUC 0.585 vs 0.543, 28 / 58 recovered by the full decision, still 0 / 1,864 inherited; spike-ins TR recall 0.99 (PR 0.91), SV 0.63 (0.45), SNV/indel 0 (planted small variants carry no caller block; the model's missing-value direction ranks them low — the rescue arm lifts them to ROC 0.998). Caveat recorded: the spike-in arm measures the phase layer and the read-level block, not the caller block, for small variants. *Truth-set audit (2026-09-14):* the 58 WES "positives" are our exonic candidates with de-novo-consistent iWES trio genotypes, not a curated DNM list; 6 carry gnomAD AF 0.02-0.11 or recur in 2-14 cohort families and 2 are hom-alt in the child's WES — ~50 are credible. The labelling rule is tightened to child 0/1, and both counts are reported. The faithful comparator is the original `denovo_tiered` set (recall 0.59, precision 0.94 on these rows), not the harness's re-implemented slivar arm (0.64 / 0.36), which is retained only as a scorer (P25). Planted candidates also carry no caller features, so on spike-ins the full small-variant model is handicapped (recall of planted SNV/indel DNMs at τ_q 0.999 = 0 despite AUC 0.986) while the phase-driven TR model recovers 0.89; the fair spike-in arm for small variants is the phase-only / read-level model, saved per fold for that purpose.
+
+### P36 — The planter was the cap, not the biology: large-deletion evidence re-measured (2026-09-16, evening)
+
+**What was wrong.** Two defects in the spike-in machinery, not one, produced the "12 of 47" result above. (D4) the SA
+branch of the junction matcher compared only `reference_start` with the breakpoints and let the inner `any(... for bp in
+bps)` re-bind `bp`, so a junction read whose primary segment lies LEFT of a breakpoint could never match; fixed as the pure
+function `readers.sv_signature` (ab82a3c, 8 tests). (D16) `spike.write_back` wrote a right-clipped junction read at the
+donor read's original `reference_start`, so the read sat one clip-length away from the breakpoint it was meant to
+evidence (8abfdca), and — once moved — the slice BAM was no longer coordinate-sorted (e78844b). Each fix alone helped
+little (0.49 / 0.36 at 20 / 50 kb after D4 only); together they remove the cap.
+
+**Re-measured (spike v9, 33 families, seed 77, 16 sites per child per class):** planted germline deletions, review path
+(`hapmatrix.classify_sv_interval` + P8 rules), no classifier involved:
+
+| size | n | junction reads at BOTH breakpoints | depth ratio ≤ 0.7 | het-SNV persistence ≤ 0.35 | rule ≥ 5/6 | reviewed as germline DNM |
+|---|---|---|---|---|---|---|
+| 5 kb | 208 | 208 (1.00) | 0.96 | 0.98 | 0.99 | 206 (0.99) |
+| 20 kb | 169 | 169 (1.00) | 0.96 | 0.98 | 1.00 | 162 (0.96) |
+| 50 kb | 168 | 168 (1.00) | 0.98 | 0.97 | 0.99 | 146 (0.87) |
+
+The 50 kb residue is not `inconclusive`: 19 events review as `inherited_missed_in_parent`, i.e. the parental side of the
+six-haplotype matrix picks up planted-adjacent evidence at that size (the surrogate parents' slice windows are 25 kb each
+side of the event and their reads pass the same matcher). Inherited-missed controls at ≥ 5 kb remain 549 / 549 correct.
+Small deletions (< 1 kb) are unchanged, as they must be: a read spans them and the junction criterion does not apply.
+
+**What changes in P31/P32.** The statement "above 5 kb neither path has been validated by this module" is withdrawn for
+the deterministic path: it now recovers ≥ 0.87 of planted deletions at every size the planter can make. The routing
+decision (P32: large SVs to the targeted clinical arm, one classifier for the genome-wide arm) stands on its own
+argument — the cohort has no real large de novo SVs to calibrate a second decision rule against — and is not
+re-litigated by better planted numbers. The classifier-path recall at the pipeline's operating point is re-measured
+after the harness_v7 SV refit (the surrogate parents' reads go through the fixed matcher, so parental-support features
+moved) and reported in the row below. Training positives were never planted events (they are pedigree-swap synthetic
+trios whose SV support comes from the child's own sawfish call), so no operating point was tuned on the planter.
+
+**Classifier path at the production operating point (harness_v7 SV refit, `tools/sv_size_recall.py`, τ_q 0.99, seed 0;
+`p28_sv_size_recall_v7.tsv`).** Same tool and definitions as the P31 table, so the two are directly comparable:
+
+| size | n | classifier recall (was, P31) | deterministic recall (was) | combined |
+|---|---|---|---|---|
+| 5 kb | 208 | 0.365 (0.136) | 0.702 (0.492) | 0.813 |
+| 20 kb | 169 | 0.343 (0.085) | 0.639 (0.064) | 0.775 |
+| 50 kb | 168 | 0.363 (0.043) | 0.566 (0.064) | 0.708 |
+
+Planted events score high (median `rf_q` 0.985) but τ_q 0.99 is the top percentile of the cohort's own SV candidates, so the
+classifier path alone recovers about a third; the deterministic path is the larger contributor at every size and the
+two are complementary (combined 0.71–0.81). Small deletions and insertions (200 bp – 1.5 kb) are unchanged by these fixes.
+The P32 routing (large SVs to the targeted clinical arm) stands; these numbers now describe what the genome-wide arm
+would recover if it were asked to, rather than an artefact of the planter.
 
 ## 3. SynthDNM one-pager: what the code does, and what it implies for phase features
 
