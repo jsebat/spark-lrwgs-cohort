@@ -85,11 +85,11 @@
   "subsample": 0.8
  },
  "registry": {
-  "features_sha256": "acb92760a8a54c770ca88a751243709d500e8a34f1bd77051b115fc6075917fe",
+  "features_sha256": "dab4693a5ba7c4ae9e92e56eeda0acd08e9db991b0d42d90f4bef92dacb5eb73",
   "features_version": "0.1",
-  "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/13_phase_dnm/config/features.yaml",
-  "n_features": 93,
-  "n_rf_safe": 78,
+  "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/05_denovo/config/features.yaml",
+  "n_features": 92,
+  "n_rf_safe": 77,
   "unsafe": [
    "cohort_AC_loo",
    "pon_founder_recurrence_loo",

@@ -100,25 +100,26 @@ carries it. The job derives the sample identifiers from `05_denovo`'s tables at 
 passes on depth 0.59, LOH 0.0, both parents intact; *DNMT3A* is depth 0.38 and phased but has no junction read at both
 ends of a 302 bp event and no heterozygosity measurement below 5 kb, which is exactly the REVIEW case.
 
-## First run on the cohort (2026-09-16)
+## Runs on the cohort (2026-09-16 blind run; 2026-09-17 after the pipeline-wide fixes and the second VEP pass)
 
 Blind — no gene named in advance — the module's own shortlist (quality PASS or REVIEW, relevance HIGH or MODERATE) is
-**104 rows** over 35 children. Its only HIGH + PASS rows are a frameshift `LoF_HC` indel in *DLX6* (below the
-genome-wide threshold), the 302 bp *DNMT3A* deletion (rank 2, PASS 5/5, below threshold), the 35 kb *MECP2* deletion
-(rank 3, PASS 6/6, tier 1) and a start-lost SNV in *ETFA* (tier 1). Eleven further `LoF_HC` indels in panel genes sit
-at REVIEW below threshold — the list this arm exists to hand an analyst. The rest of the shortlist is TR REVIEW rows.
-Acceptance: PASS for both known events, with the *DNMT3A* row graded PASS rather than the expected REVIEW because the
-evidence table records junction reads at both breakpoints, a column the final table had dropped.
+**108 rows** over 33 children on the retrained call set (harness_v7). Its only HIGH + PASS rows are the 35 kb *MECP2*
+deletion (PASS 6/6, tier 1), the 302 bp *DNMT3A* deletion (PASS 5/5, **tier 1** — below the genome-wide threshold in the
+first run, tier 1 after the multiallelic feature was dropped and the SV model refit), a frameshift `LoF_HC` indel in
+*DLX6* (below threshold) and a start-lost SNV in *ETFA* (tier 1). Thirteen further `LoF_HC` variants in panel genes sit at
+REVIEW (12 indels, 1 SNV; 9 of them below the genome-wide threshold) — the list this arm exists to hand an analyst. The
+rest of the shortlist is TR REVIEW rows. Acceptance: PASS for both known events in both runs.
 
 | | rows | PASS | REVIEW | FAIL |
 |---|---|---|---|---|
-| arm A (rare + large SV) | 68 | 1 | 3 | 64 |
-| arm B (clinically led): SV 121, SNV 506, indel 83, TR 5,807 | 6,517 | 7 | 141 | 6,369 |
+| arm A (rare + large SV) | 68 | 1 | 1 | 66 |
+| arm B (clinically led): SV 121, SNV 509, indel 112, TR 5,807 | 6,549 | 7 | 147 | 6,395 |
 
-Known gap: 43,053 of the 93,432 SNV/indel candidates inside a panel-gene span are absent from the freeze-1 VEP VCFs and
-carry no consequence (`smallvar_annotation.tsv.missing`). Most are low-quality raw candidates the freeze excluded, but
-the gap is not yet characterised, and the VEP/LOFTEE resources recorded by `03_tiering` were absent at their paths on
-this date, so re-annotation is blocked upstream. Missense tiers attached for 425 variants via dbNSFP parquet.
+The first run had a known gap: 43,053 of the 93,432 SNV/indel candidates inside a panel-gene span were absent from the
+freeze-1 VEP VCFs (raw candidates the freeze excluded) and carried no consequence. `workflow/vep_missing.sb` (see *Second
+VEP pass* above) re-annotated all of them with the 03_tiering invocation — 65 `LoF_HC` among them — and the second pass
+annotates **93,432 of 93,432** (0 missing; missense tiers attached for 428 via dbNSFP parquet). No HIGH + PASS row came
+from the re-annotated set: the gap held low-quality candidates, as suspected, but that is now measured rather than assumed.
 
 ## What this module must never be used for
 

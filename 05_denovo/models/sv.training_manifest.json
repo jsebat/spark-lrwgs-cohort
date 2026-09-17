@@ -7,6 +7,7 @@
   "child_AB",
   "haploid_flag",
   "site_filter_fail",
+  "qd_child",
   "svlen_log10",
   "child_sv_support",
   "max_parent_sv_support",
@@ -41,10 +42,10 @@
   "hap_obs_k3",
   "hap_obs_k5"
  ],
- "model_sha256": "0483906c5db7a103e6af23c3372a7bd68704e3e4dad1e2a1dfc4066359d518d2",
- "n_features": 39,
- "n_pos": 33336,
- "n_rows": 55770,
+ "model_sha256": "8e5635e70f4a51c9909113b3192e854a68d6d51820133615eb86d12390e6bd46",
+ "n_features": 40,
+ "n_pos": 29650,
+ "n_rows": 52084,
  "notes": {
   "max_real_per_child": 20000,
   "seeds": [
@@ -59,22 +60,22 @@
    "class_group": "sv",
    "precision_based": {
     "tau_p80": [
-     0.3644859813084112,
-     0.37104072398190047,
-     0.38028169014084506,
-     0.37745098039215685,
-     0.3587962962962963
+     0.36992840095465396,
+     0.37623762376237624,
+     0.3761467889908256,
+     0.38095238095238093,
+     0.3804713804713804
     ],
     "tau_p95": [
-     0.8,
-     0.7835820895522388,
      0.825,
-     0.7973421926910299,
-     0.777027027027027
+     0.7986798679867987,
+     0.8405797101449275,
+     0.8293838862559242,
+     0.8058823529411765
     ]
    },
-   "tau": 0.9695121951219512,
-   "tau_rescue": 0.8282828282828283
+   "tau": 0.9672897196261683,
+   "tau_rescue": 0.8068181818181818
   }
  },
  "params": {
@@ -86,11 +87,11 @@
   "subsample": 0.8
  },
  "registry": {
-  "features_sha256": "acb92760a8a54c770ca88a751243709d500e8a34f1bd77051b115fc6075917fe",
+  "features_sha256": "dab4693a5ba7c4ae9e92e56eeda0acd08e9db991b0d42d90f4bef92dacb5eb73",
   "features_version": "0.1",
-  "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/13_phase_dnm/config/features.yaml",
-  "n_features": 93,
-  "n_rf_safe": 78,
+  "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/05_denovo/config/features.yaml",
+  "n_features": 92,
+  "n_rf_safe": 77,
   "unsafe": [
    "cohort_AC_loo",
    "pon_founder_recurrence_loo",

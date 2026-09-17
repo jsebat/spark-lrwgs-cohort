@@ -24,7 +24,6 @@
   "haploid_flag",
   "site_filter_fail",
   "qd_child",
-  "multiallelic",
   "indel_len",
   "homopolymer_run",
   "seq_entropy_21bp",
@@ -55,8 +54,8 @@
   "hap_obs_k5",
   "cpg_context"
  ],
- "model_sha256": "bd7e49902982f9665f0baae914e93c63130e5e1e818eee4f7cc69c16218712b7",
- "n_features": 53,
+ "model_sha256": "efc3d3c0d51dc2273d00c292a638c77eded013fd8870c0907efe75a7a42793a1",
+ "n_features": 52,
  "n_pos": 50210,
  "n_rows": 749095,
  "notes": {
@@ -73,22 +72,22 @@
    "class_group": "snv_indel",
    "precision_based": {
     "tau_p80": [
-     0.7282652648604933,
-     0.7176145339652451,
-     0.7201155651859877,
-     0.7418065547561948,
-     0.7098248286367098
+     null,
+     0.7533783783783785,
+     0.7342995169082126,
+     0.7401129943502823,
+     0.7267080745341615
     ],
     "tau_p95": [
-     0.8121910776451762,
-     0.8033898305084747,
-     0.8231292517006803,
-     0.9,
-     0.8013698630136986
+     null,
+     null,
+     0.9333333333333333,
+     0.9285714285714286,
+     1.0
     ]
    },
-   "tau": 0.7123242889833279,
-   "tau_rescue": 0.13259958071278824
+   "tau": 0.7134302822925578,
+   "tau_rescue": 0.13871635610766045
   }
  },
  "params": {
@@ -100,11 +99,11 @@
   "subsample": 0.8
  },
  "registry": {
-  "features_sha256": "acb92760a8a54c770ca88a751243709d500e8a34f1bd77051b115fc6075917fe",
+  "features_sha256": "dab4693a5ba7c4ae9e92e56eeda0acd08e9db991b0d42d90f4bef92dacb5eb73",
   "features_version": "0.1",
-  "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/13_phase_dnm/config/features.yaml",
-  "n_features": 93,
-  "n_rf_safe": 78,
+  "features_yaml": "/expanse/projects/sebat1/jsebat/spark-lrwgs-cohort/05_denovo/config/features.yaml",
+  "n_features": 92,
+  "n_rf_safe": 77,
   "unsafe": [
    "cohort_AC_loo",
    "pon_founder_recurrence_loo",
