@@ -950,3 +950,32 @@ Lustre; nothing GIAB touches any fold, calibration or threshold (P16).
   hardest (mask, low mappability) — it is a reported QC number, not a surprise.
 - Login-node `bcftools`/`samtools` from the micromamba env need `OPENBLAS_NUM_THREADS=1`
   (they die on allocation otherwise); baked into `phase_dnm.env`.
+
+## Workflow validated end-to-end (2026-09-16, job 54332976 on exp-15-36)
+`snakemake -n -F` on a compute node, all four SCORE_MODE values, at cdbcfbc:
+
+| SCORE_MODE | result | DAG |
+|---|---|---|
+| `frozen` (default) | rc=0 | 137 jobs: score_frozen 3 (one per class group), m3_integrate 33 |
+| `none` | rc=0 | 134 jobs, score_frozen absent — exactly the 3 scoring jobs dropped |
+| `train` (no harness present) | rc=1 | WorkflowError naming the missing `harness/rf_probs` and the fix |
+| `bogus`, `frozem` | rc=1 | WorkflowError: must be frozen, train or none |
+
+Three defects were found and fixed getting to this point, all introduced by the SCORE_MODE work in b4d06c2:
+
+1. **A multi-line `shell:` expression does not parse inside a snakemake rule** (fixed 068112b). Snakemake reads
+   one physical line per rule keyword, so a parenthesised string continued across lines is a syntax error — and
+   it is reported against an unrelated earlier line (`line 89`, `rule m2_review`, which was correct), so the
+   message does not point at the fault. Build such strings at module level. **This cost the most time of
+   anything in the module**, because two earlier conclusions were wrong: the file was never byte-corrupted
+   (md5 matches git, no CR, no tabs) and an unrelated login-node `OpenBLAS: Memory allocation failed` was
+   masking it. A first bisect ran from a temp directory, never reproduced the real invocation, and wrongly
+   cleared every revision. Reproduce from the same cwd and with the same command, or the bisect proves nothing.
+2. **`SCORE_MODE` was never read from the environment** (fixed cdbcfbc). `env_value()` parses the config file
+   only; it does not consult `os.environ`. Every mode therefore ran `frozen`. The default was right, so no
+   output was wrong, but `none` and `train` were unreachable and a typo was indistinguishable from a valid
+   value. Only a **forced** dry run (`-F`) exposes this: without it the workflow is up to date, snakemake
+   short-circuits to "nothing to be done", and every mode looks identical because nothing is evaluated.
+3. **Validation ran too late** (fixed 402319e). The mode check lived in a `params` function, which snakemake
+   calls only when it schedules that job, so an invalid mode passed silently on an up-to-date workflow. Both
+   checks now run while the Snakefile is read.
