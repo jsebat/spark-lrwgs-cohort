@@ -564,6 +564,26 @@ Two siblings both elevated is what a maternal-lineage effect looks like, and an 
 older ages is documented biology. With that one family's mother under 40 the slopes are exactly what perfect
 assignment predicts.
 
+**The mutations carry the maternal signature.** Oocyte-ageing mutations are known to be C>G-enriched and clustered,
+and their number rises with maternal age (Jónsson 2017; Goldmann 2018). Splitting the maternal-origin SNVs by maternal
+age at birth (registration-based, 4 mothers at or above 38):
+
+| origin | mothers | n | C>G fraction | clustered (same-origin DNM within 20 kb) |
+|---|---|---|---|---|
+| maternal | < 38 | 350 | 0.069 | 0.083 |
+| **maternal** | **≥ 38** | **94** | **0.170** | **0.213** |
+| paternal | < 38 | 1,464 | 0.096 | 0.040 |
+| paternal | ≥ 38 | 212 | 0.085 | 0.038 |
+
+The excess maternal-origin calls in the older mothers are 2.5x enriched for C>G and 2.6x for clustering, exactly the
+oocyte-ageing pattern; paternal-origin calls in the same children are not. Misassigned paternal mutations would carry
+the paternal spectrum. This is independent of both parent-of-origin methods and confirms that the calls are maternal.
+
+**On the size of the correlation (JS: the maternal correlation for SNVs should be weak).** It should, at the population
+level, and the simulation says r ~ 0.45 is what perfect assignment would typically show at n = 32 with the textbook
+0.37/yr. This cohort shows r = 0.63-0.69 because four of its 32 mothers were 38.5-43.5 at the birth and their children
+carry the signature-bearing excess above; with those four removed the maternal correlation is r = 0.48, 0.47/yr. The
+strength is leverage from real biology in a small cohort, and is reported with that stated.
 **Consequences.**
 1. The maternal-origin counts and both origin-split slopes are usable, with the leverage of the oldest-mother quad and
    (the trio with the 43.5-year-old mother) reported alongside them. The earlier instruction not to use them is withdrawn.
