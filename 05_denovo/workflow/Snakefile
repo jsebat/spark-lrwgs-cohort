@@ -116,13 +116,19 @@ rule annotate_real:
 SCORE_MODE = env_value("SCORE_MODE") or "frozen"
 SCORE_DIR = os.path.join(TRAIN_DIR, "frozen_scores")
 
+# NOTE: built here, not inline in the rule. Snakemake parses each rule keyword as ONE physical line, so a
+# parenthesised expression continued across lines inside a rule body is a syntax error -- and it is reported
+# against a different, earlier line, so it does not point at itself. Module level has no such restriction.
+SCORE_SHELL = ("source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli score --class-group {wildcards.cls} "
+               "--manifest $MANIFEST --evidence-dir $EVIDENCE_DIR "
+               "--model %s/models/{wildcards.cls}.xgb.json --out-dir %s"
+               ) % (ENV, HERE, SCORE_DIR)
+
 rule score_frozen:
     """Score every child with the shipped classifier of its class group -> rf_probs/ + tau json."""
     output: touch(os.path.join(SCORE_DIR, ".scored.{cls}"))
     resources: mem_mb=16000, runtime=120, cpus_per_task=2
-    shell: COMMON + ("source %s; $PHASE_DNM_PYTHON -m phase_dnm.cli score --class-group {wildcards.cls} "
-                     "--manifest $MANIFEST --evidence-dir $EVIDENCE_DIR --model %s/models/{wildcards.cls}.xgb.json "
-                     "--out-dir %s" % (ENV, HERE, SCORE_DIR))
+    shell: COMMON + SCORE_SHELL
 
 def _score_inputs(w):
     return expand(os.path.join(SCORE_DIR, ".scored.{cls}"), cls=CLASS_GROUPS) if SCORE_MODE == "frozen" else []
