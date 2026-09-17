@@ -113,7 +113,14 @@ rule annotate_real:
 #   frozen (default)  score with models/<cls>.xgb.json, refit on the full SPARK long-read cohort
 #   train             use this cohort's own harness (requires the M4 target to have been run first)
 #   none              phase-only; must be asked for explicitly, never reached by accident
-SCORE_MODE = env_value("SCORE_MODE") or "frozen"
+# env_value() reads the config FILE only -- it never looks at os.environ. Using it here meant SCORE_MODE=none
+# on the command line was discarded and every mode silently ran the frozen default, which the forced dry run
+# caught (identical DAGs for frozen and none, and bogus values accepted). Precedence, most explicit first:
+#   --config score_mode=X   >   SCORE_MODE=X in the environment   >   the env file   >   frozen
+SCORE_MODE = str(config.get("score_mode")
+                 or os.environ.get("SCORE_MODE")
+                 or env_value("SCORE_MODE")
+                 or "frozen").strip()
 # Validated HERE, at parse time, not inside _score_env. A params function only runs when snakemake actually
 # schedules that job, so with an up-to-date workflow a typo like SCORE_MODE=frozem was accepted silently and
 # would not surface until the first job needed scoring. An unusable mode should fail before any work starts.
