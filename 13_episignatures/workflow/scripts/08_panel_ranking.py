@@ -24,6 +24,20 @@ def wide(scores, metric, null, tier):
     return s.pivot(index="sample_id", columns="signature", values="value")
 
 
+def expected_mean_z_sign(cfg, sig):
+    """+1 if the signature is predominantly HYPERmethylated in cases (large positive mean_z ranks first), -1 if
+    predominantly HYPOmethylated. Read from the signature's own per-region `direction` column
+    (signatures_dir/<sig>.bed, column 6, +1/-1 per region; 02_harmonize_signatures.py). shape_r_sign is a prediction
+    about a sample's correlation with the signature, not the signature's composition, so it is only the fallback when
+    the BED is absent (review X11, 2026-09-16)."""
+    p = pathlib.Path(cfg["paths"]["signatures_dir"], f"{sig}.bed")
+    if p.exists() and p.stat().st_size > 0:
+        d = pd.to_numeric(pd.read_csv(p, sep="	", header=None, usecols=[5], na_values=["NA"])[5], errors="coerce").dropna()
+        if len(d):
+            return 1.0 if float(np.sign(d).mean()) > 0 else -1.0
+    return 1.0 if cfg["predictions"].get(sig, {}).get("shape_r_sign") == "-" else -1.0
+
+
 def rank_desc(v):
     """1 = largest; NaN stays NaN; ties -> min rank."""
     return v.rank(ascending=False, method="min")
@@ -53,8 +67,8 @@ def main():
                 for sig in W.columns:
                     v = W[sig]
                     if metric == "mean_z":  # rank magnitude in the expected direction: hypo signatures -> most negative first
-                        sign = -1.0 if (scores[(scores.signature == sig)].shape[0] and cfg["predictions"].get(sig, {}).get("shape_r_sign") != "-") else 1.0
-                        v_rank = v * sign  # TBRS-like (hypo) => more negative mean_z ranks first
+                        sign = expected_mean_z_sign(cfg, sig)
+                        v_rank = v * sign  # TBRS-like (hypo, sign -1) => more negative mean_z ranks first
                     else:
                         v_rank = v
                     rc = rank_desc(v_rank.loc[v_rank.index.intersection(children)]); ra = rank_desc(v_rank)
