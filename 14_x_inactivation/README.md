@@ -100,3 +100,9 @@ Two cautions that apply to any cohort. Skewing is acquired with age, so mothers 
 population and should not be pooled when defining outliers — in the pilot cohort 37 per cent of mothers versus
 12 per cent of daughters exceeded 70:30. And the measurement is whatever tissue was sequenced; saliva or blood
 inactivation need not represent brain.
+
+### Escape status on the cohort (first run, 2026-09-17)
+`genes.bed` = chrX gene features of the Ensembl GRCh38.101 GFF3 (868 genes; symbol from `Name=`, strand in column 6). On 54 males and
+51 females against 889 chrX CpG islands: **393 genes subject to XCI, 69 escaping, 99 uninformative, 307 without a covered promoter
+island** (`--min-samples 10`, `--min-cov 5`, `--min-cpg 5`). The known escapees *KDM6A*, *DDX3X*, *EIF1AX*, *ZFX* and *KDM5C* come out
+as escaping (female promoter median 0.036–0.038 against male 0.042–0.045); *DMD*, *FMR1* and *MECP2* as subject (female 0.31–0.47).
