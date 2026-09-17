@@ -90,6 +90,12 @@ def aln_of(read) -> E.Aln:
 
 
 def write_back(read, a: E.Aln) -> None:
+    # reference_start too: apply_breakpoint(keep="right") moves the alignment start to the breakpoint, and until
+    # 2026-09-16 that new start was never written, so every right-hand junction read of a planted deletion kept its
+    # ORIGINAL start with a leading soft clip -- its aligned block sat one clip-length left of the breakpoint, no
+    # junction matcher could place it there, and the far breakpoint of every 20/50 kb planted deletion showed ~0
+    # junction reads. That, not the six-haplotype matrix, was the deficit P31 recorded.
+    read.reference_start = a.reference_start
     read.cigartuples = a.cigar
     read.query_sequence = a.seq
     read.query_qualities = a.qual
