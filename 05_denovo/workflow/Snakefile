@@ -114,7 +114,19 @@ rule annotate_real:
 #   train             use this cohort's own harness (requires the M4 target to have been run first)
 #   none              phase-only; must be asked for explicitly, never reached by accident
 SCORE_MODE = env_value("SCORE_MODE") or "frozen"
+# Validated HERE, at parse time, not inside _score_env. A params function only runs when snakemake actually
+# schedules that job, so with an up-to-date workflow a typo like SCORE_MODE=frozem was accepted silently and
+# would not surface until the first job needed scoring. An unusable mode should fail before any work starts.
+if SCORE_MODE not in ("frozen", "train", "none"):
+    raise WorkflowError("SCORE_MODE must be frozen, train or none; got %r" % SCORE_MODE)
 SCORE_DIR = os.path.join(TRAIN_DIR, "frozen_scores")
+
+if SCORE_MODE == "train" and not os.path.isdir(os.path.join(TRAIN_DIR, "harness", "rf_probs")):
+    raise WorkflowError(
+        "SCORE_MODE=train but %s does not exist. Run the m4 target first, or use the default "
+        "SCORE_MODE=frozen to score with the shipped classifiers."
+        % os.path.join(TRAIN_DIR, "harness", "rf_probs"))
+
 
 # NOTE: built here, not inline in the rule. Snakemake parses each rule keyword as ONE physical line, so a
 # parenthesised expression continued across lines inside a rule body is a syntax error -- and it is reported
