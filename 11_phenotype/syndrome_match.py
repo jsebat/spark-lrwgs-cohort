@@ -26,7 +26,7 @@ from collections import OrderedDict, defaultdict
 
 P = os.environ.get("PHENO_DIR") or sys.exit("set PHENO_DIR to the SPARK phenotype release directory")
 L = os.path.dirname(os.path.abspath(__file__))
-ours = sorted(set(x.strip() for x in open(os.environ.get("PROBANDS", "probands.txt")) if x.strip()))
+ours = sorted(set(x.strip() for x in open(os.environ.get("PROBANDS", "probands.txt")) if x.strip() and not x.startswith("#")))
 CARRIER = OrderedDict(l.split()[:2] for l in open(os.environ.get("CARRIERS", "carriers.tsv")) if l.strip() and not l.startswith("#"))
 NA = "na_survey_logic"
 

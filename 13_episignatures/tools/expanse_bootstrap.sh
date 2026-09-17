@@ -11,7 +11,9 @@ set -euo pipefail
 DEST="${EXPANSE_PROJECT_DIR:-/expanse/lustre/projects/ddp195/jsebat/dnmt3a-episignature}"
 WSSH=(wsl.exe -e ssh -o BatchMode=yes expanse)
 NOISE='CreateProcessCommon|Lmod has detected|cannot be loaded|module spider|^$'
-rssh() { "${WSSH[@]}" "$@" 2>&1 | tr -d '\0' | grep -vE "$NOISE" || true; }
+# the remote command's exit status must survive the noise filter: with `|| true` every failed git clone / micromamba create
+# was hidden and the script printed "done" under set -e (X25)
+rssh() { local out rc; out=$("${WSSH[@]}" "$@" 2>&1); rc=$?; printf '%s\n' "$out" | tr -d '\0' | grep -vE "$NOISE" || true; return $rc; }
 
 echo ">> remote: $DEST"
 rssh "mkdir -p '$DEST' && { [ -d '$DEST.git' ] || git init -q --bare '$DEST.git'; }"

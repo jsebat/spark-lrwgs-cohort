@@ -12,11 +12,12 @@ import glob
 import os
 import collections
 
-S3 = "/expanse/projects/sebat1/s3/data/sebat"
-W = os.path.join(S3, "dnm_callsets_v1/outputs/spark_wes/filtered")
-DB = os.path.join(S3, "resources/dbNSFP/5.3.1a/parquet_expanded_mane_select")
-T = "/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering"
-PED = os.path.join(S3, "SPARK_iWES_v3/SPARK_iWES_v3.ped")
+# paths from config/cohort.env (the repository README promises no cohort paths in code; these were one person's, X13)
+S3 = os.environ.get("S3_DATA_ROOT", "/expanse/projects/sebat1/s3/data/sebat")
+W = os.environ.get("WES_DNM_FILTERED", os.path.join(S3, "dnm_callsets_v1/outputs/spark_wes/filtered"))
+DB = os.environ.get("DBNSFP_PARQUET", os.path.join(S3, "resources/dbNSFP/5.3.1a/parquet_expanded_mane_select"))
+T = os.path.join(os.environ.get("DATA_ROOT", "/expanse/lustre/projects/ddp195/jsebat/longread-autism"), "tiering")
+PED = os.environ.get("PED_SPARK_WES", os.path.join(S3, "SPARK_iWES_v3/SPARK_iWES_v3.ped"))
 TAB, NL = chr(9), chr(10)
 T_STARS = [("ClinPred_rankscore", 0.4298), ("AlphaMissense_rankscore", 0.9603),
            ("popEVE_converted_rankscore", 0.9209), ("MPC_rankscore", 0.8947)]

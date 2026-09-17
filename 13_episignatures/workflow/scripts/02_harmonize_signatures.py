@@ -321,6 +321,12 @@ def main():
         status = "OK" if len(reg) >= min_regions else "DROPPED"
         if status == "DROPPED":
             note.append(f"<{min_regions} regions")
+            # a DROPPED signature must not be scorable: step 06 loads any non-empty BED, so the inventory status was
+            # not enforced at scoring (X22) -- remove the region files written above
+            for fn in (f"{sig}.bed", f"{sig}.tier1.bed"):
+                p = out_dir / fn
+                if p.exists():
+                    p.unlink()
         n_conf = int(reg["within_region_conflict"].sum())
         if n_conf:
             note.append(f"{n_conf} merged regions with mixed direction (direction '.')")

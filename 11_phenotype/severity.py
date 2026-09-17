@@ -21,7 +21,7 @@ L = os.path.dirname(os.path.abspath(__file__))
 CORE = os.path.join(P, "core_descriptive_variables-2026-06-25.csv")
 ACI = os.path.join(P, "approximated_cognitive_impairment-2026-06-25.csv")
 
-ours = set(x.strip() for x in open(os.environ.get("PROBANDS", "probands.txt")) if x.strip())
+ours = set(x.strip() for x in open(os.environ.get("PROBANDS", "probands.txt")) if x.strip() and not x.startswith("#"))
 sv = dict(l.split()[:2] for l in open(os.environ.get("CARRIERS", "carriers.tsv")) if l.strip() and not l.startswith("#"))
 
 NUMERIC = ["scq_total_final_score", "rbsr_total_final_score", "fsiq", "viq", "nviq",
@@ -120,7 +120,14 @@ def mw_u_p(a, b):
     na, nb = len(a), len(b)
     u = ra - na * (na + 1) / 2.0
     mu = na * nb / 2.0
-    sd = math.sqrt(na * nb * (na + nb + 1) / 12.0)
+    # tie-corrected variance: on a 4-level ordinal nearly every observation is tied and the uncorrected sd is too large,
+    # so p was systematically too big (X15)
+    ntot = na + nb
+    tie_groups = {}
+    for v, _ in allv:
+        tie_groups[v] = tie_groups.get(v, 0) + 1
+    tie_term = sum(t ** 3 - t for t in tie_groups.values())
+    sd = math.sqrt(na * nb / 12.0 * ((ntot + 1) - tie_term / (ntot * (ntot - 1)))) if ntot > 1 else 0.0
     if sd == 0:
         return None
     z = (u - mu) / sd
@@ -143,7 +150,7 @@ print("  categorical (fraction with the impairment / flag):")
 
 
 def frac(vals, pos):
-    vals = [x.strip() for x in vals if x.strip() not in ("", "NA")]
+    vals = [x.strip() for x in vals if x.strip() not in ("", "NA", "na_survey_logic")]   # not asked is unknown, not "no" (X9); matches valid() below
     if not vals:
         return (0, 0.0)
     k = sum(1 for x in vals if x in pos)

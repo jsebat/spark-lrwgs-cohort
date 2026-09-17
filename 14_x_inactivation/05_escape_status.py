@@ -72,14 +72,24 @@ def load_islands(path, intervals, min_cov, min_cpg):
                 continue
             try:
                 if int(f[5]) >= min_cov:
-                    rows.append((int(f[1]), float(f[3]) / 100.0))
+                    rows.append((f[0], int(f[1]), float(f[3]) / 100.0))
             except ValueError:
                 continue
-    rows.sort()
-    pos = np.array([r[0] for r in rows])
-    beta = np.array([r[1] for r in rows])
+    # keyed by CHROMOSOME, as 04_xci_skew.island_means is. The first version dropped f[0] and binned chrX islands
+    # against the pooled position array, so any autosomal CpG at the same numeric coordinate contaminated the
+    # island mean (review 2026-09-16, X1). Harmless only because the pileups happened to be chrX-only files.
+    by_chrom = {}
+    for c, p, b in rows:
+        by_chrom.setdefault(c, []).append((p, b))
+    arrays = {}
+    for c, v in by_chrom.items():
+        v.sort()
+        arrays[c] = (np.array([x[0] for x in v]), np.array([x[1] for x in v]))
     out = {}
-    for start, end in intervals:
+    for chrom, start, end in intervals:
+        if chrom not in arrays:
+            continue
+        pos, beta = arrays[chrom]
         i, j = np.searchsorted(pos, start), np.searchsorted(pos, end)
         if j - i >= min_cpg:
             out[(start, end)] = float(beta[i:j].mean())
@@ -97,7 +107,7 @@ def main():
                 continue
             f = line.split()
             if len(f) >= 3 and f[0] == "chrX":
-                intervals.append((int(f[1]), int(f[2])))
+                intervals.append(("chrX", int(f[1]), int(f[2])))
     intervals.sort()
 
     genes = []

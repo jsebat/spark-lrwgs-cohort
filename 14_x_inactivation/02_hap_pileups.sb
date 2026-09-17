@@ -46,18 +46,26 @@ BAM=$(echo "$LINE" | cut -f2)
 [[ -f "$BAM" ]] || { echo "missing BAM for $SAMPLE: $BAM" >&2; exit 1; }
 
 # Fail early and loudly if the modification tags are absent, rather than emitting empty pileups.
-if ! samtools view "$BAM" | head -2000 | grep -q $'\tMM:Z:\|\tMm:Z:'; then
+# in a subshell WITHOUT pipefail: `head` exits early, samtools gets SIGPIPE, and under pipefail the `if !` fired on
+# every valid BAM (X3). The first 2000 records are enough to see the tags.
+if ! (set +o pipefail; samtools view "$BAM" | head -2000 | grep -q $'\tMM:Z:\|\tMm:Z:'); then
   echo "ERROR: $SAMPLE has no MM/ML base-modification tags; this BAM cannot be used" >&2
   exit 1
 fi
 
 echo "[$(date)] $SAMPLE -> $OUTDIR/$SAMPLE"
+# aligned_bam_to_cpg_scores has no region option (its --help lists --bam --output-prefix --ref --threads --min-coverage
+# --min-mapq --hap-tag --pileup-mode --modsites-mode); `--regions` made every array task die on the argument parser
+# (X2). Restrict the BAM to the island regions first -- samtools view -L keeps MM/ML/HP tags -- as the cohort run did.
+SUB="$OUTDIR/_${SAMPLE}.regions.bam"
+samtools view -b -L "$REGIONS" -o "$SUB" "$BAM" && samtools index "$SUB" || { echo "ERROR: could not subset $SAMPLE to $REGIONS" >&2; exit 1; }
 "$AB2CS" \
-  --bam "$BAM" \
+  --bam "$SUB" \
   --output-prefix "$OUTDIR/$SAMPLE" \
   --ref "$REF" \
   --threads "${SLURM_CPUS_PER_TASK:-4}" \
-  --regions "$REGIONS"
+  --modsites-mode reference
+rm -f "$SUB" "$SUB.bai"
 
 # pb-CpG-tools writes <prefix>.{combined,hap1,hap2}.bed.gz plus indexes and bigwigs.
 for h in combined hap1 hap2; do

@@ -3,4 +3,4 @@
 #SBATCH --job-name=meth_stage2b --output=meth_stage2b.%j.out
 module load cpu singularitypro || module load singularitypro
 export SIF="${SIF:?container with bcftools/tabix}"
-date; python3 "${WORKFLOW_ROOT:?}"/12_methylation/meth_stage2b.py; echo "rc=$?"; date
+date; python3 "${WORKFLOW_ROOT:?}"/12_methylation/meth_stage2b.py || { echo "FATAL: meth_stage2b.py rc=$?"; exit 1; }; date

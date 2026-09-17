@@ -183,7 +183,7 @@ def main():
     # 10 limitations
     S.append("<h2>10. Limitations</h2><ul>"
              "<li>Episignatures were derived from blood (array) or fibroblast (RRBS) data and are applied here to saliva, whose epithelial fraction varies by sample; composition is a covariate in Layer 2 and a sensitivity analysis in Layer 1, not a correction of the signatures themselves.</li>"
-             "<li>~20x HiFi coverage gives noisy single-CpG calls; all statistics are region-level with >=10 CpGs and >=15x mean depth, and regions failing that are NA (counted, never imputed).</li>"
+             f"<li>~20x HiFi coverage gives noisy single-CpG calls; all statistics are region-level with >={cfg['thresholds'].get('min_cpgs', 10)} CpGs and >={cfg['thresholds'].get('min_depth', 10)}x mean depth (config.yaml), and regions failing that are NA (counted, never imputed).</li>"
              "<li>Small cohort: the primary null has only the non-flagged children; empirical p-values are bounded below by 1/n.</li>"
              "<li>The EpiSign classifiers themselves are not reproduced; we test similarity of direction and magnitude to published probe sets.</li>"
              "<li>Rare-variant flags use cohort-internal allele counts (no population frequencies offline) and canonical-transcript consequences only.</li>"

@@ -271,9 +271,9 @@ def main():
                     mg, mq, md, ma = cell(pcells[pidx[ped[s]["mat"]]])
                 except (IndexError, KeyError):
                     continue
-                if (dg == "0/0" and dq >= a.min_gq and dd >= a.min_dp
+                if (dg in ("0/0", "0|0", "0") and dq >= a.min_gq and dd >= a.min_dp   # "0": the father is hemizygous on X; the joint caller emits haploid GTs (X5)
                         and (len(da) < 2 or da[1] <= 1)
-                        and mg == "0/0" and mq >= a.min_gq and md >= a.min_dp
+                        and mg in ("0/0", "0|0") and mq >= a.min_gq and md >= a.min_dp
                         and (len(ma) < 2 or ma[1] <= 1)
                         and len(ad) >= 2 and ad[1] >= 5
                         and ad[1] / max(sum(ad), 1) >= 0.25):

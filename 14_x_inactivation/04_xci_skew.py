@@ -152,6 +152,10 @@ def main():
         for s in blocks:
             blocks[s].sort()
         sys.stderr.write("orientation loaded for %d samples\n" % len(orient))
+        if orient and not blocks:
+            sys.stderr.write("WARNING: the orientation table has no block_start/block_end (03_trio_phase_x.py was run without "
+                             "--blocks-dir), so NO female can use the trio-directional estimator and every one falls to the "
+                             "folded estimator (X4). Re-run 03 with --blocks-dir for the directional result.\n")
 
     XH1, XH2, XCB, AH1, AH2, ACB = {}, {}, {}, {}, {}, {}
     for path in sorted(glob.glob(os.path.join(a.pileup_dir, "*.hap1.bed.gz"))):

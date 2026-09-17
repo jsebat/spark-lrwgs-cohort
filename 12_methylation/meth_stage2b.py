@@ -26,7 +26,8 @@ si = {s: i for i, s in enumerate(samples)}
 cat = {(r["chrom"], int(r["start"]), int(r["end"])): r for r in csv.DictReader(open(ME + "asm_island_catalog.tsv"), delimiter=TAB)}
 dec = {r["sample"]: r for r in csv.DictReader(open(ME + "deconvolution_U25.tsv"), delimiter=TAB)}
 epi = {s: num(dec[s]["epi_2comp"]) if s in dec else None for s in samples}
-blood = {s: 1.0 if s.startswith("REACH") else 0.0 for s in samples}
+BLOOD_PREFIXES = tuple(x for x in os.environ.get("BLOOD_SAMPLE_PREFIX", "REACH").split(",") if x)   # see meth_stage1.py (X8)
+blood = {s: 1.0 if s.startswith(BLOOD_PREFIXES) else 0.0 for s in samples}
 founders = [s for s in samples if man[s]["father_id"] == "0" and man[s]["mother_id"] == "0"]
 print("samples", len(samples), "founders", len(founders), flush=True)
 
@@ -166,6 +167,7 @@ results = {"snv": [], "sv": [], "tr": []}
 write_bed(test_idx, 10000, ME + "_cis_snv.bed")
 out = subprocess.run(sx + ["bcftools", "query", "-R", ME + "_cis_snv.bed", "-s", ",".join(founders), "-i", 'TYPE="snp" && QUAL>30', "-f", "%CHROM" + TAB + "%POS[" + TAB + "%GT]" + NL, BCF], stdout=subprocess.PIPE).stdout
 best = {}
+ntest = {}   # per-island count of SNVs tested, for the within-island Bonferroni (X6)
 n_tests = 0
 for ln in out.decode("latin-1").splitlines():
     f = ln.split(TAB)
@@ -183,13 +185,20 @@ for ln in out.decode("latin-1").splitlines():
             y.append(v); X.append([g[j]] + cov[j])
         if len(y) < 50: continue
         r = ols(y, X); n_tests += 1
+        if r: ntest[i] = ntest.get(i, 0) + 1
         if r and (i not in best or r[2] < best[i][2]): best[i] = (pos, r[2], r[0], af, len(y))
 with open(ME + "cis_snv_best.tsv", "w") as fh:
     fh.write(TAB.join(["chrom", "start", "end", "class", "best_snv_pos", "beta_per_allele", "p", "maf", "n", "fdr_bh"]) + NL)
-    items = sorted(best.items(), key=lambda kv: kv[1][1]); m = len(items)
+    # the minimum p over the SNVs tested for an island is not a p-value: Bonferroni within the island first, then
+    # Benjamini-Hochberg across islands with the step-up monotonicity (the TR block already had it) (X6)
+    padj = {i: min(1.0, v[1] * ntest.get(i, 1)) for i, v in best.items()}
+    items = sorted(best.items(), key=lambda kv: padj[kv[0]]); m = len(items)
+    q = [0.0] * m; running = 1.0
+    for rank in range(m, 0, -1):
+        running = min(running, padj[items[rank - 1][0]] * m / rank); q[rank - 1] = running
     for rank, (i, (pos, p, beta, af, n)) in enumerate(items, 1):
-        c, a, b, _ = islands[i]; fh.write(TAB.join(map(str, [c, a, b, cat.get((c, a, b), {}).get("class", ""), pos, round(beta, 4), "%.3g" % p, round(af, 3), n, "%.3g" % min(1.0, p * m / rank)])) + NL)
-print("cis SNV: islands with a tested SNV", len(best), " tests", n_tests, " FDR<0.05:", sum(1 for rank, (i, v) in enumerate(sorted(best.items(), key=lambda kv: kv[1][1]), 1) if v[1] * len(best) / rank < 0.05), flush=True)
+        c, a, b, _ = islands[i]; fh.write(TAB.join(map(str, [c, a, b, cat.get((c, a, b), {}).get("class", ""), pos, round(beta, 4), "%.3g" % padj[i], round(af, 3), n, "%.3g" % q[rank - 1]])) + NL)
+print("cis SNV: islands with a tested SNV", len(best), " tests", n_tests, " FDR<0.05 (island-Bonferroni then BH):", sum(1 for x in q if x < 0.05), flush=True)
 # SVs
 write_bed(test_idx, 10000, ME + "_cis_sv.bed")
 out = run(sx + ["bcftools", "query", "-R", ME + "_cis_sv.bed", "-s", ",".join(founders), "-i", 'INFO/SVTYPE!="BND"', "-f", "%CHROM" + TAB + "%POS" + TAB + "%INFO/END" + TAB + "%INFO/SVTYPE" + TAB + "%INFO/SVLEN[" + TAB + "%GT]" + NL, SVV])
@@ -249,7 +258,7 @@ with open(ME + "cis_tr_all.tsv", "w") as fh:
             if len(y) < 40 or len(set(sl)) < 3: continue
             nall += 1
             rs = ols(y, Xs); rm = ols(y, Xm); rho = spearman(sl, y)
-            if True:
+            if rs and (rs[2] < 0.01 or abs(rho) > 0.4):     # the reported set is what the message says it is (X19)
                 a, b = islands[i][1], islands[i][2]; fh.write(TAB.join(map(str, [c, a, b, cat.get((c, a, b), {}).get("class", ""), trid, motifs, len(y), round(rho, 3), round(rs[0], 5) if rs else "", "%.3g" % rs[2] if rs else "", round(rm[0], 5) if rm else "", "%.3g" % rm[2] if rm else "", "%d-%d" % (min(sl), max(sl))])) + NL); ntr += 1
 print("TR x island pairs tested:", nall, " reported (p<0.01 or |rho|>0.4):", ntr, flush=True)
 
@@ -270,6 +279,6 @@ print("TR pairs unique:", len(_u), " with p:", m, " BH q<0.05:", sum(1 for v in 
 # ---------------- 2b-4 composition vs phenotype
 with open(ME + "composition_vs_phenotype.tsv", "w") as fh:
     fh.write("group\tn\tmedian_epithelial\n")
-    for lab, sel in (("affected_offspring", [s for s in samples if man[s]["role"] == "offspring" and man[s]["affected"] == "affected"]), ("unaffected_offspring", [s for s in samples if man[s]["role"] == "offspring" and man[s]["affected"] != "affected"]), ("parents", [s for s in samples if man[s]["role"] == "parent"]), ("blood", [s for s in samples if s.startswith("REACH")]), ("saliva", [s for s in samples if not s.startswith("REACH")])):
+    for lab, sel in (("affected_offspring", [s for s in samples if man[s]["role"] == "offspring" and man[s]["affected"] == "affected"]), ("unaffected_offspring", [s for s in samples if man[s]["role"] == "offspring" and man[s]["affected"] != "affected"]), ("parents", [s for s in samples if man[s]["role"] == "parent"]), ("blood", [s for s in samples if s.startswith(BLOOD_PREFIXES)]), ("saliva", [s for s in samples if not s.startswith(BLOOD_PREFIXES)])):
         v = [epi[s] for s in sel if epi[s] is not None]; fh.write("%s\t%d\t%s\n" % (lab, len(v), round(median(v), 3) if v else ""))
 print(open(ME + "composition_vs_phenotype.tsv").read()); print("stage 2b done")

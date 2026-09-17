@@ -15,7 +15,7 @@ the DNMT3A-deletion proband ranks first on the TBRS (DNMT3A loss-of-function) si
   Primary null = non-DNMT3A children. Secondary null = parents. Proband's own parents = within-family controls.
 - **Reference genome:** GRCh38 only. All coordinates hg38, BED = 0-based half-open.
 - **Methylation unit:** beta in [0,1]. Region-level, never single-CpG, for any statistic.
-- **Minimum evidence per region:** >=10 CpGs AND mean depth >=15 reads, else region = NA for that sample.
+- **Minimum evidence per region:** >=10 CpGs AND mean depth >= `thresholds.min_depth` reads (config.yaml; 15 pre-registered, changed to 10 on 2026-09-10 after the step 06 acceptance check), else region = NA for that sample.
 
 ## Two-layer readout
 **Layer 1 — probe/DMR-based episignature panel** (all from published supplementary tables):

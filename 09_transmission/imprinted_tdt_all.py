@@ -8,6 +8,7 @@ cohort AF < 0.001), common (>= 0.001), all HC LoF. Filters as in svopl_tdt.py (D
 import os, subprocess, collections, math, csv
 D = os.environ["SHORTREAD_ROOT"]; ME = os.environ["DATA_ROOT"] + "/meth/"; OUT = os.environ["DATA_ROOT"] + "/transmission/"
 SIF = os.environ["SIF"]; sx = ["singularity", "exec", "-B", "/expanse:/expanse", SIF]; TAB = "\t"
+os.makedirs(OUT, exist_ok=True)   # gene_tdt.py creates it; this script did all its tabix work then died on a fresh DATA_ROOT (X10)
 COHORTS = [("SPARK_WGS", D + "/nf_rare_spark_wgs/output/indexed/%s.merged.tsv.gz", os.environ["PED_SPARK_WGS"]),
            ("SPARK_WES", D + "/nf_rare_spark_wes/output/indexed/%s.merged.tsv.gz", os.environ["PED_SPARK_WES"]),
            ("SSC", D + "/nf_rare_ssc/output/indexed/%s.merged.tsv.gz", os.environ["PED_SSC"])]
@@ -81,7 +82,8 @@ for g, c, s0, e0, ea in genes:
     region = "%s:%d-%d" % (c, s0, e0)
     for name, tpl, _ in COHORTS:
         table = tpl % c
-        if not os.path.exists(table): continue
+        if not os.path.exists(table):
+            print("NOTE: %s has no table for %s (%s); its counts for genes on %s are 0 = not tested, not absent" % (name, c, table, c), flush=True); continue   # was a silent drop (X12)
         hdr = header(table); ci = {k: i for i, k in enumerate(hdr)}
         ped = peds[name]
         txt = subprocess.run(sx + ["tabix", table, region], stdout=subprocess.PIPE, universal_newlines=True).stdout

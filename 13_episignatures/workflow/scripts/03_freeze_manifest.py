@@ -247,17 +247,22 @@ def main():
             "extraction_method", "n_movies", "bam_source", "bam_paths", "is_proband", "proband_family", "qc_note"]
     man = m[cols].rename(columns={"spid": "sample_id", "sfid": "family_id", "age_y": "age", "total_coverage": "mean_depth"})
     man = man.sort_values(["family_id", "role", "sample_id"])
-    man.to_csv(out / "samples.tsv", sep="\t", index=False)
-    shutil.copy(out / "samples.tsv", cfg["paths"]["samples_tsv"])
     frozen = out / "samples.frozen.tsv"
+    candidate = out / "samples.candidate.tsv"
+    man.to_csv(candidate, sep="\t", index=False)
     if frozen.exists():
         old = hashlib.sha256(frozen.read_bytes()).hexdigest()
-        new = hashlib.sha256((out / "samples.tsv").read_bytes()).hexdigest()
+        new = hashlib.sha256(candidate.read_bytes()).hexdigest()
         if old != new:
-            print(f"WARNING: frozen manifest already exists and differs (sha256 {old[:12]} vs {new[:12]}); NOT overwriting. "
-                  "Delete it deliberately to re-freeze.")
-    else:
-        shutil.copy(out / "samples.tsv", frozen)
+            # the freeze is the freeze: samples.tsv and config/samples.tsv (what the Snakefile and step 05 read) must not
+            # silently move away from samples.frozen.tsv, which is what happened before (X26)
+            print(f"WARNING: frozen manifest exists and differs (sha256 {old[:12]} vs {new[:12]}); samples.tsv and "
+                  f"{cfg['paths']['samples_tsv']} are LEFT AS FROZEN. The new manifest is in {candidate}; delete the frozen file deliberately to re-freeze.")
+            return
+    shutil.copy(candidate, out / "samples.tsv")
+    shutil.copy(candidate, cfg["paths"]["samples_tsv"])
+    if not frozen.exists():
+        shutil.copy(candidate, frozen)
     sha = hashlib.sha256(frozen.read_bytes()).hexdigest()
     (out / "samples.frozen.sha256").write_text(f"{sha}  samples.frozen.tsv\n")
 

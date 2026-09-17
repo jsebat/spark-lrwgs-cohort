@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import shutil
+import re
 import subprocess
 import sys
 
@@ -50,9 +51,11 @@ def run_pbcpg(bam, prefix, ref, threads, cfg, log):
         return None
     args = cfg["tools"].get("cpg_scores_args", "")
     # v3 takes --ref; v2 does not (model-based pileup needs the bundled model path in v2 -> --model)
-    extra = f"--ref {ref}" if "3." in ver else ""
+    major = re.search(r"(\d+)\.", ver or "")
+    major = int(major.group(1)) if major else 0          # substring tests ("3." in ver) matched v2.3.x as v3 (X23)
+    extra = f"--ref {ref}" if major >= 3 else ""
     model = cfg["tools"].get("cpg_scores_model")
-    if model and "2." in ver:
+    if model and major == 2:
         extra += f" --model {model}"
     sh(f"{exe} --bam {bam} --output-prefix {prefix} --threads {threads} {args} {extra}", log)
     beds = sorted(b for b in glob.glob(f"{prefix}*combined*.bed*") if not b.endswith(".bw"))

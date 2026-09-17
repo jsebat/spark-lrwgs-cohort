@@ -16,10 +16,10 @@ done
 echo "linked: $(ls $C/*.bed.gz | wc -l) beds, $(ls $C/*.tbi | wc -l) indexes"
 V=${PHASED_VCF_DIR:?}; mkdir -p $V
 for vcf in $(ls $L/run_*/*/out/joint_small_variants_vcf/*.phased.vcf.gz 2>/dev/null | grep -v -E "_LAST|${EXCLUDE_RUNS:-__none__}"); do
-  fam=$(basename $vcf | cut -d. -f1); run=$(echo $vcf | sed "s|/out/joint_small_variants_vcf/.*||"); tbi=$(ls $run/out/joint_small_variants_vcf_index/*.tbi $run/out/joint_small_variants_vcf/*.tbi 2>/dev/null | head -1)
+  fam=$(basename $vcf | cut -d. -f1); run=$(echo $vcf | sed "s|/out/joint_small_variants_vcf/.*||"); tbi=$(ls $run/out/joint_small_variants_vcf_index/$fam.*.tbi $run/out/joint_small_variants_vcf/$fam.*.tbi 2>/dev/null | head -1)   # by family, as the CpG branch filters by sample
   ln -sf $vcf $V/$fam.phased.vcf.gz; [ -n "$tbi" ] && ln -sf $tbi $V/$fam.phased.vcf.gz.tbi
 done
 echo "linked VCFs: $(ls $V/*.vcf.gz | wc -l), indexes: $(ls $V/*.tbi | wc -l)"
-date; python3 "${WORKFLOW_ROOT:?}"/12_methylation/meth_stage1.py; echo "rc=$?"; date
+date; python3 "${WORKFLOW_ROOT:?}"/12_methylation/meth_stage1.py || { echo "FATAL: meth_stage1.py rc=$?"; exit 1; }; date
 eval "$(micromamba shell hook --shell bash)"; micromamba activate rclogit
-Rscript "${WORKFLOW_ROOT:?}"/12_methylation/deconv.R; echo "deconv rc=$?"; date
+Rscript "${WORKFLOW_ROOT:?}"/12_methylation/deconv.R || { echo "FATAL: deconv.R rc=$?"; exit 1; }; date

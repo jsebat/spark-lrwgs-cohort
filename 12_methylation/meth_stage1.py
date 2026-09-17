@@ -41,6 +41,11 @@ for p in glob.glob(L + "/run_*/*/out/methbat_profile/*/*.methbat.profile.tsv"):
     sid = os.path.basename(p).split(".")[0]
     if sid in man: prof[sid] = p          # manifest samples only (excludes unrelated runs)
 print("methbat profiles:", len(prof), flush=True)
+# DNA source: blood-derived samples are named by BLOOD_SAMPLE_PREFIX (a comma-separated list of sample-id prefixes; the
+# cohort's is set in config/cohort.env). The prefix "REACH" was hard-coded; on another cohort every sample read as saliva,
+# deconv.R's empirical zero became NaN and every founder covariate was imputed (X8).
+BLOOD_PREFIXES = tuple(x for x in os.environ.get("BLOOD_SAMPLE_PREFIX", "REACH").split(",") if x)
+def is_blood(sample_id): return sample_id.startswith(BLOOD_PREFIXES)
 islands = None; M = {}
 for s, p in sorted(prof.items()):
     rows = []; keys = []
@@ -50,7 +55,12 @@ for s, p in sorted(prof.items()):
             keys.append((r["chrom"], int(r["start"]), int(r["end"]), r["cpg_label"]))
             rows.append((r.get("mean_combined_methyl", ""), r.get("mean_hap1_methyl", ""), r.get("mean_hap2_methyl", ""), r.get("asm_fishers_pvalue", ""), r.get("summary_label", "")))
     if islands is None: islands = keys
-    elif keys != islands: print("WARNING island order differs for", s)
+    elif keys != islands:
+        # reindex by island key; writing by POSITION against the first sample's islands produced a misaligned column
+        # (or an IndexError) that propagated to stage 2a/2b (X7)
+        by_key = dict(zip(keys, rows)); missing = sum(1 for k in islands if k not in by_key)
+        print("WARNING island order/content differs for", s, "- reindexed by island key; islands absent in this profile:", missing)
+        rows = [by_key.get(k, ("", "", "", "", "")) for k in islands]
     M[s] = rows
 samples = sorted(M)
 with open(OUT + "/islands.bed", "w") as fh:
@@ -196,6 +206,6 @@ with open(OUT + "/marker_means_U25.tsv", "w") as fh:
         vals = []
         for i in range(len(atlas)):
             v = acc.get(i); vals.append(("%.4f" % (sum(v) / len(v))) if v else "NA")
-        fh.write(TAB.join([s, man[s]["family_id"], man[s]["role"], "1" if s.startswith("REACH") else "0"] + vals) + NL)
+        fh.write(TAB.join([s, man[s]["family_id"], man[s]["role"], "1" if is_blood(s) else "0"] + vals) + NL)
         print("markers", s, "regions with data:", len(acc), flush=True)
 print("stage 1 done")

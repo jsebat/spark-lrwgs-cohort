@@ -20,7 +20,8 @@ out$epithelial <- rowSums(out[, intersect(c("Head-Neck-Ep", "Epid-Kerat"), cts),
 tg <- A$target; hn <- which(tg == "Head-Neck-Ep"); bl <- which(tg %in% grep("^Blood", cts, value = TRUE))
 epi_ref <- mean(X[hn, "Head-Neck-Ep"]); blood_ref_at_hn <- mean(rowMeans(X[hn, grep("^Blood", cts, value = TRUE)]))
 u_hn <- apply(M[, mcols], 1, function(v) mean(as.numeric(v[hn]), na.rm = TRUE))
-zero <- mean(u_hn[M$dna_blood == 1])   # empirical zero: blood genomes measured on this platform
+zero <- if (any(M$dna_blood == 1)) mean(u_hn[M$dna_blood == 1]) else blood_ref_at_hn   # empirical zero from the cohort's blood genomes; the atlas blood mean when there are none (X8)
+if (!any(M$dna_blood == 1)) cat("NOTE: no blood-derived sample in the manifest (BLOOD_SAMPLE_PREFIX); the two-compartment zero is the atlas blood reference\n")
 out$epi_2comp <- pmax(0, pmin(1, (u_hn - zero) / (epi_ref - zero)))
 out$u_HeadNeckEp <- round(u_hn, 4)
 gr <- which(tg == "Blood-Granul"); u_gr <- apply(M[, mcols], 1, function(v) mean(as.numeric(v[gr]), na.rm = TRUE)); out$granul_2comp <- round(pmax(0, pmin(1, u_gr / mean(X[gr, "Blood-Granul"]))), 3)
