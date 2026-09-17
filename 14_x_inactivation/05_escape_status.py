@@ -136,7 +136,7 @@ def main():
     for symbol, start, end, strand in genes:
         tss = start if strand == "+" else end
         near = [iv for iv in intervals
-                if abs(iv[0] - tss) <= a.promoter_window or (iv[0] >= start and iv[1] <= end)]
+                if abs(iv[1] - tss) <= a.promoter_window or (iv[1] >= start and iv[2] <= end)]   # iv = (chrom, start, end)
         best = None
         for iv in near:
             mv = [d[iv] for d in males if iv in d]
@@ -159,7 +159,7 @@ def main():
             call = "escapes XCI"
         else:
             call = "uninformative"
-        rows.append(dict(gene=symbol, island="chrX:%d-%d" % iv,
+        rows.append(dict(gene=symbol, island="%s:%d-%d" % iv,
                          male_median=round(mm, 3), female_median=round(fm, 3),
                          call=call, n_male=nm, n_female=nf))
 
