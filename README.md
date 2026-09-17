@@ -24,7 +24,7 @@ push.** This repository is distinct from the earlier per-family clinical-interpr
 workflow, which is not included.
 
 Directory order is execution order: `00_upstream` (alignment and variant calling: how the per-family PacBio WDL was run) → `01_qc`, `02_phasing` → `03_tiering` → `04_panel` → `08_burden`,
-`05_denovo`, `07_inheritance`, `10_ascertainment`, `11_phenotype`.
+`05_denovo` → `06_clinical`, `07_inheritance`, `10_ascertainment`, `11_phenotype`.
 
 ## Relationship to the per-family workflow
 The earlier **per-family (N-of-1) clinical interpretation** workflow lives in the separate
@@ -36,10 +36,20 @@ gate) and the genome-wide scan `tr_outliers.py`: allele length = TRGT AL, QC on 
 not usable on a multi-motif catalog), leave-one-family-out founder reference, outlier > founder p99 + 3 motif units,
 de novo expansion > both parents + the same margin, transmission test, then `tr_clogit.R` (depth-adjusted burden).
 
-### Read-level SV review (06_clinical/sv_read_review.sh) — required before a candidate is validation-ready
-Junction reads at both breakpoints, haplotype-resolved read counts inside vs flanks, and persistence of heterozygous
-SNVs inside the interval. A joint-caller genotype on three reads passed every upstream filter once; this step is
-what caught it.
+### Targeted clinical arm (06_clinical)
+Answers a different question from the genome-wide caller — *is there a reportable variant in this child* — and is
+allowed to be biased towards clinical yield because nothing it produces enters a recall, FDR or rate estimate
+(`05_denovo/DESIGN.md` P31–P33). Two arms in opposite order: **A**, rare + large SVs (≥ 5 kb, cohort AC 0, founder
+panel 0), quality first, then clinical annotation — its verdicts are an unbiased sample and may validate the
+evidence; **B**, clinically led — every candidate `05_denovo` scored, *including below threshold*, in an exon/UTR of a
+SFARI ∪ DDG2P gene, clinical relevance first, then quality. Quality (PASS / REVIEW / FAIL, with reasons) and clinical
+relevance are recorded independently. The gene criterion is panel membership; s_het is reported and never gates
+(a constraint filter excludes *DNMT3A*, whose low s_het is a clonal-haematopoiesis artefact). Acceptance test: arm B
+must recover the cohort's 35 kb *MECP2* deletion (PASS) and 302 bp *DNMT3A* deletion (REVIEW or better; the caller
+leaves it below threshold). The scripts of the original discovery — including the read-level SV review
+(`sv_read_review.sh`: junction reads at both breakpoints, haplotype-resolved depth inside vs flanks, heterozygous-SNV
+persistence) — are preserved unchanged in `06_clinical/legacy/`; the module re-implements them over `05_denovo`'s
+evidence tables, which now carry those measurements for every candidate.
 
 ### Status
 Frozen for the first cohort report (September 2026). Analyses of the polygenic-score comparison are a separate
@@ -104,7 +114,7 @@ per-segment orientation, per-parent transmission, typed change points (`CROSSOVE
 origin for inherited variants, imprinting, recombination maps — and are consumed **by path** by `05_denovo`,
 which is where this code was built and lived until it was extracted unchanged. See `02_phasing/README.md`.
 
-### Phase-aware de novo calling (05_denovo) — design stage
+### Phase-aware de novo calling (05_denovo)
 Turns trio phase into primary evidence for de novo calling, uniformly for SNV/indel, SV and TR. It consumes the
 phasing tables of `02_phasing` by path and adds nothing to them. Module 2 builds a six-haplotype evidence matrix
 (M1 M2 F1 F2 C-mat C-pat) per candidate from the WDL outputs that already exist (HiPhase haplotag tables, sawfish
@@ -116,4 +126,5 @@ de novo set). Module 4 retrains the classifier with phase features under swap-cl
 every feature is registered in `config/features.yaml` with an `rf_safe` flag saying whether it is computable
 identically for SynthDNM's pedigree-swapped positives. Design decisions with rationale, the SynthDNM one-pager, the
 CV design and an overclaim register are in `05_denovo/DESIGN.md`; interfaces and file formats in its `README.md`;
-the running build log in `PLAN_MODULE1.md`.
+the running build log in `PLAN_MODULE1.md`. Parent of origin is validated per call against an independent read-backed
+assignment (99.7% agreement over 1,802 tier-1 SNVs; `05_denovo/DESIGN.md` P35, `tools/poo_readcheck.py`).

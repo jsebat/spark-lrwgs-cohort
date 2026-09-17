@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=clinical
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=2 --mem=24G --time=01:30:00
+# The targeted clinical arm, end to end, on the 05_denovo outputs of the cohort:
+#   1. consequences for SNV/indel candidates inside panel genes (VEP+LOFTEE VCFs of 03_tiering, dbNSFP missense tiers)
+#   2. arm A (rare + large SVs, quality first) and arm B (clinically led) tables, per-child report
+#   3. acceptance: the two known pathogenic de novo deletions must be recovered by arm B
+# Paths come from 05_denovo's env file plus the clinical resources below; sample identifiers are read from the data.
+set -uo pipefail
+HERE="${CLINICAL_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/clinical" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$HERE/src/clinical" ] || { echo "ERROR: cannot locate 06_clinical; got '$HERE'" >&2; exit 2; }
+DENOVO_ENV="${DENOVO_ENV:-$HERE/../05_denovo/config/phase_dnm.env}"
+source "$DENOVO_ENV"
+: "${FINAL_DIR:?}" "${EVIDENCE_DIR:?}" "${PHASE_DNM_PYTHON:?}" "${LRC:?}"
+export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+PY="$PHASE_DNM_PYTHON"
+
+# clinical resources (override any of these in the environment)
+GFF3="${GFF3:-/expanse/projects/sebat1/jsebat/refs/hifi-wdl-resources-v3.1.0/GRCh38/ensembl.GRCh38.101.reformatted.gff3.gz}"
+GENE_SETS="${GENE_SETS:-/expanse/projects/sebat1/s3/data/sebat/nf_rare_spark_wes/resources/gene_sets}"
+SHET="${SHET:-/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering/denovo_sv/shet_by_symbol.tsv}"
+VEP_GLOB="${VEP_GLOB:-/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering/vep/chr*.vep.vcf.gz}"
+DBNSFP_PARQUET="${DBNSFP_PARQUET:-/expanse/projects/sebat1/s3/data/sebat/resources/dbNSFP/5.3.1a/parquet_expanded_mane_select}"
+OUT="${CLINICAL_OUT:-$LRC/clinical}"
+mkdir -p "$OUT"
+for f in "$GFF3" "$GENE_SETS/sfari_hc.txt" "$SHET"; do [ -e "$f" ] || { echo "ERROR: resource missing: $f" >&2; exit 3; }; done
+ls $VEP_GLOB >/dev/null 2>&1 || echo "WARNING: no VEP VCFs match $VEP_GLOB; the SNV/indel arm will be empty"
+
+echo "=== 1. SNV/indel consequences"
+t0=$(date +%s)
+"$PY" -m clinical.cli annotate-smallvar --final-dir "$FINAL_DIR" --evidence-dir "$EVIDENCE_DIR" --gff3 "$GFF3" \
+    --gene-sets "$GENE_SETS" --genebayes "$SHET" --out-dir "$OUT" --vep-glob "$VEP_GLOB" --dbnsfp-parquet "$DBNSFP_PARQUET"
+echo "annotate rc=$? in $(( $(date +%s) - t0 )) s"
+
+echo "=== 2. arms A and B"
+t0=$(date +%s)
+"$PY" -m clinical.cli run --final-dir "$FINAL_DIR" --evidence-dir "$EVIDENCE_DIR" --gff3 "$GFF3" \
+    --gene-sets "$GENE_SETS" --genebayes "$SHET" --out-dir "$OUT"
+echo "run rc=$? in $(( $(date +%s) - t0 )) s"
+
+echo "=== 3. acceptance"
+# Expectations are generated HERE from coordinates, so no sample identifier is written into the repository: the
+# cohort's two known pathogenic de novo deletions are the 35 kb MECP2 deletion and the 302 bp DNMT3A deletion.
+EXPECT="$OUT/acceptance_expect.tsv"
+printf 'gene\tsample_id\tchrom\tstart\tmin_verdict\n' > "$EXPECT"
+for spec in "MECP2 chrX 154062405 PASS" "DNMT3A chr2 25244326 REVIEW"; do
+  set -- $spec
+  sid=$(awk -F'\t' -v c="$2" -v s="$3" 'NR==1{for(i=1;i<=NF;i++)h[$i]=i; next} $h["chrom"]==c && $h["start"]==s {print $h["sample_id"]; exit}' "$FINAL_DIR"/*.sv.dnm.tsv)
+  [ -n "$sid" ] || { echo "acceptance: no SV candidate at $2:$3 in $FINAL_DIR" >&2; sid="NOT_FOUND"; }
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$sid" "$2" "$3" "$4" >> "$EXPECT"
+done
+"$PY" -m clinical.cli acceptance --out-dir "$OUT" --expect "$EXPECT" --verbose
+rc=$?
+echo "acceptance rc=$rc"
+echo "=== outputs in $OUT"; ls -la "$OUT"
+exit $rc
