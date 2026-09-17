@@ -1,6 +1,6 @@
 """trio-phase command line. One sub-command per step; identifiers are always arguments.
 
-Extracted verbatim from `phase_dnm.cli` (13_phase_dnm) when phasing became its own module: the same
+Extracted verbatim from `phase_dnm.cli` (05_denovo) when phasing became its own module: the same
 handlers, the same flags, the same defaults. Only the program name, the package name and the
 threshold-file location changed, none of which reaches an output file.
 """
@@ -14,7 +14,7 @@ import sys
 import yaml
 
 from . import __version__
-from .io.vcf import VcfReader, iter_trio, read_manifest, trio_of
+from .io.vcf import VcfReader, iter_trio, normalise_sex, read_manifest, trio_of
 from .phasing import orient as O
 from .phasing import transmission as T
 
@@ -63,7 +63,9 @@ def cmd_orient(a: argparse.Namespace) -> int:
     O.write_orientation(blocks, stem + ".orientation.tsv")
     O.write_dissent(blocks, stem + ".orientation.dissent.tsv")
     summ = O.summarise(stats, blocks, p)
-    summ["child"], summ["father"], summ["mother"], summ["sex"] = a.child, father, mother, sex
+    # normalised M/F/U: the QC sex-vs-chrX-depth gate compares against "M"/"F"; a PED-coded manifest (1/2) written raw
+    # silently disabled it (P3)
+    summ["child"], summ["father"], summ["mother"], summ["sex"] = a.child, father, mother, normalise_sex(sex)
     summ["thresholds_version"] = thr.get("version")
     O.write_summary(summ, stem + ".orientation.summary.json")
     t = summ["total"]
@@ -164,7 +166,7 @@ def cmd_phase_qc(a: argparse.Namespace) -> int:
     out = a.out or os.path.join(a.phase_dir, "cohort_phase_qc.tsv")
     Q.write_cohort_table(rows, out)
     summ = Q.cohort_summary(rows)
-    with open(out.replace(".tsv", ".summary.json"), "w") as fh:
+    with open(os.path.splitext(out)[0] + ".summary.json", "w") as fh:   # not str.replace: an --out without .tsv overwrote the table (P6)
         json.dump(summ, fh, indent=1, sort_keys=True)
     sys.stderr.write("phase-qc: %d children, %d PASS; flags seen: %s; wrote %s\n"
                      % (summ["n_children"], summ["n_pass"], ", ".join(summ["flags"]) or "none", out))

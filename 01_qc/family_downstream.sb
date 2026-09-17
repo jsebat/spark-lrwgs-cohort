@@ -22,17 +22,21 @@
 set -uo pipefail
 
 F="${1:?usage: sbatch family_downstream.sb <FAMILY_ID>}"
-BASE=/expanse/projects/sebat1/jsebat/longread-autism
-RUNROOT=/expanse/lustre/projects/ddp195/jsebat/longread-autism
+# Every site path comes from config/cohort.env (README: "Configuration lives in config/cohort.env"). Until
+# 2026-09-16 these were one person's directories written into the script, so nobody else could run it (review P8).
+CFG="${COHORT_ENV:-${WORKFLOW_ROOT:+$WORKFLOW_ROOT/config/cohort.env}}"
+[ -n "$CFG" ] && [ -s "$CFG" ] && source "$CFG"
+: "${RUNROOT:?set RUNROOT (per-family run directories) in config/cohort.env}"
+: "${REF_FA:?set REF_FA in config/cohort.env}"
+: "${SIF_CACHE:?set SIF_CACHE (miniwdl singularity image cache) in config/cohort.env}"
 RUNDIR=$RUNROOT/run_$F
-CACHE=/expanse/projects/sebat1/jsebat/singularity_cache/miniwdl
-REFS=/expanse/projects/sebat1/jsebat/refs
-REF_FA=$REFS/hifi-wdl-resources-v3.1.0/GRCh38/human_GRCh38_no_alt_analysis_set.fasta
-# genome-region mask is family-independent; point MASK at your prebuilt exclude BED
-MASK=$RUNROOT/run_${EXCLUDE_FAMILY:-__none__}/analysis/denovo/mask.exclude.bed.gz
+CACHE=$SIF_CACHE
+# the genome-region mask is family-independent; MASK_BED must be set explicitly -- the old default pointed into a
+# run directory named after EXCLUDE_FAMILY (a variable meaning something else) and silently skipped the filter
+MASK="${MASK_BED:?set MASK_BED (prebuilt segdup/repeat exclude BED, bgzipped) in config/cohort.env}"
 
 export SINGULARITY_BIND=/expanse:/expanse
-SING=/cm/local/apps/singularitypro/4.1/bin/singularity
+SING="${SINGULARITY_BIN:-$(command -v singularity || echo /cm/local/apps/singularitypro/4.1/bin/singularity)}"
 sif() { ls $CACHE/*$1*.sif 2>/dev/null | head -1; }
 BASE_SIF=$(sif pb_wdl_base); SLIVAR_SIF=$(sif slivar); SOM_SIF=$(sif somalier)
 
@@ -315,9 +319,17 @@ else
   DUMP=$OUT/denovo_tr/$F.trgt.al.tsv
   $SING exec "$BASE_SIF" bash -c \
     "bcftools query -f '%CHROM\t%POS\t%INFO/TRID\t%INFO/MOTIFS[\t%AL]\n' '$TRSTAGE/$b'" \
-    > "$DUMP" 2>/dev/null
-  $SING exec "$BASE_SIF" bcftools query -l "$TRSTAGE/$b" > $OUT/denovo_tr/samples.txt 2>/dev/null
-  echo "    loci dumped: $(wc -l < "$DUMP")"
+    > "$DUMP" 2> "$OUT/denovo_tr/$F.trgt.query.err"
+  $SING exec "$BASE_SIF" bcftools query -l "$TRSTAGE/$b" > $OUT/denovo_tr/samples.txt
+  NTR=$($SING exec "$BASE_SIF" bcftools view -H "$TRSTAGE/$b" | wc -l)
+  NDUMP=$(wc -l < "$DUMP")
+  echo "    loci dumped: $NDUMP (VCF holds $NTR)"
+  # the guard the SNV section has had since 2026-08-29: an aborted query with a hidden error produced an empty dump,
+  # "0 candidate expansions" for every child, and exit 0 -- a wrong result presented as a result (review 2026-09-16, P1)
+  if [ "$NDUMP" -ne "$NTR" ] || [ "$NDUMP" -eq 0 ]; then
+    echo "  FATAL: dumped $NDUMP rows from a $NTR-record TRGT VCF -- the query failed; see $OUT/denovo_tr/$F.trgt.query.err"
+    exit 4
+  fi
   python3 - "$DUMP" "$OUT/denovo_tr/samples.txt" "$PED" "$OUT/denovo_tr" "$F" <<'PY'
 import sys, csv, os
 dump, sfile, ped, outdir, fam = sys.argv[1:6]

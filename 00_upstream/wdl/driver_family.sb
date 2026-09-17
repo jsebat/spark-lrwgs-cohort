@@ -20,7 +20,9 @@ mkdir -p "$RUNDIR"; cd "$RUNDIR" || exit 2
 echo "${SLURM_JOB_ID:-unknown}" > "$RUNDIR/.driver_job"
 
 export MAMBA_ROOT_PREFIX="$HOME/micromamba"
-eval "$("$HOME/bin/micromamba" shell hook -s bash)"
+MM="${MICROMAMBA_BIN:-$(command -v micromamba || echo "$HOME/bin/micromamba")}"
+[ -x "$MM" ] || { echo "FATAL: micromamba not found (set MICROMAMBA_BIN in config/upstream.env)" >&2; exit 2; }   # was silent: miniwdl then ran as command-not-found, exit 127
+eval "$("$MM" shell hook -s bash)"
 micromamba activate "${WDL_ENV:-wdl_env}"
 source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
 module load "${SINGULARITY_MODULE:-singularitypro/4.1.2}"

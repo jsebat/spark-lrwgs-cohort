@@ -18,7 +18,7 @@ if [ -z "$FAMILY" ] && [ -n "${LIST:-}" ] && [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; 
 HERE="${PHASING_HOME:-${PHASE_DNM_HOME:-}}"
 [ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/trio_phase" ] && HERE="$SLURM_SUBMIT_DIR"; }
 [ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -d "$HERE/src/trio_phase" ] || { echo "ERROR: cannot locate the 01_phasing directory; got '$HERE'" >&2; exit 2; }
+[ -d "$HERE/src/trio_phase" ] || { echo "ERROR: cannot locate the 02_phasing directory; got '$HERE'" >&2; exit 2; }
 source "$HERE/config/phasing.env"
 : "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}"
 PY="${PHASING_PYTHON:-${PHASE_DNM_PYTHON:-}}"; : "${PY:?set PHASING_PYTHON (or PHASE_DNM_PYTHON) to a Python >= 3.10}"

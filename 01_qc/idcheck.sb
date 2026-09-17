@@ -10,15 +10,17 @@
 set -uo pipefail
 F="${1:?usage: idcheck.sb <FAMILY_ID>}"
 C="${DATA_ROOT:?set DATA_ROOT to the analysis output root}"
-R=/expanse/lustre/projects/ddp195/jsebat/longread-autism
+# site paths from config/cohort.env, not one person's directories (review P8)
+CFG="${COHORT_ENV:-${WORKFLOW_ROOT:+$WORKFLOW_ROOT/config/cohort.env}}"
+[ -n "$CFG" ] && [ -s "$CFG" ] && source "$CFG"
+R="${RUNROOT:?set RUNROOT in config/cohort.env}"
 LR=$R/run_$F/analysis/somalier/extract
 OUT=$R/run_$F/analysis/idcheck; mkdir -p $OUT/sr
-REFS=/expanse/projects/sebat1/jsebat/refs
-REF_FA=$REFS/hifi-wdl-resources-v3.1.0/GRCh38/human_GRCh38_no_alt_analysis_set.fasta
-SITES=$REFS/somalier/sites.hg38.vcf.gz
+: "${REF_FA:?set REF_FA in config/cohort.env}"
+SITES="${SOMALIER_SITES:?set SOMALIER_SITES (somalier sites.hg38.vcf.gz) in config/cohort.env}"
 source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
 module load singularitypro/4.1.2
-CACHE=/expanse/projects/sebat1/jsebat/singularity_cache/miniwdl
+CACHE="${SIF_CACHE:?set SIF_CACHE in config/cohort.env}"
 BT_SIF=$(ls $CACHE/*pb_wdl_base*.sif | head -1); SOM_SIF=$CACHE/somalier.sif
 sx() { singularity exec -B /expanse:/expanse "$@"; }
 

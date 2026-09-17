@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trio-phase"
 version = "0.1.0"
-description = "Trio-resolved and physical long-read phasing for families (spark-lrwgs-cohort module 01_phasing)"
+description = "Trio-resolved and physical long-read phasing for families (spark-lrwgs-cohort module 02_phasing)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

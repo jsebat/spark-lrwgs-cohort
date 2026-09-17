@@ -158,7 +158,10 @@ def classify(changepoints_tsv: str, out_tsv: str, parent_bam: Dict[str, Tuple[st
                 child_hit = "Y" if child_switches and any(left <= p <= right for p in child_switches.get(chrom, ())) else "N"
                 if len(hets) > max_hets_per_interval:           # a huge interval: thin to evenly spaced sites + last
                     step = len(hets) // max_hets_per_interval + 1
-                    hets = hets[::step] + [hets[-1]]
+                    last = hets[-1]
+                    hets = hets[::step]
+                    if hets[-1] != last:                 # keep the last het exactly once: `+ [hets[-1]]` duplicated it
+                        hets.append(last)                # whenever (len-1) % step == 0 and starved het n-2 of support (P2)
                 n_hets, n_gaps = len(hets), max(0, len(hets) - 1)
                 if n_gaps == 0:
                     status = "AMBIGUOUS"                        # fewer than two SNV hets to bridge: nothing to test

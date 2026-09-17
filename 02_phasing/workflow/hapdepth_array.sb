@@ -9,7 +9,7 @@
 #SBATCH --mem=2G
 #SBATCH --time=01:00:00
 # M1 hapdepth over the cohort as a job array: one task per SAMPLE, per-haplotype depth in 1 kb bins (DESIGN P7).
-# Usage (from the 01_phasing directory):
+# Usage (from the 02_phasing directory):
 #   sbatch --array=1-$(wc -l < "$LIST")%25 --export=ALL,LIST="$LIST" workflow/hapdepth_array.sb
 # LIST: one sample id per line, built from the manifest at submission time (data; *.samples.txt is gitignored).
 # The BAM path is the manifest's lr_haplotagged_bam column; its index is the same name in the sibling
@@ -18,7 +18,7 @@
 set -euo pipefail
 : "${LIST:?LIST=/path/to/hapdepth.samples.txt must be exported}" "${SLURM_ARRAY_TASK_ID:?run as an array}"
 HERE="${PHASING_HOME:-${PHASE_DNM_HOME:-${SLURM_SUBMIT_DIR:?}}}"
-[ -f "$HERE/src/trio_phase/phasing/hapdepth.py" ] || { echo "ERROR: $HERE is not the 01_phasing directory" >&2; exit 2; }
+[ -f "$HERE/src/trio_phase/phasing/hapdepth.py" ] || { echo "ERROR: $HERE is not the 02_phasing directory" >&2; exit 2; }
 source "$HERE/config/phasing.env"
 : "${MANIFEST:?}" "${PHASE_DIR:?}"
 PY="${PHASING_PYTHON:-${PHASE_DNM_PYTHON:-}}"; : "${PY:?set PHASING_PYTHON (or PHASE_DNM_PYTHON) to a Python >= 3.10}"
@@ -30,7 +30,7 @@ SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST")
 FAMILY=$(awk -F'\t' -v s="$SAMPLE" 'NR>1 && $1==s {print $2}' "$MANIFEST")
 [ -n "$FAMILY" ] || { echo "ERROR: sample not in the manifest" >&2; exit 3; }
 : "${CALLSET_ROOT:?}"
-BAM=$(ls "$CALLSET_ROOT/$FAMILY"/out/merged_haplotagged_bam/*/"$SAMPLE".*.haplotagged.bam 2>/dev/null | head -1)
+BAM=$(ls "$CALLSET_ROOT/$FAMILY"/out/merged_haplotagged_bam/*/"$SAMPLE".*.haplotagged.bam 2>/dev/null | head -1 || true)   # || true: under -e -o pipefail a no-match ls exited before the fallback (P5)
 if [ ! -s "$BAM" ]; then
   BAM=$(awk -F'\t' -v s="$SAMPLE" 'NR>1 && $1==s {print $8}' "$MANIFEST")     # fallback: manifest path
 fi
@@ -42,6 +42,7 @@ OUT="$PHASE_DIR/hapdepth"; mkdir -p "$OUT"
 t0=$(date +%s)
 "$PY" -m trio_phase.cli hapdepth --bam "$BAM" --bai "$BAI" \
     --out "$OUT/$SAMPLE.hapdepth.tsv.gz" --summary "$OUT/$SAMPLE.hapdepth.summary.json" \
-    --bin-size 1000 --min-mapq 20
+    --bin-size "$("$PY" -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["hapdepth"]["bin_size"])' "$HERE/config/thresholds.yaml")" \
+    --min-mapq  "$("$PY" -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["hapdepth"]["min_mapq"])' "$HERE/config/thresholds.yaml")"   # from thresholds.yaml, whose hapdepth: section nobody read
 echo "hapdepth done for one sample in $(( $(date +%s) - t0 )) s"
 printf 'OK\t%s\n' "$(date -Is)" > "$OUT/.$SAMPLE.status.tmp" && mv "$OUT/.$SAMPLE.status.tmp" "$OUT/$SAMPLE.hapdepth.status"

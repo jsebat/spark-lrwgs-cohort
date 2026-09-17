@@ -1,6 +1,6 @@
 # 00_upstream — alignment and variant calling (how the per-family WDL was run)
 
-Everything downstream in this repository (`01_qc` → `13_phase_dnm`) starts from the outputs of PacBio's
+Everything downstream in this repository (`01_qc` → `14_x_inactivation`) starts from the outputs of PacBio's
 **HiFi-human-WGS-WDL** run once per family. This module records exactly how that was done, so the callsets are
 reproducible from unaligned HiFi reads: the workflow version pin, the container images it resolves to, our inputs format,
 the Slurm/Singularity execution layer, the cohort-wide joint call, and the two operational lessons that matter for
@@ -33,7 +33,8 @@ One `inputs.json` per family with five keys (`config/inputs.template.json`): `hu
 sample: id, one or more unaligned HiFi BAMs, `affected`, `sex`, and for children `father_id` / `mother_id`),
 `ref_map_file`, `tertiary_map_file`, `backend`, `preemptible`. `wdl/make_inputs.py` writes them from a cohort manifest
 (`manifest/build_manifest_*.py` build the manifest from the cohort's metadata and the discovered per-movie BAMs). The two
-map files are `config/*.template.tsv` with `${RESOURCES_ROOT}` filled in.
+map files are `config/*.template.tsv` with `${RESOURCES_ROOT}` filled in, **saved as `config/GRCh38.ref_map.v3p1p0.hpc.tsv`
+and `config/GRCh38.tertiary_map.v3p1p0.hpc.tsv`** (the names `make_inputs.py` requires).
 
 ## Running a family
 
@@ -62,10 +63,10 @@ $RUNROOT/run_<FAMILY>`, writing `RESULT.status` atomically at the end) and `watc
 ## Cohort-wide joint call
 
 `cohort/glnexus_full.sb` re-runs GLnexus over all per-sample gVCFs (105 here) with `cohort/glnexus_config.yml` to
-produce the cohort small-variant callset ("freeze 1") used by `03_panel` onward and by `13_phase_dnm` for synthetic
-trios; sizing rationale is in the script header. The per-family callsets from the WDL are what `13_phase_dnm` reviews.
+produce the cohort small-variant callset ("freeze 1") used by `04_panel` onward and by `05_denovo` for synthetic
+trios; sizing rationale is in the script header. The per-family callsets from the WDL are what `05_denovo` reviews.
 
 ## External trio example
 
 `config/examples/HG002_trio.inputs.json` is the inputs file used for the GIAB Ashkenazi trio (public sample ids), run
-through the identical recipe as a reproducibility anchor for `13_phase_dnm` (DESIGN P16).
+through the identical recipe as a reproducibility anchor for `05_denovo` (DESIGN P16).

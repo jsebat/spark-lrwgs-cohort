@@ -21,7 +21,7 @@ INPUTS="$INPUTS_DIR/$FAMILY.inputs.json"
 RUNDIR="$RUNROOT/run_$FAMILY"
 ACCT="$SLURM_ACCOUNT"; PART="$SLURM_PARTITION"; QOS="$SLURM_QOS"
 DRV_TIME=${DRV_TIME:-48:00:00}; DRV_MEM=${DRV_MEM:-4G}
-WD_TIME=${WD_TIME:-48:00:00};   WD_MEM=${WD_MEM:-2G}
+WD_TIME=${WD_TIME:-50:00:00};   WD_MEM=${WD_MEM:-2G}   # the watchdog must OUTLIVE a driver killed by TIMEOUT to restart it; equal walltimes cannot
 
 [ -f "$INPUTS" ] || { echo "FATAL: no inputs at $INPUTS (run make_inputs.py)" >&2; exit 2; }
 [ -f "$WDL" ]    || { echo "FATAL: no WDL at $WDL" >&2; exit 2; }

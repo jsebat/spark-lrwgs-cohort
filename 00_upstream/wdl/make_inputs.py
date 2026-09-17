@@ -53,10 +53,13 @@ def main():
         fams = {k: v for k, v in fams.items() if k in want}
 
     os.makedirs(a.outdir, exist_ok=True)
-    ref  = os.path.join(a.config_dir, "GRCh38.ref_map.v3p1p0.hpc.tsv")
-    tert = os.path.join(a.config_dir, "GRCh38.tertiary_map.v3p1p0.hpc.tsv")
+    # absolute: driver_family.sb changes directory before `miniwdl run`, so a relative path that passed this check
+    # would not resolve there. The files are config/*.template.tsv with ${RESOURCES_ROOT} filled in, saved as *.hpc.tsv.
+    ref  = os.path.abspath(os.path.join(a.config_dir, "GRCh38.ref_map.v3p1p0.hpc.tsv"))
+    tert = os.path.abspath(os.path.join(a.config_dir, "GRCh38.tertiary_map.v3p1p0.hpc.tsv"))
     for p in (ref, tert):
-        if not os.path.exists(p): sys.exit(f"ERROR: map file not found: {p}")
+        if not os.path.exists(p):
+            sys.exit(f"ERROR: map file not found: {p}; fill in the matching config/*.template.tsv and save it under this name")
 
     problems, written = [], []
     for fid, members in fams.items():

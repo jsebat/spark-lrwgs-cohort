@@ -421,11 +421,16 @@ def audit_summaries(phase_dir: str, trios: Iterable[Tuple[str, str]]) -> List[Fi
 def audit_hapdepth(hapdepth_dir: str, manifest: str) -> List[Finding]:
     """One depth table and one summary per sample of the manifest (samples, not trios: parents count)."""
     out: List[Finding] = []
-    man = read_manifest(manifest)
+    man_all = read_manifest(manifest)
+    # the workflow computes depth for samples of COMPLETE-TRIO families only (Snakefile SAMPLES); demanding a table for
+    # every manifest sample failed the audit on any duo or singleton, which the README says have no outputs (P4)
+    trio_fams = {r["family_id"] for r in man_all.values()
+                 if r.get("role") == "offspring" and r.get("father_id") in man_all and r.get("mother_id") in man_all}
+    man = {s: r for s, r in man_all.items() if r["family_id"] in trio_fams}
     missing_t = [s for s in sorted(man) if not os.path.exists(os.path.join(hapdepth_dir, s + ".hapdepth.tsv.gz"))]
     missing_s = [s for s in sorted(man) if not os.path.exists(os.path.join(hapdepth_dir, s + ".hapdepth.summary.json"))]
-    out.append(Finding("INFO", "hapdepth", "%d manifest samples, %d depth tables, %d summaries"
-                       % (len(man), len(man) - len(missing_t), len(man) - len(missing_s))))
+    out.append(Finding("INFO", "hapdepth", "%d manifest samples (%d in complete-trio families), %d depth tables, %d summaries"
+                       % (len(man_all), len(man), len(man) - len(missing_t), len(man) - len(missing_s))))
     if missing_t:
         out.append(Finding("FAIL", "hapdepth", "%d sample(s) have no depth table: %s"
                            % (len(missing_t), ", ".join(missing_t[:8]))))

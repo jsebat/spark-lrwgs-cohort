@@ -1,4 +1,4 @@
-# X-chromosome inactivation (12_x_inactivation)
+# X-chromosome inactivation (14_x_inactivation)
 
 Measures X-inactivation skew in every female in a long-read cohort, from the same HiFi reads used for variant
 calling. No array, no expression assay, no extra library.

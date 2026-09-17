@@ -63,5 +63,7 @@ def test_phase_qc_cli_cohort_table(minitrio, tmp_path):
     assert len(rows) == 1 and rows[0]["child"] == c and rows[0]["family"] == "minifam"
     assert set(Q.COHORT_COLUMNS) <= set(rows[0])
     q = json.load(open(fam_dir / ("%s.phase_qc.json" % c)))
-    assert q["qc"] in ("PASS",) or all(not fl.startswith(("LOW_DEPTH", "CROSSOVERS")) for fl in q["flags"])
+    # the minitrio has no hapdepth and no resolved change points, so only orientation/transmission gates can fire
+    assert q["qc"] == "PASS", q["flags"]
+    assert not any(fl.startswith(("LOW_DEPTH", "CROSSOVERS", "SEX_DEPTH")) for fl in q["flags"])
     assert os.path.exists(phase_dir / "cohort_phase_qc.summary.json")

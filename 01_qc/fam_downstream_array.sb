@@ -6,7 +6,7 @@ LIST=${LIST:-$C/downstream_families.txt}
 F=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$LIST")
 [ -n "$F" ] || { echo "FATAL: no family at line $SLURM_ARRAY_TASK_ID" >&2; exit 2; }
 echo "=== family_downstream $F (task $SLURM_ARRAY_TASK_ID, node $(hostname)) ==="
-bash "$C/family_downstream.sb" "$F"
+bash "${WORKFLOW_ROOT:?set WORKFLOW_ROOT to the repository checkout}/01_qc/family_downstream.sb" "$F"   # was under $DATA_ROOT, the OUTPUT root (P6)
 rc=$?
 echo "=== $F exit=$rc ==="
 exit $rc

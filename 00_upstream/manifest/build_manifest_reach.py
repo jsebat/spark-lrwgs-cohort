@@ -53,7 +53,7 @@ def main():
             offspring = m["relationship"] in ("Proband", "Sibling")
             w.writerow(["REACH", fid, m["reach_id"],
                         (m.get("sex") or "").upper(),
-                        (m.get("affected") or "false").lower(),
+                        (m.get("affected") or ("true" if m["relationship"] == "Proband" else "false")).lower(),   # relationship is the fallback, not "false" for everyone
                         fa if offspring else "",
                         mo if offspring else "",
                         ",".join(bams)])

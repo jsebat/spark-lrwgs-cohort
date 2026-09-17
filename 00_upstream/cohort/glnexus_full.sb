@@ -96,15 +96,14 @@ if [ "$sz" -lt 1000000000 ]; then
 fi
 
 # --- index and publish to the permanent freeze directory ----------------------
-BASE=$(ls ${SIF_CACHE:?singularity image cache used by miniwdl}/*pb_wdl_base*.sif 2>/dev/null | head -1)
-if [ -n "$BASE" ]; then
-  singularity exec "$BASE" bcftools index --threads 4 freeze1.cohort.bcf \
-    && echo "  indexed"
-  cp -f freeze1.cohort.bcf freeze1.cohort.bcf.csi "$OUTDIR"/ 2>/dev/null \
-    && echo "  published to $OUTDIR"
-  singularity exec "$BASE" bcftools query -l freeze1.cohort.bcf | wc -l \
-    | xargs echo "  samples in output:"
-fi
+BASE=$(ls ${SIF_CACHE:?singularity image cache used by miniwdl}/*pb_wdl_base*.sif 2>/dev/null | head -1 || true)
+# no container meant no index and no publication, and the job still printed "done" and exited 0 (P7)
+[ -n "$BASE" ] || { echo "  FATAL: no *pb_wdl_base*.sif in $SIF_CACHE; callset NOT indexed or published"; exit 5; }
+singularity exec "$BASE" bcftools index --threads 4 freeze1.cohort.bcf || { echo "  FATAL: index failed"; exit 5; }
+echo "  indexed"
+cp -f freeze1.cohort.bcf freeze1.cohort.bcf.csi "$OUTDIR"/ || { echo "  FATAL: copy to $OUTDIR failed"; exit 5; }
+echo "  published to $OUTDIR"
+singularity exec "$BASE" bcftools query -l freeze1.cohort.bcf | wc -l | xargs echo "  samples in output:"
 date '+done %Y-%m-%d %H:%M:%S'
 echo "  MaxRSS: sacct -j ${SLURM_JOB_ID:-?} --format=JobID,Elapsed,MaxRSS,ReqMem"
 exit 0

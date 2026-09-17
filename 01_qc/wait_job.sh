@@ -23,5 +23,8 @@ while [ "$t" -lt "$MAX" ]; do
   t=$((t + POLL))
 done
 st=$(sacct -j "$J" -X -n -P --format=State 2>/dev/null | head -1 | tr -d ' ')
+case "$st" in
+  COMPLETED|FAILED|CANCELLED*|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL) echo "JOB $J TERMINAL: $st (reached at the ${MAX}s deadline)"; exit 0;;
+esac
 echo "JOB $J STILL ${st:-UNKNOWN} after ${MAX}s - not terminal, reporting as still running"
 exit 1

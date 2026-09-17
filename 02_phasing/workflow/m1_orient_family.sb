@@ -22,7 +22,7 @@ FAMILY="${1:?family id}"
 HERE="${PHASING_HOME:-${PHASE_DNM_HOME:-}}"
 [ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/trio_phase" ] && HERE="$SLURM_SUBMIT_DIR"; }
 [ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -d "$HERE/src/trio_phase" ] || { echo "ERROR: cannot locate the 01_phasing directory (set PHASING_HOME or sbatch from it); got '$HERE'" >&2; exit 2; }
+[ -d "$HERE/src/trio_phase" ] || { echo "ERROR: cannot locate the 02_phasing directory (set PHASING_HOME or sbatch from it); got '$HERE'" >&2; exit 2; }
 [ -f "$HERE/../config/cohort.env" ] && source "$HERE/../config/cohort.env"
 source "$HERE/config/phasing.env"
 : "${MANIFEST:?}" "${CALLSET_ROOT:?}" "${PHASE_DIR:?}"
@@ -31,7 +31,7 @@ export PYTHONPATH="$HERE/src" OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 OUT="$PHASE_DIR/$FAMILY"; mkdir -p "$OUT"
 
 vcf_of() {  # sample -> its HiPhase per-sample phased small-variant VCF
-  ls "$CALLSET_ROOT/$FAMILY"/out/phased_small_variant_vcf/*/"$1".*small_variants.phased.vcf.gz 2>/dev/null | head -1
+  ls "$CALLSET_ROOT/$FAMILY"/out/phased_small_variant_vcf/*/"$1".*small_variants.phased.vcf.gz 2>/dev/null | head -1 || true   # a no-match must reach the diagnostic below, not exit here (P5)
 }
 
 n_done=0
