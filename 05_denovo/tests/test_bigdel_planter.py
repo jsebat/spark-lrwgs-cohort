@@ -64,7 +64,6 @@ def test_bigdel_sizes_cover_what_the_pedigree_swap_cannot_supply():
 def test_write_back_moves_the_read_start_for_a_right_clip():
     """The BAM read must receive the new reference_start, not only the CIGAR: until 2026-09-16 a keep="right" junction
     read kept its original start with a leading soft clip and sat one clip-length left of the breakpoint."""
-    from phase_dnm.sim import spike as S
 
     class Read:  # the four attributes write_back touches, plus the tag interface it calls
         def __init__(self):
@@ -73,8 +72,8 @@ def test_write_back_moves_the_read_start_for_a_right_clip():
         def set_tag(self, t, v): pass
 
     r = Read()
-    right = E.apply_breakpoint(_aln(1000, 500), 1300, "right")
-    S.write_back(r, right)
+    right = E.apply_breakpoint(aln(1000, n=500), 1300, "right")
+    SP.write_back(r, right)
     assert r.reference_start == 1300, r.reference_start
     assert r.cigartuples[0][0] == S                                     # leading soft clip
     assert r.reference_start + sum(L for op, L in r.cigartuples if op in (0, 2, 3, 7, 8)) == 1500
