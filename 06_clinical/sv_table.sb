@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=sv_table
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=2 --mem=8G --time=00:30:00
+set -uo pipefail
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+python3 "${WORKFLOW_ROOT:?set WORKFLOW_ROOT to the repo checkout}"/06_clinical/sv_table.py "${1:?usage: <FAMILY_ID>}"

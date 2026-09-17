@@ -1,6 +1,0 @@
-#!/bin/bash
-#SBATCH --account=ddp195 --partition=ind-shared --qos=ind-shared-normal --nodes=1 --ntasks=1 --cpus-per-task=2 --mem=8G --time=01:00:00
-#SBATCH --job-name=pofo_local --output=pofo_local.%j.out
-module load cpu singularitypro || module load singularitypro
-export SIF="${SIF:?container with bcftools/tabix}"
-python3 "${WORKFLOW_ROOT:?}"/09_methylation/pofo_local.py
