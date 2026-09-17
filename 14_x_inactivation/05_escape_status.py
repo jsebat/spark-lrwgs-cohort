@@ -164,6 +164,13 @@ def main():
                          call=call, n_male=nm, n_female=nf))
 
     with open(a.out, "w", newline="") as fh:
+        if not rows:
+            # nothing qualified: say why instead of dying on rows[0] (2026-09-17). The usual cause is an empty or
+            # non-chrX --genes file; the second is --min-samples above what the cohort's pileups can supply.
+            sys.stderr.write("05_escape_status: no gene qualified (genes read: %d, chrX islands: %d, males %d, females %d); "
+                             "check --genes and --min-samples\n" % (len(genes), len(intervals), len(males), len(females)))
+            fh.write("gene\n")
+            sys.exit(3)
         w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()), delimiter="\t")
         w.writeheader()
         w.writerows(rows)
