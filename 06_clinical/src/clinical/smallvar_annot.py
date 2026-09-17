@@ -47,8 +47,24 @@ def _csq_fields(header) -> List[str]:
     return d.split("Format: ")[-1].strip().split("|")
 
 
-def annotate_from_vep(keys: Dict[Key, str], vep_glob: str) -> Tuple[Dict[Key, Dict[str, str]], List[Key]]:
-    """Look each key up in the per-chromosome VEP VCFs. Returns (annotations, keys not found)."""
+def annotate_from_vep(keys: Dict[Key, str], vep_globs) -> Tuple[Dict[Key, Dict[str, str]], List[Key]]:
+    """Look each key up in per-chromosome VEP VCFs. `vep_globs` is one glob or an ordered list of globs (the freeze-1
+    cohort VCFs first, then the re-annotation of what they lacked, workflow/vep_missing.sb); a later source only sees the
+    keys every earlier one missed. Returns (annotations, keys found nowhere)."""
+    globs = [vep_globs] if isinstance(vep_globs, str) else [g for g in vep_globs if g]
+    out: Dict[Key, Dict[str, str]] = {}
+    remaining = dict(keys)
+    for g in globs:
+        if not remaining:
+            break
+        got, miss = _annotate_one_source(remaining, g)
+        out.update(got)
+        remaining = {k: remaining[k] for k in miss}
+    return out, list(remaining)
+
+
+def _annotate_one_source(keys: Dict[Key, str], vep_glob: str) -> Tuple[Dict[Key, Dict[str, str]], List[Key]]:
+    """One set of per-chromosome VEP VCFs (<chrom>.vep.vcf.gz). Returns (annotations, keys not found)."""
     import pysam
     by_chrom: Dict[str, List[Key]] = {}
     for k in keys:

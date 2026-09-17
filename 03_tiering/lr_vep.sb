@@ -26,7 +26,8 @@ WORK=/expanse/lustre/projects/ddp195/jsebat/longread-autism/tiering
 SITES=$WORK/sites; VEPD=$WORK/vep
 mkdir -p "$SITES" "$VEPD"
 
-P=/expanse/projects/sebat1/s3/data/sebat/g2mh/scripts/scripts_for_rare_pipeline
+# the rare-variant pipeline resources moved on 2026-09-16 (G2MH reorganization); override with G2MH_PIPELINE
+P="${G2MH_PIPELINE:-/expanse/projects/sebat1/s3/data/sebat/G2MH/legacy/pre-2026-09-reorganization/scripts/scripts_for_rare_pipeline}"
 RES=$P/resources
 VEP_SIF=$P/ensembl-vep_115.2--pl5321h2a3209d_1.with_samtools
 REF=/expanse/projects/sebat1/j3guevar/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa

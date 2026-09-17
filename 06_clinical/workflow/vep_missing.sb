@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=vep_missing
+#SBATCH --account=ddp195
+#SBATCH --partition=ind-shared
+#SBATCH --qos=ind-shared-normal
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=32G --time=06:00:00
+# VEP + LOFTEE for the panel-span SNV/indel candidates that the freeze-1 cohort VCFs do not carry (DESIGN C1: 46 % of
+# them in the first run -- raw candidates the freeze excluded). Reads $OUT/smallvar_annotation.tsv.missing (written by
+# run_clinical.sb pass 1), annotates with the SAME invocation as 03_tiering/lr_vep.sb so the CSQ layout is identical,
+# and writes $OUT/vep_missing/<chrom>.vep.vcf.gz for run_clinical.sb pass 2 (its second --vep-glob).
+set -uo pipefail
+HERE="${CLINICAL_HOME:-}"
+[ -n "$HERE" ] || { [ -n "${SLURM_SUBMIT_DIR:-}" ] && [ -d "${SLURM_SUBMIT_DIR}/src/clinical" ] && HERE="$SLURM_SUBMIT_DIR"; }
+[ -n "$HERE" ] || HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$HERE/src/clinical" ] || { echo "ERROR: cannot locate 06_clinical; got '$HERE'" >&2; exit 2; }
+DENOVO_ENV="${DENOVO_ENV:-$HERE/../05_denovo/config/phase_dnm.env}"
+source "$DENOVO_ENV"
+: "${PHASE_DNM_PYTHON:?}" "${LRC:?}"
+OUT="${CLINICAL_OUT:-$LRC/clinical}"
+MISS="$OUT/smallvar_annotation.tsv.missing"
+[ -s "$MISS" ] || { echo "nothing to annotate: $MISS is absent or empty"; exit 0; }
+# the rare-variant pipeline resources (VEP 115 cache, LOFTEE, dbNSFP) -- same defaults as 03_tiering/lr_vep.sb
+P="${G2MH_PIPELINE:-/expanse/projects/sebat1/s3/data/sebat/G2MH/legacy/pre-2026-09-reorganization/scripts/scripts_for_rare_pipeline}"
+RES=$P/resources
+VEP_SIF=$P/ensembl-vep_115.2--pl5321h2a3209d_1.with_samtools
+REF="${REF_FA:-/expanse/projects/sebat1/j3guevar/GRCh38_reference_genome/GRCh38_full_analysis_set_plus_decoy_hla.fa}"
+for f in "$VEP_SIF" "$P/VEP_CACHE/homo_sapiens" "$RES/dbNSFP/dbNSFP5.3a_grch38.gz" "$RES/LOFTEE/loftee.sql" "$REF" "$REF.fai"; do
+  [ -e "$f" ] || { echo "FATAL: resource missing: $f"; exit 3; }
+done
+source /etc/profile.d/modules.sh 2>/dev/null; source /etc/profile.d/lmod.sh 2>/dev/null
+module load singularitypro/4.1.2
+command -v singularity >/dev/null || { echo "FATAL: singularity not on PATH"; exit 3; }
+BT_SIF=$(ls /expanse/projects/sebat1/jsebat/singularity_cache/miniwdl/*pb_wdl_base*.sif | head -1)
+sx() { singularity exec -B /expanse:/expanse "$@"; }
+W="$OUT/vep_missing"; mkdir -p "$W"
+
+echo "=== 1. sites VCF from $(wc -l < "$MISS") missing keys (chrom, pos, ref, alt)"
+"$PHASE_DNM_PYTHON" - "$MISS" "$REF.fai" "$W/missing.sites.vcf" <<'PY'
+import sys
+miss, fai, out = sys.argv[1:4]
+contigs = [line.split("\t")[:2] for line in open(fai)]
+order = {c: i for i, (c, _) in enumerate(contigs)}
+rows = set()
+for line in open(miss):
+    f = line.rstrip("\n").split("\t")
+    if len(f) < 4 or f[0] not in order:
+        continue
+    rows.add((order[f[0]], int(f[1]), f[0], f[2], f[3]))
+with open(out, "w") as fh:
+    fh.write("##fileformat=VCFv4.2\n")
+    for c, L in contigs:
+        fh.write("##contig=<ID=%s,length=%s>\n" % (c, L))
+    fh.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+    for _, pos, c, ref, alt in sorted(rows):
+        fh.write("%s\t%d\t.\t%s\t%s\t.\t.\t.\n" % (c, pos, ref, alt))
+print("sites written:", len(rows))
+PY
+S="$W/missing.sites.vcf.gz"
+sx "$BT_SIF" bash -c "bcftools view '$W/missing.sites.vcf' -Oz -o '$S' && bcftools index -t '$S'" || { echo "FATAL: bgzip/index of the sites VCF"; exit 4; }
+rm -f "$W/missing.sites.vcf"
+
+echo "=== 2. VEP + LOFTEE + dbNSFP (the 03_tiering/lr_vep.sb invocation)"
+V="$W/missing.vep.vcf.gz"
+sx "$VEP_SIF" vep \
+  --input_file "$S" --format vcf --output_file "$V" --vcf --compress_output bgzip \
+  --assembly GRCh38 --cache --dir_cache "$P/VEP_CACHE" --offline --fasta "$REF" \
+  --minimal --canonical --mane --symbol --biotype --numbers --uploaded_allele \
+  --allele_number --pick_allele --force_overwrite --fork "${SLURM_CPUS_PER_TASK:-8}" \
+  --no_stats \
+  --dir_plugins "$P/VEP_PLUGINS_ALL" \
+  --plugin dbNSFP,"$RES/dbNSFP/dbNSFP5.3a_grch38.gz",transcript_match=1,gnomAD4.1_joint_AF,gnomAD4.1_joint_nhomalt,gnomAD4.1_joint_POPMAX_AF \
+  --plugin LoF,loftee_path:"$P/VEP_PLUGINS/loftee",human_ancestor_fa:"$RES/LOFTEE/human_ancestor.fa.gz",gerp_bigwig:"$RES/LOFTEE/gerp_conservation_scores.homo_sapiens.GRCh38.bw",conservation_file:"$RES/LOFTEE/loftee.sql"
+rc=$?; echo "vep rc=$rc"; [ $rc -eq 0 ] || exit $rc
+[ -s "$V" ] || { echo "FATAL: empty VEP output"; exit 1; }
+sx "$BT_SIF" bcftools index -t "$V"
+
+echo "=== 3. split per chromosome for annotate_from_vep (<chrom>.vep.vcf.gz)"
+for c in $(sx "$BT_SIF" bcftools index -s "$V" | cut -f1); do
+  sx "$BT_SIF" bash -c "bcftools view -r '$c' '$V' -Oz -o '$W/$c.vep.vcf.gz' && bcftools index -t '$W/$c.vep.vcf.gz'" || { echo "FATAL: split $c"; exit 5; }
+done
+echo "annotated records: $(sx "$BT_SIF" bcftools index -n "$V")  chromosomes: $(ls "$W"/chr*.vep.vcf.gz | wc -l)"
+echo "HC LoF records:    $(sx "$BT_SIF" bcftools view -H -i 'INFO/CSQ~"HC"' "$V" | wc -l)"
+echo "=== done; re-run workflow/run_clinical.sb (pass 2 picks up $W/chr*.vep.vcf.gz as the second VEP source)"

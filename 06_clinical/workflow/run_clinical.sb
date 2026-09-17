@@ -30,11 +30,16 @@ OUT="${CLINICAL_OUT:-$LRC/clinical}"
 mkdir -p "$OUT"
 for f in "$GFF3" "$GENE_SETS/sfari_hc.txt" "$SHET"; do [ -e "$f" ] || { echo "ERROR: resource missing: $f" >&2; exit 3; }; done
 ls $VEP_GLOB >/dev/null 2>&1 || echo "WARNING: no VEP VCFs match $VEP_GLOB; the SNV/indel arm will be empty"
+# second VEP source: the re-annotation of the candidates the freeze-1 VCFs lack (workflow/vep_missing.sb, C1). Pass 1 of this
+# script writes smallvar_annotation.tsv.missing; vep_missing.sb annotates those; pass 2 picks them up here.
+VEP_GLOB2="${VEP_GLOB2:-$OUT/vep_missing/chr*.vep.vcf.gz}"
+G2=()
+if ls $VEP_GLOB2 >/dev/null 2>&1; then G2=(--vep-glob "$VEP_GLOB2"); echo "second VEP source: $VEP_GLOB2"; else echo "no second VEP source yet ($VEP_GLOB2): run workflow/vep_missing.sb after this pass"; fi
 
 echo "=== 1. SNV/indel consequences"
 t0=$(date +%s)
 "$PY" -m clinical.cli annotate-smallvar --final-dir "$FINAL_DIR" --evidence-dir "$EVIDENCE_DIR" --gff3 "$GFF3" \
-    --gene-sets "$GENE_SETS" --genebayes "$SHET" --out-dir "$OUT" --vep-glob "$VEP_GLOB" --dbnsfp-parquet "$DBNSFP_PARQUET"
+    --gene-sets "$GENE_SETS" --genebayes "$SHET" --out-dir "$OUT" --vep-glob "$VEP_GLOB" ${G2[@]+"${G2[@]}"} --dbnsfp-parquet "$DBNSFP_PARQUET"
 echo "annotate rc=$? in $(( $(date +%s) - t0 )) s"
 
 echo "=== 2. arms A and B"

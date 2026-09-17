@@ -134,7 +134,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="clinical", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("annotate-smallvar"); _common(p)
-    p.add_argument("--vep-glob", required=True, help="per-chromosome VEP+LOFTEE VCFs, e.g. '/path/vep/chr*.vep.vcf.gz'")
+    p.add_argument("--vep-glob", required=True, action="append",
+                   help="per-chromosome VEP+LOFTEE VCFs, e.g. '/path/vep/chr*.vep.vcf.gz'; repeat for a second source, consulted "
+                        "only for keys the first lacks (workflow/vep_missing.sb output)")
     p.add_argument("--dbnsfp-parquet", default="", help="dbNSFP parquet directory (<chrom>.parquet) for missense tiers")
     p.set_defaults(fn=cmd_annotate)
     p = sub.add_parser("run"); _common(p)
