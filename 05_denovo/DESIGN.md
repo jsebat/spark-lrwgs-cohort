@@ -502,6 +502,75 @@ quad sibling test has essentially no power: 2 shared called loci in the entire c
 inherited variants gives thousands of loci (0.914 / 0.853 concordance) but discordance there is confounded by sites
 heterozygous in both parents, so it bounds the error rate rather than measuring it.
 
+**A fourth defect, open and unresolved: see P35.** The per-call accuracy this section declines to state is
+now known to be bad enough to mis-split the parental-age effect between the two parents.
+
+
+### P35 — OPEN DEFECT: the parental-age effect is split wrongly between parents of origin (JS, 2026-09-16)
+
+> **Not fixed, and deliberately not investigated yet (JS: "make a prominent note to trouble shoot this later (not
+> now)"). Do not use maternal-origin de novo counts, or either origin-split age slope, for any claim until this is
+> resolved.** The aggregate paternal fraction (P34) is unaffected and remains usable.
+
+**The observation that started this (JS).** The maternal-origin / maternal-age effect for SNVs is far too strong.
+
+**What the numbers are, and why they cannot all be right.** Published estimates (deCODE, 1,548 trios) put the paternal
+age effect at ~1.51 de novo SNVs per year and the maternal at ~0.37/year, roughly four to one.
+
+| regression (n = 33 trios) | slope / yr | r | p | expected |
+|---|---|---|---|---|
+| total SNVs vs paternal age | **1.508** | 0.771 | 1.6e-11 | ~1.51 — matches |
+| paternal-origin SNVs vs paternal age | **0.799** | 0.548 | 2.6e-4 | should be ~1.5, is **half** |
+| maternal-origin SNVs vs maternal age | **0.698** | 0.625 | 8.3e-6 | should be ~0.37, is **double** |
+
+The total is right. The split is wrong, and wrong in a self-consistent way: 0.799 + 0.698 = 1.497, almost exactly the
+total slope. The age-driven excess is being **divided ~53/47 between the two origin classes when the biology says
+~80/20**. Mutations that accumulate with paternal age are landing in the maternal bin. That the two halves sum to the
+correct total is what makes this a partition error rather than a counting error — nothing is lost, it is filed under
+the wrong parent.
+
+**A test that does not straightforwardly agree, and should be taken seriously.** Under simple contamination
+(`M_obs = M_true + eps * P_true`), maternal-origin counts should carry residual paternal-age signal after maternal age
+is accounted for. They do not:
+
+| partial correlation | value |
+|---|---|
+| r(maternal-origin, maternal age \| paternal age) | **+0.478** |
+| r(maternal-origin, paternal age \| maternal age) | **+0.011** |
+| r(paternal-origin, paternal age \| maternal age) | +0.587 |
+| r(paternal-origin count, maternal-origin count) | +0.183 |
+
+So the maternal-origin association survives adjustment and looks specific to maternal age. Two reasons not to treat
+this as exoneration: paternal and maternal age are themselves correlated at **r = 0.724** in these 33 trios, which
+leaves a partial correlation little room to separate them at n = 33; and if misassignment moves calls *out of* the
+paternal bin *into* the maternal one, the induced negative component partly cancels the positive one in
+r(paternal count, maternal count), so +0.183 is not the clean null it looks like.
+
+**Status: the partition is demonstrably wrong; the mechanism is not yet established.** The slope decomposition is
+solid arithmetic on the delivered call set. Whether the cause is per-call misassignment (JS's reading), a
+maternal-age-dependent difference in phasing quality, or something in how unassigned calls are distributed, is
+an open question.
+
+**Tests to run when this is picked up, cheapest first.**
+1. **Simulate the partition error.** Relabel a fraction `eps` of paternal-origin calls as maternal and find the `eps`
+   that reproduces 0.799 / 0.698. That converts the discrepancy into a stated misassignment rate and predicts what
+   the partial correlations should look like under it — which is the direct test of whether the r = +0.011 above is
+   actually incompatible with contamination at that rate, or merely underpowered.
+2. **Re-fit on parental read evidence rather than child haplotype labels.** Restrict to maternal-origin calls with
+   strong parental support on the transmitted haplotype (`t_alt_reads`, `t_dp`). This is direct evidence of the
+   parent; if the maternal slope falls towards 0.37 there, the labelling is the fault.
+3. **Test whether assignment quality tracks maternal age** — the alternative to per-call error. Regress the
+   unassigned fraction, and the `PHASE_SWITCH_RISK` rate, on maternal age per trio. A dependence here would produce
+   the same symptom without any call being individually wrong.
+4. **Build a usable confidence and threshold on it.** `poo_confidence` cannot serve: it is 1.0 in 99.6% of SNV rows
+   and measures child read-partition purity, not confidence in the parent (P34, defect 2). Until it is redefined
+   there is no threshold to sweep.
+
+**What this does NOT overturn.** The aggregate paternal fraction 0.776 (95% CI 0.758–0.794, n = 2,108) and the chrX
+orthogonal control (3 paternal calls in male offspring, all 3 inside PAR1, zero violations) both stand. A partition
+error of this size is compatible with both: the ratio is dominated by the large paternal class, and the chrX check
+tests orientation, not per-call accuracy.
+
 ### P19 — Duos
 The two mother–child duos have no paternal reads; `F1/F2` rows are unobservable, paternal transmission is undefined. Default (Q14): excluded from M1 transmission, from M4 folds and from cohort rates; optionally run in M2 as half-trios with `poo = undetermined:NO_FATHER` and `hap_obs ≤ 4`, clearly separated in every table.
 

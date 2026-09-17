@@ -1,5 +1,14 @@
 # 05_denovo — phase-aware de novo mutation calling for long-read trios
 
+> **OPEN DEFECT (2026-09-16) — parent of origin mis-splits the parental-age effect.** De novo SNVs track paternal
+> age at 1.51/yr in total, matching the literature, but the origin-split slopes are 0.80/yr (paternal-origin vs
+> paternal age) and 0.70/yr (maternal-origin vs maternal age) — they sum to the right total but divide it ~53/47
+> when the biology says ~80/20. The partition is wrong; the mechanism is not established. **Do not use
+> maternal-origin counts or either origin-split slope.** The aggregate paternal fraction (0.776) and the chrX
+> control are unaffected and remain usable. Full statement and the tests to run: [DESIGN.md P35](DESIGN.md).
+
+
+
 Module of `spark-lrwgs-cohort`. Turns trio phase from a by-product into primary evidence for
 de novo mutation (DNM) calling, uniformly for SNV/indel, SV and TR. Sub-modules, built in
 this order: **M2 six-haplotype review (all classes) → feature registry / likelihood / spike-in →
