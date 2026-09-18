@@ -45,6 +45,7 @@ while IFS=$'\t' read -r child father mother; do
   "$PHASE_DNM_PYTHON" -m phase_dnm.cli features --evidence "$ED/evidence/$child.sv.evidence.lik.tsv" \
       --candidates "$CAND" --manifest "$MANIFEST" --child "$child" --registry "$HERE/config/features.yaml" \
       --out "$ED/features/$child.sv.features.tsv" --rf-out "$ED/features/$child.sv.features.rf.tsv" \
+      --orientation "$PD/$child.orientation.tsv" --changepoints "$PD/$child.changepoints.resolved.tsv" \
       $ANNOT $MASKARGS $REFARG --no-require-all-features
   echo "SV re-review + features for one child of $FAMILY in $(( $(date +%s) - t0 )) s"
   n=$((n+1))
